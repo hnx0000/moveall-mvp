@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "MoveAll",
+    "slug": "moveall",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "moveall",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.moveall"
+    },
+    "android": {
+      "package": "com.example.moveall",
+      "adaptiveIcon": {
+        "backgroundColor": "#ECFDF5"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

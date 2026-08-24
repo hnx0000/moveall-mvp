@@ -1,0 +1,56 @@
+import { describe, expect, it } from "vitest";
+import {
+  KnowledgeFeedbackCreateInputSchema,
+  RegisterInputSchema,
+  RoutineCreateInputSchema,
+  WorkoutSessionCreateInputSchema,
+} from "../src/index.js";
+
+describe("shared API contracts", () => {
+  it("accepts a valid routine", () => {
+    const result = RoutineCreateInputSchema.safeParse({
+      title: "주 3회 전신",
+      sport: "strength",
+      daysOfWeek: [1, 3, 5],
+      items: [{ name: "스쿼트", target: "5회 x 5세트", order: 0 }],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a workout with an invalid time range", () => {
+    const result = WorkoutSessionCreateInputSchema.safeParse({
+      sport: "running",
+      startedAt: "2026-08-24T10:00:00+09:00",
+      endedAt: "2026-08-24T09:00:00+09:00",
+      perceivedExertion: 5,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects weak passwords", () => {
+    const result = RegisterInputSchema.safeParse({
+      email: "runner@example.com",
+      password: "password",
+      displayName: "러너",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects duplicate routine days", () => {
+    const result = RoutineCreateInputSchema.safeParse({
+      title: "중복 요일",
+      sport: "running",
+      daysOfWeek: [2, 2],
+      items: [{ name: "이지 런", target: "20분", order: 0 }],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an empty knowledge feedback", () => {
+    expect(KnowledgeFeedbackCreateInputSchema.safeParse({ content: " " }).success).toBe(false);
+  });
+});

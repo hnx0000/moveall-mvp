@@ -1,0 +1,32 @@
+{
+  "name": "moveall",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MoveAll 운동 루틴, 기록, 피드백 및 커뮤니티 플랫폼",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=22.13 <25"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @moveall/api --filter @moveall/mobile dev",
+    "dev:api": "pnpm --filter @moveall/api dev",
+    "dev:mobile": "pnpm --filter @moveall/mobile dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "pnpm --filter @moveall/contracts build && pnpm --filter @moveall/api typecheck && pnpm --filter @moveall/mobile typecheck",
+    "test": "pnpm --filter @moveall/contracts test && pnpm --filter @moveall/api test",
+    "build": "pnpm --filter @moveall/contracts build && pnpm --filter @moveall/api build && pnpm --filter @moveall/mobile build",
+    "build:site": "node scripts/build-site.mjs",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "audit:dependencies": "pnpm audit --prod --audit-level high"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.9.0",
+    "globals": "17.11.0",
+    "prettier": "3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.67.0"
+  }
+}
