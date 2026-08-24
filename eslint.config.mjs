@@ -34,4 +34,19 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
+    files: ["site/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        Request: "readonly",
+        URL: "readonly",
+      },
+    },
+  },
 );

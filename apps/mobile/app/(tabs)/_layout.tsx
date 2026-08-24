@@ -56,10 +56,27 @@ function TabGlyph({
   name: string;
   styles: ReturnType<typeof createStyles>;
 }) {
+  if (name === "index") {
+    return (
+      <View style={styles.tabIconFrame}>
+        <View style={[styles.homeRoof, { borderColor: color }]} />
+        <View style={[styles.homeBody, { borderColor: color }]}>
+          <View style={[styles.homeDoor, { borderColor: color }]} />
+        </View>
+      </View>
+    );
+  }
   if (name === "community") {
     return (
-      <View style={[styles.compass, { borderColor: color }]}>
-        <View style={[styles.compassNeedle, { backgroundColor: color }]} />
+      <View style={[styles.feedCircle, { borderColor: color }]}>
+        <View style={[styles.footprint, styles.footprintLeft]}>
+          <View style={[styles.footprintToe, { backgroundColor: color }]} />
+          <View style={[styles.footprintSole, { backgroundColor: color }]} />
+        </View>
+        <View style={[styles.footprint, styles.footprintRight]}>
+          <View style={[styles.footprintToe, { backgroundColor: color }]} />
+          <View style={[styles.footprintSole, { backgroundColor: color }]} />
+        </View>
       </View>
     );
   }
@@ -71,7 +88,11 @@ function TabGlyph({
       </View>
     );
   }
-  return <Text style={[styles.icon, { color }]}>{name === "index" ? "⌂" : "▤"}</Text>;
+  return (
+    <View style={styles.tabIconFrame}>
+      <Text style={[styles.icon, { color }]}>▤</Text>
+    </View>
+  );
 }
 
 function createStyles(colors: ThemeColors) {
@@ -84,16 +105,78 @@ function createStyles(colors: ThemeColors) {
       borderTopColor: colors.border,
     },
     label: { fontWeight: "800", fontSize: 10 },
-    icon: { fontWeight: "500", fontSize: 23 },
-    compass: {
-      width: 21,
-      height: 21,
-      borderWidth: 1.3,
-      borderRadius: 11,
+    tabIconFrame: {
+      width: 24,
+      height: 24,
       alignItems: "center",
       justifyContent: "center",
     },
-    compassNeedle: { width: 5, height: 10, borderRadius: 3, transform: [{ rotate: "38deg" }] },
+    icon: { fontWeight: "500", fontSize: 22, lineHeight: 24 },
+    homeRoof: {
+      position: "absolute",
+      top: 3,
+      width: 15,
+      height: 15,
+      borderLeftWidth: 1.5,
+      borderTopWidth: 1.5,
+      borderTopLeftRadius: 2,
+      transform: [{ rotate: "45deg" }],
+    },
+    homeBody: {
+      position: "absolute",
+      bottom: 2,
+      width: 17,
+      height: 12,
+      borderWidth: 1.5,
+      borderTopWidth: 0,
+      borderBottomLeftRadius: 2,
+      borderBottomRightRadius: 2,
+      alignItems: "center",
+      justifyContent: "flex-end",
+    },
+    homeDoor: {
+      width: 5,
+      height: 7,
+      borderWidth: 1.5,
+      borderBottomWidth: 0,
+    },
+    feedCircle: {
+      width: 22,
+      height: 22,
+      borderWidth: 1.3,
+      borderRadius: 11,
+      position: "relative",
+    },
+    footprint: {
+      position: "absolute",
+      width: 5,
+      height: 11,
+      alignItems: "center",
+    },
+    footprintLeft: {
+      left: 5,
+      top: 6,
+      transform: [{ rotate: "-24deg" }],
+    },
+    footprintRight: {
+      right: 5,
+      top: 3,
+      transform: [{ rotate: "24deg" }],
+    },
+    footprintToe: {
+      width: 3.5,
+      height: 3.5,
+      borderRadius: 2,
+      marginBottom: 1,
+    },
+    footprintSole: {
+      width: 4.5,
+      height: 6.5,
+      borderTopLeftRadius: 3,
+      borderTopRightRadius: 3,
+      borderBottomLeftRadius: 1.5,
+      borderBottomRightRadius: 1.5,
+    },
     personIcon: { width: 22, height: 23, alignItems: "center" },
     personHead: { width: 8, height: 8, borderWidth: 1.3, borderRadius: 4 },
     personBody: {
