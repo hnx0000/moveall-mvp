@@ -2,17 +2,26 @@ import {
   sportLabels,
   sportValues,
   type AuthSession,
+  type DirectMessage,
+  type DirectMessageCreateInput,
   type FeedPost,
+  type GoogleLoginInput,
   type KnowledgeArticle,
   type KnowledgeFeedback,
   type KnowledgeFeedbackCreateInput,
   type LoginInput,
+  type Medal,
   type PostCreateInput,
+  type PostUpdateInput,
+  type ProfileUpdateInput,
   type RegisterInput,
   type Routine,
   type RoutineCreateInput,
+  type SocialSummary,
   type SportSummary,
   type SportType,
+  type WorkoutSession,
+  type WorkoutSessionCreateInput,
 } from "@moveall/contracts";
 
 const now = Date.now();
@@ -143,6 +152,8 @@ const posts: FeedPost[] = [
     authorDisplayName: "새벽러너 민지",
     sport: "running",
     content: "러닝 5.24km 완료! 지도와 완주 셀피를 함께 기록했어요.",
+    contentType: "post",
+    likeCount: 42,
     createdAt: new Date(now - 2 * 60 * 60_000).toISOString(),
     comments: [
       {
@@ -160,6 +171,8 @@ const posts: FeedPost[] = [
     authorDisplayName: "클라이머 도윤",
     sport: "hiking",
     content: "주말 북한산 크루 준비 중입니다. 물과 보온 레이어를 꼭 챙겨요.",
+    contentType: "story",
+    likeCount: 28,
     createdAt: new Date(now - 4 * 60 * 60_000).toISOString(),
     comments: [],
   },
@@ -181,6 +194,12 @@ const routines: Routine[] = [
   },
 ];
 
+const workouts: WorkoutSession[] = [];
+const followingIds = new Set<string>();
+const archived: FeedPost[] = [];
+const messages: DirectMessage[] = [];
+let avatarDataUri: string | undefined;
+
 let activeSession: AuthSession = sessionFor("mvp@moveall.demo", "MVP 점검자");
 
 export const demoApi = {
@@ -191,6 +210,27 @@ export const demoApi = {
   login: async (input: LoginInput) => {
     activeSession = sessionFor(input.email, input.email.split("@")[0] || "MoveAll 사용자");
     return activeSession;
+  },
+  googleLogin: async (_input: GoogleLoginInput) => activeSession,
+  devLogin: async () => activeSession,
+  me: async (_token: string) => activeSession.user,
+  authProviders: async () => ({ google: true, development: true }),
+  profile: async (_token: string) => ({
+    ...activeSession.user,
+    ...(avatarDataUri ? { avatarDataUri } : {}),
+  }),
+  updateProfile: async (_token: string, input: ProfileUpdateInput) => {
+    if (input.displayName) {
+      activeSession = {
+        ...activeSession,
+        user: { ...activeSession.user, displayName: input.displayName },
+      };
+    }
+    if (input.avatarDataUri !== undefined) avatarDataUri = input.avatarDataUri ?? undefined;
+    return {
+      ...activeSession.user,
+      ...(avatarDataUri ? { avatarDataUri } : {}),
+    };
   },
   sports: async () => demoSports,
   knowledge: async (sport: SportType) => articleSeeds.filter((item) => item.sport === sport),
@@ -229,11 +269,115 @@ export const demoApi = {
       userId: activeSession.user.id,
       authorDisplayName: activeSession.user.displayName,
       ...input,
+      contentType: input.contentType ?? "post",
+      likeCount: 0,
       createdAt: new Date().toISOString(),
       comments: [],
     };
     posts.unshift(item);
     return item;
+  },
+  workouts: async (_token: string) => workouts,
+  createWorkoutSession: async (_token: string, input: WorkoutSessionCreateInput) => {
+    const item: WorkoutSession = {
+      id: makeId("workout"),
+      userId: activeSession.user.id,
+      ...input,
+      createdAt: new Date().toISOString(),
+    };
+    workouts.unshift(item);
+    return item;
+  },
+  myPosts: async (_token: string) => posts.filter((post) => post.userId === activeSession.user.id),
+  archivedPosts: async (_token: string) => archived,
+  updatePost: async (_token: string, postId: string, input: PostUpdateInput) => {
+    const post = [...posts, ...archived].find((item) => item.id === postId)!;
+    post.content = input.content;
+    return post;
+  },
+  archivePost: async (_token: string, postId: string) => {
+    const index = posts.findIndex((item) => item.id === postId);
+    const post = posts.splice(index, 1)[0]!;
+    post.archivedAt = new Date().toISOString();
+    archived.unshift(post);
+    return post;
+  },
+  restorePost: async (_token: string, postId: string) => {
+    const index = archived.findIndex((item) => item.id === postId);
+    const post = archived.splice(index, 1)[0]!;
+    delete post.archivedAt;
+    posts.unshift(post);
+    return post;
+  },
+  deletePost: async (_token: string, postId: string) => {
+    const source = posts.some((item) => item.id === postId) ? posts : archived;
+    const index = source.findIndex((item) => item.id === postId);
+    if (index >= 0) source.splice(index, 1);
+    return { deleted: true as const };
+  },
+  userPosts: async (_token: string, userId: string) => {
+    const userPosts = posts.filter((post) => post.userId === userId);
+    return {
+      user: { id: userId, displayName: userPosts[0]?.authorDisplayName ?? "MOVE 멤버" },
+      posts: userPosts,
+    };
+  },
+  socialSummary: async (_token: string): Promise<SocialSummary> => ({
+    followersCount: 0,
+    followingCount: followingIds.size,
+    followers: [],
+    following: posts
+      .filter((post) => followingIds.has(post.userId))
+      .map((post) => ({ id: post.userId, displayName: post.authorDisplayName })),
+  }),
+  medals: async (_token: string): Promise<Medal[]> =>
+    sportValues.flatMap((sport) => {
+      const count = workouts.filter((workout) => workout.sport === sport).length;
+      return ([1, 10, 30, 100, 250] as const).map((target, index) => ({
+        id: `${sport}-${target}`,
+        sport,
+        title: `${sportLabels[sport]} ${target}회`,
+        description: `${sportLabels[sport]} ${target}회 기록`,
+        tier: (["newbie", "intermediate", "advanced", "athlete", "instructor"] as const)[index]!,
+        earned: count >= target,
+        progress: Math.min(count, target),
+        target,
+        physicalRewardEligible: index >= 3,
+      }));
+    }),
+  followStatus: async (_token: string, userId: string) => ({
+    following: followingIds.has(userId),
+    followersCount: 0,
+  }),
+  follow: async (_token: string, userId: string) => {
+    followingIds.add(userId);
+    return { following: true as const };
+  },
+  unfollow: async (_token: string, userId: string) => {
+    followingIds.delete(userId);
+    return { following: false as const };
+  },
+  removeFollower: async (_token: string, _userId: string) => ({ removed: true as const }),
+  blockUser: async (_token: string, userId: string) => {
+    followingIds.delete(userId);
+    return { blocked: true as const };
+  },
+  messages: async (_token: string, userId: string) =>
+    messages.filter(
+      (message) =>
+        (message.senderId === activeSession.user.id && message.recipientId === userId) ||
+        (message.senderId === userId && message.recipientId === activeSession.user.id),
+    ),
+  sendMessage: async (_token: string, userId: string, input: DirectMessageCreateInput) => {
+    const message: DirectMessage = {
+      id: makeId("message"),
+      senderId: activeSession.user.id,
+      recipientId: userId,
+      content: input.content,
+      createdAt: new Date().toISOString(),
+    };
+    messages.push(message);
+    return message;
   },
 };
 

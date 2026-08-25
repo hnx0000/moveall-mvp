@@ -1,4 +1,9 @@
-import type { AuthSession, LoginInput, RegisterInput } from "@moveall/contracts";
+import {
+  AuthSessionSchema,
+  type AuthSession,
+  type LoginInput,
+  type RegisterInput,
+} from "@moveall/contracts";
 import * as SecureStore from "expo-secure-store";
 import {
   createContext,
@@ -13,12 +18,15 @@ import { Platform } from "react-native";
 import { api } from "../api/client";
 
 const storageKey = "moveall-auth-session";
+const developmentAuthBypass = __DEV__ && process.env.EXPO_PUBLIC_DEV_AUTH_BYPASS !== "false";
 
 type AuthContextValue = {
   session: AuthSession | null;
   restoring: boolean;
   login(input: LoginInput): Promise<void>;
   register(input: RegisterInput): Promise<void>;
+  loginWithGoogle(idToken: string): Promise<void>;
+  updateUser(user: AuthSession["user"]): Promise<void>;
   logout(): Promise<void>;
 };
 
@@ -31,7 +39,8 @@ async function readSession(): Promise<AuthSession | null> {
       : await SecureStore.getItemAsync(storageKey);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as AuthSession;
+    const parsed = AuthSessionSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
@@ -53,6 +62,28 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     void readSession()
+      .then(async (storedSession) => {
+        if (storedSession) {
+          try {
+            const user = await api.me(storedSession.accessToken);
+            const verifiedSession = { ...storedSession, user };
+            await writeSession(verifiedSession);
+            return verifiedSession;
+          } catch {
+            await writeSession(null);
+          }
+        }
+
+        if (!developmentAuthBypass) return null;
+
+        try {
+          const developmentSession = await api.devLogin();
+          await writeSession(developmentSession);
+          return developmentSession;
+        } catch {
+          return null;
+        }
+      })
       .then(setSession)
       .finally(() => setRestoring(false));
   }, []);
@@ -68,6 +99,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
       restoring,
       login: async (input) => persist(await api.login(input)),
       register: async (input) => persist(await api.register(input)),
+      loginWithGoogle: async (idToken) => persist(await api.googleLogin({ idToken })),
+      updateUser: async (user) => {
+        if (!session) return;
+        await persist({ ...session, user });
+      },
       logout: async () => persist(null),
     }),
     [persist, restoring, session],

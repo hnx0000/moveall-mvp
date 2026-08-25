@@ -1,8 +1,12 @@
 import type {
+  DirectMessage,
   FeedPost,
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
   PostCreateInput,
+  PostUpdateInput,
+  ProfileUpdateInput,
+  PublicUser,
   Routine,
   RoutineCreateInput,
   SportType,
@@ -16,7 +20,8 @@ type UserRow = QueryResultRow & {
   id: string;
   email: string;
   display_name: string;
-  password_hash: string;
+  avatar_data_uri: string | null;
+  password_hash: string | null;
   created_at: Date;
 };
 
@@ -50,6 +55,17 @@ type PostRow = QueryResultRow & {
   sport: SportType;
   content: string;
   workout_session_id: string | null;
+  content_type: "post" | "story";
+  like_count: number;
+  archived_at: Date | null;
+  created_at: Date;
+};
+
+type MessageRow = QueryResultRow & {
+  id: string;
+  sender_id: string;
+  recipient_id: string;
+  content: string;
   created_at: Date;
 };
 
@@ -86,7 +102,7 @@ export class PostgresStore implements AppStore {
 
   async findUserById(id: string): Promise<User | null> {
     const result = await this.pool.query<UserRow>(
-      "SELECT id, email, display_name, password_hash, created_at FROM users WHERE id = $1",
+      "SELECT id, email, display_name, avatar_data_uri, password_hash, created_at FROM users WHERE id = $1",
       [id],
     );
     const row = result.rows[0];
@@ -95,11 +111,32 @@ export class PostgresStore implements AppStore {
 
   async findUserByEmail(email: string): Promise<User | null> {
     const result = await this.pool.query<UserRow>(
-      "SELECT id, email, display_name, password_hash, created_at FROM users WHERE email = $1",
+      "SELECT id, email, display_name, avatar_data_uri, password_hash, created_at FROM users WHERE email = $1",
       [email],
     );
     const row = result.rows[0];
     return row ? this.mapUser(row) : null;
+  }
+
+  async isDisplayNameTaken(displayName: string, excludingUserId: string): Promise<boolean> {
+    const result = await this.pool.query(
+      "SELECT 1 FROM users WHERE lower(display_name) = lower($1) AND id <> $2",
+      [displayName, excludingUserId],
+    );
+    return result.rowCount === 1;
+  }
+
+  async updateUserProfile(userId: string, input: ProfileUpdateInput): Promise<User | null> {
+    const result = await this.pool.query<UserRow>(
+      "UPDATE users SET display_name = COALESCE($2, display_name), avatar_data_uri = CASE WHEN $3::boolean THEN $4 ELSE avatar_data_uri END WHERE id = $1 RETURNING id, email, display_name, avatar_data_uri, password_hash, created_at",
+      [
+        userId,
+        input.displayName ?? null,
+        input.avatarDataUri !== undefined,
+        input.avatarDataUri ?? null,
+      ],
+    );
+    return result.rows[0] ? this.mapUser(result.rows[0]) : null;
   }
 
   async createUser(input: {
@@ -108,10 +145,53 @@ export class PostgresStore implements AppStore {
     passwordHash: string;
   }): Promise<User> {
     const result = await this.pool.query<UserRow>(
-      "INSERT INTO users (email, display_name, password_hash) VALUES ($1, $2, $3) RETURNING id, email, display_name, password_hash, created_at",
+      "INSERT INTO users (email, display_name, password_hash) VALUES ($1, $2, $3) RETURNING id, email, display_name, avatar_data_uri, password_hash, created_at",
       [input.email, input.displayName, input.passwordHash],
     );
     return this.mapUser(result.rows[0]!);
+  }
+
+  async findOrCreateOAuthUser(input: {
+    provider: "google";
+    subject: string;
+    email: string;
+    displayName: string;
+  }): Promise<User> {
+    const existingIdentity = await this.pool.query<UserRow>(
+      "SELECT u.id, u.email, u.display_name, u.avatar_data_uri, u.password_hash, u.created_at FROM oauth_identities i JOIN users u ON u.id = i.user_id WHERE i.provider = $1 AND i.subject = $2",
+      [input.provider, input.subject],
+    );
+    if (existingIdentity.rows[0]) return this.mapUser(existingIdentity.rows[0]);
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      let user = await client.query<UserRow>(
+        "SELECT id, email, display_name, avatar_data_uri, password_hash, created_at FROM users WHERE email = $1 FOR UPDATE",
+        [input.email],
+      );
+      if (!user.rows[0]) {
+        user = await client.query<UserRow>(
+          "INSERT INTO users (email, display_name, password_hash) VALUES ($1, $2, NULL) RETURNING id, email, display_name, avatar_data_uri, password_hash, created_at",
+          [input.email, input.displayName],
+        );
+      }
+      await client.query(
+        "INSERT INTO oauth_identities (provider, subject, user_id, email) VALUES ($1, $2, $3, $4) ON CONFLICT (provider, subject) DO NOTHING",
+        [input.provider, input.subject, user.rows[0]!.id, input.email],
+      );
+      const linked = await client.query<UserRow>(
+        "SELECT u.id, u.email, u.display_name, u.avatar_data_uri, u.password_hash, u.created_at FROM oauth_identities i JOIN users u ON u.id = i.user_id WHERE i.provider = $1 AND i.subject = $2",
+        [input.provider, input.subject],
+      );
+      await client.query("COMMIT");
+      return this.mapUser(linked.rows[0]!);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async createRoutine(userId: string, input: RoutineCreateInput): Promise<Routine> {
@@ -150,14 +230,29 @@ export class PostgresStore implements AppStore {
     return this.mapWorkout(result.rows[0]!);
   }
 
+  async listWorkoutSessions(userId: string): Promise<WorkoutSession[]> {
+    const result = await this.pool.query<WorkoutRow>(
+      "SELECT * FROM workout_sessions WHERE user_id = $1 ORDER BY started_at DESC",
+      [userId],
+    );
+    return result.rows.map((row) => this.mapWorkout(row));
+  }
+
   async createPost(
     userId: string,
     authorDisplayName: string,
     input: PostCreateInput,
   ): Promise<FeedPost | null> {
     const result = await this.pool.query<PostRow>(
-      "INSERT INTO posts (user_id, sport, content, workout_session_id) SELECT $1, $2, $3, $4 WHERE $4::uuid IS NULL OR EXISTS (SELECT 1 FROM workout_sessions WHERE id = $4 AND user_id = $1) RETURNING id, user_id, $5::text AS display_name, sport, content, workout_session_id, created_at",
-      [userId, input.sport, input.content, input.workoutSessionId ?? null, authorDisplayName],
+      "INSERT INTO posts (user_id, sport, content, workout_session_id, content_type) SELECT $1, $2, $3, $4, $5 WHERE $4::uuid IS NULL OR EXISTS (SELECT 1 FROM workout_sessions WHERE id = $4 AND user_id = $1) RETURNING id, user_id, $6::text AS display_name, sport, content, workout_session_id, content_type, like_count, archived_at, created_at",
+      [
+        userId,
+        input.sport,
+        input.content,
+        input.workoutSessionId ?? null,
+        input.contentType ?? "post",
+        authorDisplayName,
+      ],
     );
     const row = result.rows[0];
     return row ? this.mapPost(row, []) : null;
@@ -165,7 +260,7 @@ export class PostgresStore implements AppStore {
 
   async listFeed(): Promise<FeedPost[]> {
     const posts = await this.pool.query<PostRow>(
-      "SELECT p.id, p.user_id, u.display_name, p.sport, p.content, p.workout_session_id, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.moderation_status = 'visible' ORDER BY p.created_at DESC LIMIT 100",
+      "SELECT p.id, p.user_id, u.display_name, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.moderation_status = 'visible' AND p.archived_at IS NULL ORDER BY p.created_at DESC LIMIT 100",
     );
     if (posts.rows.length === 0) return [];
 
@@ -180,6 +275,164 @@ export class PostgresStore implements AppStore {
         comments.rows.filter((comment) => comment.post_id === post.id),
       ),
     );
+  }
+
+  async listPostsByUser(userId: string): Promise<FeedPost[]> {
+    const posts = await this.pool.query<PostRow>(
+      "SELECT p.id, p.user_id, u.display_name, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = $1 AND p.moderation_status = 'visible' AND p.archived_at IS NULL ORDER BY p.created_at DESC LIMIT 100",
+      [userId],
+    );
+    if (posts.rows.length === 0) return [];
+    const comments = await this.pool.query<CommentRow>(
+      "SELECT c.id, c.user_id, u.display_name, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) ORDER BY c.created_at ASC",
+      [posts.rows.map((post) => post.id)],
+    );
+    return posts.rows.map((post) =>
+      this.mapPost(
+        post,
+        comments.rows.filter((comment) => comment.post_id === post.id),
+      ),
+    );
+  }
+
+  async listArchivedPostsByUser(userId: string): Promise<FeedPost[]> {
+    const posts = await this.pool.query<PostRow>(
+      "SELECT p.id, p.user_id, u.display_name, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = $1 AND p.archived_at IS NOT NULL ORDER BY p.archived_at DESC LIMIT 100",
+      [userId],
+    );
+    if (posts.rows.length === 0) return [];
+    const comments = await this.pool.query<CommentRow>(
+      "SELECT c.id, c.user_id, u.display_name, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) ORDER BY c.created_at ASC",
+      [posts.rows.map((post) => post.id)],
+    );
+    return posts.rows.map((post) =>
+      this.mapPost(
+        post,
+        comments.rows.filter((comment) => comment.post_id === post.id),
+      ),
+    );
+  }
+
+  async updatePost(
+    userId: string,
+    postId: string,
+    input: PostUpdateInput,
+  ): Promise<FeedPost | null> {
+    const result = await this.pool.query<PostRow>(
+      "UPDATE posts p SET content = $3 FROM users u WHERE p.id = $2 AND p.user_id = $1 AND u.id = p.user_id RETURNING p.id, p.user_id, u.display_name, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, p.archived_at, p.created_at",
+      [userId, postId, input.content],
+    );
+    return result.rows[0] ? this.mapPost(result.rows[0], []) : null;
+  }
+
+  async setPostArchived(
+    userId: string,
+    postId: string,
+    archived: boolean,
+  ): Promise<FeedPost | null> {
+    const result = await this.pool.query<PostRow>(
+      "UPDATE posts p SET archived_at = CASE WHEN $3::boolean THEN now() ELSE NULL END FROM users u WHERE p.id = $2 AND p.user_id = $1 AND u.id = p.user_id RETURNING p.id, p.user_id, u.display_name, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, p.archived_at, p.created_at",
+      [userId, postId, archived],
+    );
+    return result.rows[0] ? this.mapPost(result.rows[0], []) : null;
+  }
+
+  async deletePost(userId: string, postId: string): Promise<boolean> {
+    const result = await this.pool.query("DELETE FROM posts WHERE id = $2 AND user_id = $1", [
+      userId,
+      postId,
+    ]);
+    return result.rowCount === 1;
+  }
+
+  async followUser(followerId: string, followingId: string): Promise<boolean> {
+    if (followerId === followingId) return false;
+    const result = await this.pool.query(
+      "INSERT INTO follows (follower_id, following_id) SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM users WHERE id = $2) AND NOT EXISTS (SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)) ON CONFLICT DO NOTHING RETURNING following_id",
+      [followerId, followingId],
+    );
+    return result.rowCount === 1 || (await this.isFollowing(followerId, followingId));
+  }
+
+  async unfollowUser(followerId: string, followingId: string): Promise<void> {
+    await this.pool.query("DELETE FROM follows WHERE follower_id = $1 AND following_id = $2", [
+      followerId,
+      followingId,
+    ]);
+  }
+
+  async removeFollower(userId: string, followerId: string): Promise<void> {
+    await this.pool.query("DELETE FROM follows WHERE follower_id = $2 AND following_id = $1", [
+      userId,
+      followerId,
+    ]);
+  }
+
+  async blockUser(blockerId: string, blockedId: string): Promise<boolean> {
+    if (blockerId === blockedId) return false;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        "INSERT INTO user_blocks (blocker_id, blocked_id) SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM users WHERE id = $2) ON CONFLICT DO NOTHING RETURNING blocked_id",
+        [blockerId, blockedId],
+      );
+      await client.query(
+        "DELETE FROM follows WHERE (follower_id = $1 AND following_id = $2) OR (follower_id = $2 AND following_id = $1)",
+        [blockerId, blockedId],
+      );
+      await client.query("COMMIT");
+      return result.rowCount === 1;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async isFollowing(followerId: string, followingId: string): Promise<boolean> {
+    const result = await this.pool.query(
+      "SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = $2",
+      [followerId, followingId],
+    );
+    return result.rowCount === 1;
+  }
+
+  async listFollowers(userId: string): Promise<PublicUser[]> {
+    const result = await this.pool.query<QueryResultRow & PublicUser>(
+      'SELECT u.id, u.display_name AS "displayName", u.avatar_data_uri AS "avatarDataUri" FROM follows f JOIN users u ON u.id = f.follower_id WHERE f.following_id = $1 AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = $1 AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = $1)) ORDER BY f.created_at DESC',
+      [userId],
+    );
+    return result.rows;
+  }
+
+  async listFollowing(userId: string): Promise<PublicUser[]> {
+    const result = await this.pool.query<QueryResultRow & PublicUser>(
+      'SELECT u.id, u.display_name AS "displayName", u.avatar_data_uri AS "avatarDataUri" FROM follows f JOIN users u ON u.id = f.following_id WHERE f.follower_id = $1 AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = $1 AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = $1)) ORDER BY f.created_at DESC',
+      [userId],
+    );
+    return result.rows;
+  }
+
+  async listMessages(userId: string, peerId: string): Promise<DirectMessage[]> {
+    const result = await this.pool.query<MessageRow>(
+      "SELECT id, sender_id, recipient_id, content, created_at FROM direct_messages WHERE (sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1) ORDER BY created_at ASC LIMIT 200",
+      [userId, peerId],
+    );
+    return result.rows.map((row) => this.mapMessage(row));
+  }
+
+  async createMessage(
+    senderId: string,
+    recipientId: string,
+    content: string,
+  ): Promise<DirectMessage | null> {
+    const result = await this.pool.query<MessageRow>(
+      "INSERT INTO direct_messages (sender_id, recipient_id, content) SELECT $1, $2, $3 WHERE $1 <> $2 AND EXISTS (SELECT 1 FROM users WHERE id = $2) AND NOT EXISTS (SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)) RETURNING id, sender_id, recipient_id, content, created_at",
+      [senderId, recipientId, content],
+    );
+    return result.rows[0] ? this.mapMessage(result.rows[0]) : null;
   }
 
   async createComment(
@@ -226,6 +479,7 @@ export class PostgresStore implements AppStore {
       id: row.id,
       email: row.email,
       displayName: row.display_name,
+      avatarDataUri: row.avatar_data_uri,
       passwordHash: row.password_hash,
       createdAt: row.created_at.toISOString(),
     };
@@ -265,8 +519,11 @@ export class PostgresStore implements AppStore {
       authorDisplayName: row.display_name,
       sport: row.sport,
       content: row.content,
+      contentType: row.content_type,
+      likeCount: row.like_count,
       ...(row.workout_session_id ? { workoutSessionId: row.workout_session_id } : {}),
       createdAt: row.created_at.toISOString(),
+      ...(row.archived_at ? { archivedAt: row.archived_at.toISOString() } : {}),
       comments: comments.map((comment) => this.mapComment(comment)),
     };
   }
@@ -289,6 +546,16 @@ export class PostgresStore implements AppStore {
       authorDisplayName: row.display_name,
       content: row.content,
       ...(row.context ? { context: row.context } : {}),
+      createdAt: row.created_at.toISOString(),
+    };
+  }
+
+  private mapMessage(row: MessageRow): DirectMessage {
+    return {
+      id: row.id,
+      senderId: row.sender_id,
+      recipientId: row.recipient_id,
+      content: row.content,
       createdAt: row.created_at.toISOString(),
     };
   }

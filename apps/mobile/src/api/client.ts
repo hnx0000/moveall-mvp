@@ -2,21 +2,33 @@ import type {
   ApiFailure,
   ApiSuccess,
   AuthSession,
+  DirectMessage,
+  DirectMessageCreateInput,
   FeedPost,
+  FollowStatus,
+  GoogleLoginInput,
   KnowledgeArticle,
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
   LoginInput,
+  Medal,
   PostCreateInput,
+  PostUpdateInput,
+  ProfileUpdateInput,
+  PublicUser,
   RegisterInput,
   Routine,
   RoutineCreateInput,
+  SocialSummary,
   SportSummary,
   SportType,
+  UserProfile,
+  WorkoutSession,
+  WorkoutSessionCreateInput,
 } from "@moveall/contracts";
 import { demoApi } from "./demo-client";
 
-const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+export const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
 
 export class ApiError extends Error {
   constructor(
@@ -37,7 +49,7 @@ async function request<T>(
   if (options.token) headers.set("Authorization", "Bearer " + options.token);
 
   try {
-    const response = await fetch(baseUrl + path, { ...options, headers });
+    const response = await fetch(apiBaseUrl + path, { ...options, headers });
     const payload = (await response.json()) as ApiSuccess<T> | ApiFailure;
     if (!response.ok || !payload.ok) {
       const failure = payload as ApiFailure;
@@ -64,6 +76,25 @@ const liveApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  googleLogin: (input: GoogleLoginInput) =>
+    request<AuthSession>("/v1/auth/google", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  devLogin: () =>
+    request<AuthSession>("/v1/auth/development", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  me: (token: string) => request<AuthSession["user"]>("/v1/auth/me", { token }),
+  authProviders: () => request<{ google: boolean; development: boolean }>("/v1/auth/providers"),
+  profile: (token: string) => request<UserProfile>("/v1/users/me/profile", { token }),
+  updateProfile: (token: string, input: ProfileUpdateInput) =>
+    request<UserProfile>("/v1/users/me/profile", {
+      token,
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
   sports: () => request<SportSummary[]>("/v1/sports"),
   knowledge: (sport: SportType) => request<KnowledgeArticle[]>("/v1/knowledge/" + sport),
   createKnowledgeFeedback: (
@@ -86,6 +117,61 @@ const liveApi = {
     }),
   createPost: (token: string, input: PostCreateInput) =>
     request<FeedPost>("/v1/posts", {
+      token,
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  workouts: (token: string) => request<WorkoutSession[]>("/v1/workout-sessions/me", { token }),
+  createWorkoutSession: (token: string, input: WorkoutSessionCreateInput) =>
+    request<WorkoutSession>("/v1/workout-sessions", {
+      token,
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  myPosts: (token: string) => request<FeedPost[]>("/v1/posts/me", { token }),
+  archivedPosts: (token: string) => request<FeedPost[]>("/v1/posts/me/archive", { token }),
+  updatePost: (token: string, postId: string, input: PostUpdateInput) =>
+    request<FeedPost>(`/v1/posts/${postId}`, {
+      token,
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  archivePost: (token: string, postId: string) =>
+    request<FeedPost>(`/v1/posts/${postId}/archive`, { token, method: "POST" }),
+  restorePost: (token: string, postId: string) =>
+    request<FeedPost>(`/v1/posts/${postId}/archive`, { token, method: "DELETE" }),
+  deletePost: (token: string, postId: string) =>
+    request<{ deleted: true }>(`/v1/posts/${postId}`, { token, method: "DELETE" }),
+  userPosts: (token: string, userId: string) =>
+    request<{ user: PublicUser; posts: FeedPost[] }>(`/v1/users/${userId}/posts`, { token }),
+  socialSummary: (token: string) => request<SocialSummary>("/v1/social/me", { token }),
+  medals: (token: string) => request<Medal[]>("/v1/medals/me", { token }),
+  followStatus: (token: string, userId: string) =>
+    request<FollowStatus>(`/v1/users/${userId}/follow-status`, { token }),
+  follow: (token: string, userId: string) =>
+    request<{ following: true }>(`/v1/users/${userId}/follow`, {
+      token,
+      method: "POST",
+    }),
+  unfollow: (token: string, userId: string) =>
+    request<{ following: false }>(`/v1/users/${userId}/follow`, {
+      token,
+      method: "DELETE",
+    }),
+  removeFollower: (token: string, userId: string) =>
+    request<{ removed: true }>(`/v1/users/${userId}/follower`, {
+      token,
+      method: "DELETE",
+    }),
+  blockUser: (token: string, userId: string) =>
+    request<{ blocked: true }>(`/v1/users/${userId}/block`, {
+      token,
+      method: "POST",
+    }),
+  messages: (token: string, userId: string) =>
+    request<DirectMessage[]>(`/v1/messages/${userId}`, { token }),
+  sendMessage: (token: string, userId: string, input: DirectMessageCreateInput) =>
+    request<DirectMessage>(`/v1/messages/${userId}`, {
       token,
       method: "POST",
       body: JSON.stringify(input),

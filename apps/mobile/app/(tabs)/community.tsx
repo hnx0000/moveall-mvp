@@ -1,11 +1,17 @@
 import { sportLabels, sportValues, type SportType } from "@moveall/contracts";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { BellButton, Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
-import { RunningArtwork } from "../../src/components/workout-artwork";
+import {
+  StoryCanvas,
+  type StoryBackground,
+  type StoryLayer,
+  type StoryVisibility,
+} from "../../src/components/story-canvas";
+import { type MapPoint } from "../../src/components/workout-map.types";
 import { useAsyncData } from "../../src/hooks/use-async-data";
 import { type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
@@ -19,7 +25,22 @@ const stories = [
 ];
 
 export default function CommunityScreen() {
-  const params = useLocalSearchParams<{ draft?: string; sport?: string }>();
+  const router = useRouter();
+  const params = useLocalSearchParams<{
+    draft?: string;
+    sport?: string;
+    photo?: string;
+    background?: string;
+    layers?: string;
+    storyText?: string;
+    distance?: string;
+    duration?: string;
+    pace?: string;
+    points?: string;
+    route?: string;
+    privacy?: string;
+    workoutSessionId?: string;
+  }>();
   const { session } = useAuth();
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
@@ -35,6 +56,24 @@ export default function CommunityScreen() {
   const [openComments, setOpenComments] = useState<string[]>([]);
   const [bookmarkedPosts, setBookmarkedPosts] = useState<string[]>([]);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [followingIds, setFollowingIds] = useState<string[]>([]);
+  const [followBusyIds, setFollowBusyIds] = useState<string[]>([]);
+  const [draftPhoto, setDraftPhoto] = useState<string | null>(null);
+  const [storyBackground, setStoryBackground] = useState<StoryBackground>("photo");
+  const [storyLayers, setStoryLayers] = useState<StoryLayer[]>(["record", "route", "points"]);
+  const [storyText, setStoryText] = useState("");
+  const [storyDistance, setStoryDistance] = useState("0.00");
+  const [storyDuration, setStoryDuration] = useState("00:00");
+  const [storyPace, setStoryPace] = useState("--'--\"");
+  const [storyPoints, setStoryPoints] = useState(0);
+  const [storyRoute, setStoryRoute] = useState<MapPoint[]>([]);
+  const [storyVisibility, setStoryVisibility] = useState<StoryVisibility>({
+    distance: true,
+    duration: true,
+    pace: true,
+    route: true,
+    points: true,
+  });
 
   useEffect(() => {
     if (typeof params.draft === "string" && params.draft) {
@@ -45,16 +84,72 @@ export default function CommunityScreen() {
       const selected = sportValues.find((item) => item === params.sport);
       if (selected) setSport(selected);
     }
-  }, [params.draft, params.sport]);
+    if (typeof params.photo === "string" && params.photo) setDraftPhoto(params.photo);
+    if (
+      params.background === "photo" ||
+      params.background === "map" ||
+      params.background === "ink"
+    ) {
+      setStoryBackground(params.background);
+    }
+    if (typeof params.layers === "string") setStoryLayers(parseLayers(params.layers));
+    if (typeof params.storyText === "string") setStoryText(params.storyText);
+    if (typeof params.distance === "string") setStoryDistance(params.distance);
+    if (typeof params.duration === "string") setStoryDuration(params.duration);
+    if (typeof params.pace === "string") setStoryPace(params.pace);
+    if (typeof params.points === "string") setStoryPoints(Number(params.points) || 0);
+    if (typeof params.route === "string") setStoryRoute(parseRoute(params.route));
+    if (typeof params.privacy === "string") setStoryVisibility(parseVisibility(params.privacy));
+  }, [
+    params.background,
+    params.distance,
+    params.draft,
+    params.duration,
+    params.layers,
+    params.pace,
+    params.photo,
+    params.points,
+    params.privacy,
+    params.route,
+    params.sport,
+    params.storyText,
+  ]);
+
+  useEffect(() => {
+    if (!session) return;
+    void api
+      .socialSummary(session.accessToken)
+      .then((summary) => setFollowingIds(summary.following.map((person) => person.id)))
+      .catch(() => setFollowingIds([]));
+  }, [session]);
 
   async function submitPost() {
     if (!session || !content.trim()) return;
     setPosting(true);
     setPostError(null);
     try {
-      await api.createPost(session.accessToken, { sport, content: content.trim() });
+      const visibleStats = [
+        storyVisibility.distance ? `${storyDistance}km` : null,
+        storyVisibility.duration ? storyDuration : null,
+        storyVisibility.pace ? storyPace : null,
+        storyVisibility.points ? `${storyPoints}P` : null,
+      ].filter(Boolean);
+      const publicContent = visibleStats.length
+        ? `${content.trim()}\n${visibleStats.join(" · ")}`
+        : content.trim();
+      await api.createPost(session.accessToken, {
+        sport,
+        content: publicContent,
+        ...(typeof params.workoutSessionId === "string"
+          ? { workoutSessionId: params.workoutSessionId }
+          : {}),
+      });
       setContent("");
+      setDraftPhoto(null);
+      setStoryRoute([]);
+      setStoryText("");
       setComposerOpen(false);
+      router.replace("/community");
       await reload();
     } catch (caught) {
       setPostError(caught instanceof Error ? caught.message : "게시하지 못했습니다.");
@@ -66,6 +161,31 @@ export default function CommunityScreen() {
   function toggle(id: string, current: string[], update: (next: string[]) => void) {
     update(current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
+
+  function toggleStoryVisibility(key: keyof StoryVisibility) {
+    setStoryVisibility((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  async function toggleFollow(userId: string) {
+    if (!session || followBusyIds.includes(userId)) return;
+    const following = followingIds.includes(userId);
+    setFollowBusyIds((current) => [...current, userId]);
+    setPostError(null);
+    try {
+      if (following) await api.unfollow(session.accessToken, userId);
+      else await api.follow(session.accessToken, userId);
+      setFollowingIds((current) =>
+        following ? current.filter((id) => id !== userId) : [...current, userId],
+      );
+    } catch (caught) {
+      setPostError(caught instanceof Error ? caught.message : "팔로우 상태를 바꾸지 못했습니다.");
+    } finally {
+      setFollowBusyIds((current) => current.filter((id) => id !== userId));
+    }
+  }
+
+  const hasStoryDraft =
+    draftPhoto !== null || storyRoute.length > 1 || typeof params.background === "string";
 
   return (
     <Screen
@@ -168,6 +288,25 @@ export default function CommunityScreen() {
                 ))}
               </View>
             </ScrollView>
+            {hasStoryDraft ? (
+              <View style={styles.storyPreviewWrap}>
+                <StoryCanvas
+                  background={storyBackground}
+                  colors={colors}
+                  customText={storyText}
+                  distance={storyDistance}
+                  duration={storyDuration}
+                  layers={storyLayers}
+                  moveScore={storyPoints}
+                  pace={storyPace}
+                  photoUri={draftPhoto}
+                  routePoints={storyRoute}
+                  sportLabel={sportLabels[sport]}
+                  themeLabel={content.split("·").at(-1)?.trim() || "WORKOUT CUT"}
+                  visibility={storyVisibility}
+                />
+              </View>
+            ) : null}
             <TextInput
               accessibilityLabel="운동 이야기"
               multiline
@@ -178,6 +317,51 @@ export default function CommunityScreen() {
               style={styles.input}
               value={content}
             />
+            {hasStoryDraft ? (
+              <View style={styles.sharePrivacy}>
+                <View style={styles.sharePrivacyHeading}>
+                  <Text style={styles.sharePrivacyTitle}>올리기 전 공개 범위</Text>
+                  <Text style={styles.sharePrivacyMeta}>선택한 정보만 피드에 남습니다.</Text>
+                </View>
+                <View style={styles.sharePrivacyRow}>
+                  {(
+                    [
+                      ["distance", "거리"],
+                      ["duration", "시간"],
+                      ["pace", "페이스"],
+                      ["route", "경로"],
+                      ["points", "점수"],
+                    ] as Array<[keyof StoryVisibility, string]>
+                  ).map(([key, label]) => (
+                    <Pressable
+                      accessibilityRole="switch"
+                      accessibilityState={{ checked: storyVisibility[key] }}
+                      key={key}
+                      onPress={() => toggleStoryVisibility(key)}
+                      style={[
+                        styles.sharePrivacyChip,
+                        storyVisibility[key] && styles.sharePrivacyChipActive,
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.sharePrivacyDot,
+                          storyVisibility[key] && styles.sharePrivacyDotActive,
+                        ]}
+                      />
+                      <Text
+                        style={[
+                          styles.sharePrivacyText,
+                          storyVisibility[key] && styles.sharePrivacyTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
             {postError ? <Text style={styles.error}>{postError}</Text> : null}
             <PrimaryButton
               label={posting ? "공유 중..." : "피드에 공유"}
@@ -205,9 +389,39 @@ export default function CommunityScreen() {
                 </View>
                 <Text style={styles.author}>{post.authorDisplayName}</Text>
               </View>
-              <Text style={styles.time}>2시간 전</Text>
+              <View style={styles.postHeaderMeta}>
+                {session?.user.id !== post.userId ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => void toggleFollow(post.userId)}
+                    style={[
+                      styles.followButton,
+                      followingIds.includes(post.userId) && styles.followButtonActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.followText,
+                        followingIds.includes(post.userId) && styles.followTextActive,
+                      ]}
+                    >
+                      {followBusyIds.includes(post.userId)
+                        ? "…"
+                        : followingIds.includes(post.userId)
+                          ? "팔로잉"
+                          : "+ 팔로우"}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                <Text style={styles.time}>2시간 전</Text>
+              </View>
             </View>
-            <RunningArtwork colors={colors} />
+            <View style={styles.feedArtwork}>
+              <Text style={styles.feedArtworkBrand}>MOVE STORY</Text>
+              <View style={styles.feedArtworkMark} />
+              <Text style={styles.feedArtworkSport}>{sportLabels[post.sport]}</Text>
+              <Text style={styles.feedArtworkMeta}>SHARED TODAY</Text>
+            </View>
             <Text style={styles.postCopy}>{post.content}</Text>
             <Text style={styles.tags}>#아침러닝 #이지런 #완주</Text>
             <View style={styles.postActions}>
@@ -263,6 +477,58 @@ export default function CommunityScreen() {
       })}
     </Screen>
   );
+}
+
+const defaultStoryLayers: StoryLayer[] = ["record", "route", "points"];
+
+function parseLayers(value: string): StoryLayer[] {
+  const validLayers: StoryLayer[] = ["record", "route", "text", "points"];
+  const layers = value
+    .split(",")
+    .filter((layer): layer is StoryLayer => validLayers.includes(layer as StoryLayer));
+  return layers.length ? layers : defaultStoryLayers;
+}
+
+function parseRoute(value: string): MapPoint[] {
+  try {
+    const route: unknown = JSON.parse(value);
+    if (!Array.isArray(route)) return [];
+    return route
+      .filter(
+        (point): point is MapPoint =>
+          typeof point === "object" &&
+          point !== null &&
+          typeof (point as MapPoint).latitude === "number" &&
+          typeof (point as MapPoint).longitude === "number",
+      )
+      .slice(0, 50);
+  } catch {
+    return [];
+  }
+}
+
+function parseVisibility(value: string): StoryVisibility {
+  const fallback: StoryVisibility = {
+    distance: true,
+    duration: true,
+    pace: true,
+    route: true,
+    points: true,
+  };
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed !== "object" || parsed === null) return fallback;
+    return Object.fromEntries(
+      Object.entries(fallback).map(([key, defaultValue]) => [
+        key,
+        typeof (parsed as Record<string, unknown>)[key] === "boolean"
+          ? (parsed as Record<string, boolean>)[key]
+          : defaultValue,
+      ]),
+    ) as StoryVisibility;
+  } catch {
+    return fallback;
+  }
 }
 
 function createStyles(colors: ThemeColors) {
@@ -334,6 +600,42 @@ function createStyles(colors: ThemeColors) {
     sportChipActive: { backgroundColor: colors.primary },
     sportChipText: { color: colors.muted, fontSize: 9, fontWeight: "800" },
     sportChipTextActive: { color: "#FFFFFF" },
+    storyPreviewWrap: { marginBottom: 10 },
+    sharePrivacy: {
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingTop: 11,
+      marginBottom: 11,
+      gap: 9,
+    },
+    sharePrivacyHeading: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    sharePrivacyTitle: { color: colors.ink, fontSize: 11, fontWeight: "900" },
+    sharePrivacyMeta: { color: colors.muted, fontSize: 8 },
+    sharePrivacyRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+    sharePrivacyChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      minHeight: 30,
+      paddingHorizontal: 9,
+      borderRadius: 15,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    sharePrivacyChipActive: { borderColor: colors.ink },
+    sharePrivacyDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.border,
+    },
+    sharePrivacyDotActive: { backgroundColor: colors.primary },
+    sharePrivacyText: { color: colors.muted, fontSize: 9, fontWeight: "800" },
+    sharePrivacyTextActive: { color: colors.ink },
     input: {
       minHeight: 78,
       color: colors.ink,
@@ -364,7 +666,54 @@ function createStyles(colors: ThemeColors) {
     },
     authorInitial: { color: colors.primary, fontSize: 11, fontWeight: "900" },
     author: { color: colors.ink, fontSize: 12, fontWeight: "800" },
+    postHeaderMeta: { flexDirection: "row", alignItems: "center", gap: 9 },
+    followButton: {
+      minHeight: 28,
+      borderRadius: 14,
+      backgroundColor: colors.primary,
+      paddingHorizontal: 10,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    followButtonActive: { backgroundColor: colors.surfaceMuted },
+    followText: { color: "#FFFFFF", fontSize: 8, fontWeight: "900" },
+    followTextActive: { color: colors.ink },
     time: { color: colors.muted, fontSize: 10 },
+    feedArtwork: {
+      height: 238,
+      borderRadius: 9,
+      overflow: "hidden",
+      backgroundColor: colors.hero,
+      padding: 18,
+      justifyContent: "flex-end",
+    },
+    feedArtworkBrand: {
+      position: "absolute",
+      left: 18,
+      top: 17,
+      color: colors.primary,
+      fontSize: 9,
+      fontWeight: "900",
+      letterSpacing: 1.2,
+    },
+    feedArtworkMark: {
+      position: "absolute",
+      width: 170,
+      height: 170,
+      borderRadius: 85,
+      right: -38,
+      top: 25,
+      borderWidth: 22,
+      borderColor: "rgba(255,255,255,0.06)",
+    },
+    feedArtworkSport: { color: "#FFFFFF", fontSize: 28, fontWeight: "900" },
+    feedArtworkMeta: {
+      color: "rgba(255,255,255,0.5)",
+      fontSize: 8,
+      fontWeight: "900",
+      letterSpacing: 1.3,
+      marginTop: 5,
+    },
     postCopy: { color: colors.ink, fontSize: 12, lineHeight: 19, marginTop: 11 },
     tags: { color: colors.muted, fontSize: 11, marginTop: 6 },
     postActions: { flexDirection: "row", alignItems: "center", gap: 18, marginTop: 12 },

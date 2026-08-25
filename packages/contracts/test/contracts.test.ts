@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   KnowledgeFeedbackCreateInputSchema,
+  NicknameSchema,
   RegisterInputSchema,
   RoutineCreateInputSchema,
   WorkoutSessionCreateInputSchema,
@@ -52,5 +53,12 @@ describe("shared API contracts", () => {
 
   it("rejects an empty knowledge feedback", () => {
     expect(KnowledgeFeedbackCreateInputSchema.safeParse({ content: " " }).success).toBe(false);
+  });
+
+  it("accepts a localized handle and rejects reserved or abusive nicknames", () => {
+    expect(NicknameSchema.safeParse("러너.minji_24").success).toBe(true);
+    expect(NicknameSchema.safeParse("moveall_official").success).toBe(false);
+    expect(NicknameSchema.safeParse("욕설_씨발").success).toBe(false);
+    expect(NicknameSchema.safeParse("공백 닉네임").success).toBe(false);
   });
 });

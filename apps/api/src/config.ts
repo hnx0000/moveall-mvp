@@ -8,6 +8,19 @@ const EnvironmentSchema = z
     DATA_STORE: z.enum(["memory", "postgres"]).default("memory"),
     DATABASE_URL: z.string().min(1).optional(),
     AUTH_SECRET: z.string().min(32, "AUTH_SECRET은 32자 이상이어야 합니다."),
+    GOOGLE_CLIENT_IDS: z
+      .string()
+      .default("")
+      .transform((value) =>
+        value
+          .split(",")
+          .map((clientId) => clientId.trim())
+          .filter(Boolean),
+      ),
+    DEV_AUTH_BYPASS: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((value) => value === "true"),
     CORS_ORIGINS: z
       .string()
       .default(
@@ -45,6 +58,20 @@ const EnvironmentSchema = z
         message: "production 환경에서는 예제 AUTH_SECRET을 사용할 수 없습니다.",
       });
     }
+    if (value.NODE_ENV === "production" && value.GOOGLE_CLIENT_IDS.length === 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["GOOGLE_CLIENT_IDS"],
+        message: "production 환경에서는 Google OAuth 클라이언트 ID가 필요합니다.",
+      });
+    }
+    if (value.NODE_ENV === "production" && value.DEV_AUTH_BYPASS) {
+      context.addIssue({
+        code: "custom",
+        path: ["DEV_AUTH_BYPASS"],
+        message: "production 환경에서는 개발 인증 우회를 활성화할 수 없습니다.",
+      });
+    }
   });
 
 export type AppConfig = {
@@ -54,6 +81,8 @@ export type AppConfig = {
   dataStore: "memory" | "postgres";
   databaseUrl?: string;
   authSecret: string;
+  googleClientIds: string[];
+  devAuthBypass: boolean;
   corsOrigins: string[];
 };
 
@@ -71,6 +100,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     dataStore: parsed.data.DATA_STORE,
     ...(parsed.data.DATABASE_URL ? { databaseUrl: parsed.data.DATABASE_URL } : {}),
     authSecret: parsed.data.AUTH_SECRET,
+    googleClientIds: parsed.data.GOOGLE_CLIENT_IDS,
+    devAuthBypass:
+      parsed.data.NODE_ENV === "development" &&
+      (environment.DEV_AUTH_BYPASS === undefined || parsed.data.DEV_AUTH_BYPASS),
     corsOrigins: parsed.data.CORS_ORIGINS,
   };
 }

@@ -20,8 +20,22 @@ describe("environment configuration", () => {
       DATA_STORE: "postgres",
       DATABASE_URL: "postgresql://moveall:password@localhost:5432/moveall",
       AUTH_SECRET: secureSecret,
+      GOOGLE_CLIENT_IDS: "web-client.apps.googleusercontent.com",
     });
 
     expect(config.dataStore).toBe("postgres");
+  });
+
+  it("rejects the development authentication bypass in production", () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "production",
+        DATA_STORE: "postgres",
+        DATABASE_URL: "postgresql://moveall:password@localhost:5432/moveall",
+        AUTH_SECRET: secureSecret,
+        GOOGLE_CLIENT_IDS: "web-client.apps.googleusercontent.com",
+        DEV_AUTH_BYPASS: "true",
+      }),
+    ).toThrow("production 환경에서는 개발 인증 우회를 활성화할 수 없습니다.");
   });
 });

@@ -42,26 +42,44 @@ UI는 로딩, 빈 결과, 네트워크 오류를 각각 표시합니다. 서버�
 - GET /health
 - POST /v1/auth/register
 - POST /v1/auth/login
+- POST /v1/auth/google
+- POST /v1/auth/development (development 전용)
+- GET /v1/auth/me
+- GET /v1/auth/providers
 - GET /v1/sports
 - GET /v1/knowledge/:sport
 - POST /v1/knowledge/:articleId/feedback
 - GET /v1/routines/me
 - POST /v1/routines
 - POST /v1/workout-sessions
+- GET, PATCH /v1/users/me/profile
+- GET /v1/workout-sessions/me
+- GET /v1/medals/me
 - GET /v1/feed
 - POST /v1/posts
+- GET /v1/posts/me
+- GET /v1/posts/me/archive
+- PATCH, DELETE /v1/posts/:postId
+- POST, DELETE /v1/posts/:postId/archive
 - POST /v1/posts/:postId/comments
+- GET /v1/social/me
+- POST, DELETE /v1/users/:userId/follow
+- DELETE /v1/users/:userId/follower
+- POST /v1/users/:userId/block
+- GET, POST /v1/messages/:userId
 
 인증이 필요한 요청은 Authorization Bearer 헤더를 사용합니다.
 
 ## 데이터 모델
 
-- users: 계정, 비밀번호 해시, 역할
+- users: 계정, 비밀번호 해시, 역할, 프로필 사진
 - sports: 지원 종목과 안전 수준
 - routines: 사용자 루틴, 요일, 순서가 있는 운동 항목
 - workout_sessions: 시작·종료, 자각 운동 강도, 측정값, 데이터 출처
-- posts: 운동 종목과 선택적 운동 세션이 연결된 피드
+- posts: 운동 종목과 선택적 운동 세션이 연결된 게시물·스토리, 보관 상태
 - comments: 게시물 피드백
+- follows, user_blocks: 팔로워·팔로잉과 차단 관계
+- direct_messages: 사용자 간 1:1 메시지
 - knowledge_articles: 버전, 출처, 전문가 검수자와 검수 시각
 - knowledge_feedback: 지식 콘텐츠와 분리된 사용자 상황·경험 피드백
 
@@ -70,7 +88,9 @@ UI는 로딩, 빈 결과, 네트워크 오류를 각각 표시합니다. 서버�
 ## 인증과 권한
 
 - 비밀번호: Argon2id, 메모리 19 MiB, 반복 2회
-- 토큰: HS256, 1시간 만료, subject에 사용자 ID만 저장
+- 토큰: HS256, 30일 만료, subject에 사용자 ID만 저장
+- Google: 플랫폼 ID 토큰을 서버가 허용된 client ID와 issuer 기준으로 검증
+- 개발 자동 로그인: 서버 `NODE_ENV=development`와 앱 `__DEV__`가 모두 참일 때만 사용
 - 역할: member, expert, moderator, admin
 - 현재 공개 API: 종목, 지식, 피드 조회
 - 현재 인증 API: 루틴, 운동 세션, 게시물, 댓글, 지식 상황 피드백 작성

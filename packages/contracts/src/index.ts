@@ -45,6 +45,62 @@ export const LoginInputSchema = z.object({
 });
 export type LoginInput = z.infer<typeof LoginInputSchema>;
 
+export const GoogleLoginInputSchema = z.object({
+  idToken: z.string().min(100).max(10_000),
+});
+export type GoogleLoginInput = z.infer<typeof GoogleLoginInputSchema>;
+
+const blockedNicknameFragments = [
+  "admin",
+  "administrator",
+  "moveallofficial",
+  "moveall_official",
+  "officialmoveall",
+  "관리자",
+  "운영자",
+  "공식계정",
+  "시발",
+  "씨발",
+  "병신",
+  "fuck",
+  "shit",
+] as const;
+
+export const NicknameSchema = z
+  .string()
+  .trim()
+  .min(2, "닉네임은 2자 이상이어야 합니다.")
+  .max(20, "닉네임은 20자 이하여야 합니다.")
+  .regex(/^[가-힣A-Za-z0-9._]+$/u, "한글, 영문, 숫자, 마침표와 밑줄만 사용할 수 있습니다.")
+  .refine((value) => !/^[._]|[._]$/.test(value), {
+    message: "마침표와 밑줄은 닉네임의 처음이나 끝에 사용할 수 없습니다.",
+  })
+  .refine((value) => !/[._]{2}/.test(value), {
+    message: "마침표와 밑줄을 연속으로 사용할 수 없습니다.",
+  })
+  .refine((value) => {
+    const normalized = value.toLowerCase().replace(/[._]/g, "");
+    return !blockedNicknameFragments.some((term) => normalized.includes(term.replace(/[._]/g, "")));
+  }, "비속어, 사칭 또는 운영 계정으로 오인될 수 있는 닉네임은 사용할 수 없습니다.");
+
+export const ProfileUpdateInputSchema = z
+  .object({
+    displayName: NicknameSchema.optional(),
+    avatarDataUri: z
+      .string()
+      .max(800_000, "프로필 사진은 800KB 이하여야 합니다.")
+      .regex(
+        /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/,
+        "JPEG, PNG 또는 WebP 사진만 사용할 수 있습니다.",
+      )
+      .nullable()
+      .optional(),
+  })
+  .refine((value) => value.displayName !== undefined || value.avatarDataUri !== undefined, {
+    message: "변경할 프로필 정보를 입력해 주세요.",
+  });
+export type ProfileUpdateInput = z.infer<typeof ProfileUpdateInputSchema>;
+
 export const AuthSessionSchema = z.object({
   accessToken: z.string(),
   user: z.object({
@@ -95,8 +151,19 @@ export const PostCreateInputSchema = z.object({
   sport: SportTypeSchema,
   content: z.string().trim().min(1).max(2000),
   workoutSessionId: z.uuid().optional(),
+  contentType: z.enum(["post", "story"]).optional(),
 });
 export type PostCreateInput = z.infer<typeof PostCreateInputSchema>;
+
+export const PostUpdateInputSchema = z.object({
+  content: z.string().trim().min(1).max(2000),
+});
+export type PostUpdateInput = z.infer<typeof PostUpdateInputSchema>;
+
+export const DirectMessageCreateInputSchema = z.object({
+  content: z.string().trim().min(1).max(1000),
+});
+export type DirectMessageCreateInput = z.infer<typeof DirectMessageCreateInputSchema>;
 
 export const CommentCreateInputSchema = z.object({
   content: z.string().trim().min(1).max(500),
@@ -144,11 +211,51 @@ export type WorkoutSession = WorkoutSessionCreateInput & {
   createdAt: string;
 };
 
+export type PublicUser = {
+  id: string;
+  displayName: string;
+  avatarDataUri?: string;
+};
+
+export type UserProfile = PublicUser & {
+  email: string;
+};
+
+export type SocialSummary = {
+  followersCount: number;
+  followingCount: number;
+  followers: PublicUser[];
+  following: PublicUser[];
+};
+
+export type FollowStatus = {
+  following: boolean;
+  followersCount: number;
+};
+
+export type MedalTier = "newbie" | "intermediate" | "advanced" | "athlete" | "instructor";
+
+export type Medal = {
+  id: string;
+  sport: SportType;
+  title: string;
+  description: string;
+  tier: MedalTier;
+  earned: boolean;
+  progress: number;
+  target: number;
+  physicalRewardEligible: boolean;
+  earnedAt?: string;
+};
+
 export type FeedPost = PostCreateInput & {
   id: string;
   userId: string;
   authorDisplayName: string;
+  contentType: "post" | "story";
+  likeCount: number;
   createdAt: string;
+  archivedAt?: string;
   comments: Array<{
     id: string;
     userId: string;
@@ -156,6 +263,14 @@ export type FeedPost = PostCreateInput & {
     content: string;
     createdAt: string;
   }>;
+};
+
+export type DirectMessage = {
+  id: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  createdAt: string;
 };
 
 export type KnowledgeArticle = {

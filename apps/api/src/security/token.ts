@@ -13,7 +13,7 @@ export class TokenService {
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setSubject(userId)
       .setIssuedAt()
-      .setExpirationTime("1h")
+      .setExpirationTime("30d")
       .sign(this.secret);
   }
 

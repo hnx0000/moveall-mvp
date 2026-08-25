@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type {
+  DirectMessage,
   FeedPost,
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
   PostCreateInput,
+  PostUpdateInput,
+  ProfileUpdateInput,
+  PublicUser,
   Routine,
   RoutineCreateInput,
   WorkoutSession,
@@ -17,6 +21,10 @@ export class MemoryStore implements AppStore {
   private readonly workouts: WorkoutSession[] = [];
   private readonly posts: FeedPost[] = [];
   private readonly knowledgeFeedback: KnowledgeFeedback[] = [];
+  private readonly oauthIdentities = new Map<string, string>();
+  private readonly follows = new Set<string>();
+  private readonly blocks = new Set<string>();
+  private readonly messages: DirectMessage[] = [];
 
   constructor(options: { seedDemo?: boolean } = {}) {
     if (options.seedDemo) this.seedDemoFeed();
@@ -30,6 +38,34 @@ export class MemoryStore implements AppStore {
     return [...this.users.values()].find((user) => user.email === email) ?? null;
   }
 
+  async isDisplayNameTaken(displayName: string, excludingUserId: string): Promise<boolean> {
+    const normalized = displayName.toLocaleLowerCase("ko-KR");
+    return [...this.users.values()].some(
+      (user) =>
+        user.id !== excludingUserId && user.displayName.toLocaleLowerCase("ko-KR") === normalized,
+    );
+  }
+
+  async updateUserProfile(userId: string, input: ProfileUpdateInput): Promise<User | null> {
+    const user = this.users.get(userId);
+    if (!user) return null;
+    const updated: User = {
+      ...user,
+      ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
+      ...(input.avatarDataUri !== undefined ? { avatarDataUri: input.avatarDataUri } : {}),
+    };
+    this.users.set(userId, updated);
+    if (input.displayName !== undefined) {
+      for (const post of this.posts) {
+        if (post.userId === userId) post.authorDisplayName = input.displayName;
+        for (const comment of post.comments) {
+          if (comment.userId === userId) comment.authorDisplayName = input.displayName;
+        }
+      }
+    }
+    return { ...updated };
+  }
+
   async createUser(input: {
     email: string;
     displayName: string;
@@ -38,9 +74,36 @@ export class MemoryStore implements AppStore {
     const user: User = {
       id: randomUUID(),
       ...input,
+      avatarDataUri: null,
       createdAt: new Date().toISOString(),
     };
     this.users.set(user.id, user);
+    return user;
+  }
+
+  async findOrCreateOAuthUser(input: {
+    provider: "google";
+    subject: string;
+    email: string;
+    displayName: string;
+  }): Promise<User> {
+    const identityKey = `${input.provider}:${input.subject}`;
+    const linkedUserId = this.oauthIdentities.get(identityKey);
+    if (linkedUserId) return this.users.get(linkedUserId)!;
+
+    const existing = await this.findUserByEmail(input.email);
+    const user =
+      existing ??
+      ({
+        id: randomUUID(),
+        email: input.email,
+        displayName: input.displayName,
+        avatarDataUri: null,
+        passwordHash: null,
+        createdAt: new Date().toISOString(),
+      } satisfies User);
+    this.users.set(user.id, user);
+    this.oauthIdentities.set(identityKey, user.id);
     return user;
   }
 
@@ -73,6 +136,13 @@ export class MemoryStore implements AppStore {
     return workout;
   }
 
+  async listWorkoutSessions(userId: string): Promise<WorkoutSession[]> {
+    return this.workouts
+      .filter((workout) => workout.userId === userId)
+      .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt))
+      .map((workout) => ({ ...workout, metrics: { ...workout.metrics } }));
+  }
+
   async createPost(
     userId: string,
     authorDisplayName: string,
@@ -92,6 +162,8 @@ export class MemoryStore implements AppStore {
       userId,
       authorDisplayName,
       ...input,
+      contentType: input.contentType ?? "post",
+      likeCount: 0,
       createdAt: new Date().toISOString(),
       comments: [],
     };
@@ -100,10 +172,123 @@ export class MemoryStore implements AppStore {
   }
 
   async listFeed(): Promise<FeedPost[]> {
-    return this.posts.map((post) => ({
-      ...post,
-      comments: post.comments.map((comment) => ({ ...comment })),
-    }));
+    return this.posts.filter((post) => !post.archivedAt).map((post) => this.clonePost(post));
+  }
+
+  async listPostsByUser(userId: string): Promise<FeedPost[]> {
+    const feed = await this.listFeed();
+    return feed.filter((post) => post.userId === userId);
+  }
+
+  async listArchivedPostsByUser(userId: string): Promise<FeedPost[]> {
+    return this.posts
+      .filter((post) => post.userId === userId && post.archivedAt)
+      .map((post) => this.clonePost(post));
+  }
+
+  async updatePost(
+    userId: string,
+    postId: string,
+    input: PostUpdateInput,
+  ): Promise<FeedPost | null> {
+    const post = this.posts.find((item) => item.id === postId && item.userId === userId);
+    if (!post) return null;
+    post.content = input.content;
+    return this.clonePost(post);
+  }
+
+  async setPostArchived(
+    userId: string,
+    postId: string,
+    archived: boolean,
+  ): Promise<FeedPost | null> {
+    const post = this.posts.find((item) => item.id === postId && item.userId === userId);
+    if (!post) return null;
+    if (archived) post.archivedAt = new Date().toISOString();
+    else delete post.archivedAt;
+    return this.clonePost(post);
+  }
+
+  async deletePost(userId: string, postId: string): Promise<boolean> {
+    const index = this.posts.findIndex((item) => item.id === postId && item.userId === userId);
+    if (index < 0) return false;
+    this.posts.splice(index, 1);
+    return true;
+  }
+
+  async followUser(followerId: string, followingId: string): Promise<boolean> {
+    if (
+      followerId === followingId ||
+      !this.users.has(followingId) ||
+      this.blocks.has(this.followKey(followerId, followingId)) ||
+      this.blocks.has(this.followKey(followingId, followerId))
+    )
+      return false;
+    this.follows.add(this.followKey(followerId, followingId));
+    return true;
+  }
+
+  async unfollowUser(followerId: string, followingId: string): Promise<void> {
+    this.follows.delete(this.followKey(followerId, followingId));
+  }
+
+  async removeFollower(userId: string, followerId: string): Promise<void> {
+    this.follows.delete(this.followKey(followerId, userId));
+  }
+
+  async blockUser(blockerId: string, blockedId: string): Promise<boolean> {
+    if (blockerId === blockedId || !this.users.has(blockedId)) return false;
+    this.blocks.add(this.followKey(blockerId, blockedId));
+    this.follows.delete(this.followKey(blockerId, blockedId));
+    this.follows.delete(this.followKey(blockedId, blockerId));
+    return true;
+  }
+
+  async isFollowing(followerId: string, followingId: string): Promise<boolean> {
+    return this.follows.has(this.followKey(followerId, followingId));
+  }
+
+  async listFollowers(userId: string): Promise<PublicUser[]> {
+    return this.listRelatedUsers(userId, "followers");
+  }
+
+  async listFollowing(userId: string): Promise<PublicUser[]> {
+    return this.listRelatedUsers(userId, "following");
+  }
+
+  async listMessages(userId: string, peerId: string): Promise<DirectMessage[]> {
+    return this.messages
+      .filter(
+        (message) =>
+          (message.senderId === userId && message.recipientId === peerId) ||
+          (message.senderId === peerId && message.recipientId === userId),
+      )
+      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+      .map((message) => ({ ...message }));
+  }
+
+  async createMessage(
+    senderId: string,
+    recipientId: string,
+    content: string,
+  ): Promise<DirectMessage | null> {
+    if (
+      senderId === recipientId ||
+      !this.users.has(recipientId) ||
+      this.blocks.has(this.followKey(senderId, recipientId)) ||
+      this.blocks.has(this.followKey(recipientId, senderId))
+    ) {
+      return null;
+    }
+    const message: DirectMessage = {
+      id: randomUUID(),
+      senderId,
+      recipientId,
+      content,
+      createdAt: new Date().toISOString(),
+    };
+    this.messages.push(message);
+    return { ...message };
   }
 
   async createComment(
@@ -153,14 +338,63 @@ export class MemoryStore implements AppStore {
 
   async close(): Promise<void> {}
 
+  private followKey(followerId: string, followingId: string): string {
+    return `${followerId}:${followingId}`;
+  }
+
+  private listRelatedUsers(userId: string, direction: "followers" | "following"): PublicUser[] {
+    const userIds = [...this.follows].flatMap((key) => {
+      const [followerId, followingId] = key.split(":") as [string, string];
+      if (direction === "followers" && followingId === userId) return [followerId];
+      if (direction === "following" && followerId === userId) return [followingId];
+      return [];
+    });
+    return userIds.flatMap((id) => {
+      const user = this.users.get(id);
+      if (
+        !user ||
+        this.blocks.has(this.followKey(userId, user.id)) ||
+        this.blocks.has(this.followKey(user.id, userId))
+      )
+        return [];
+      return [
+        {
+          id: user.id,
+          displayName: user.displayName,
+          ...(user.avatarDataUri ? { avatarDataUri: user.avatarDataUri } : {}),
+        },
+      ];
+    });
+  }
+
   private seedDemoFeed(): void {
     const now = Date.now();
+    const demoUsers = [
+      { id: randomUUID(), email: "minji@moveall.demo", displayName: "새벽러너 민지" },
+      { id: randomUUID(), email: "jun@moveall.demo", displayName: "페이스메이커 준" },
+      { id: randomUUID(), email: "doyun@moveall.demo", displayName: "클라이머 도윤" },
+      { id: randomUUID(), email: "yuna@moveall.demo", displayName: "리프팅 유나" },
+    ];
+    for (const item of demoUsers) {
+      this.users.set(item.id, {
+        ...item,
+        avatarDataUri: null,
+        passwordHash: null,
+        createdAt: new Date(now - 30 * 86_400_000).toISOString(),
+      });
+    }
+    const [minji, jun, doyun, yuna] = demoUsers as [
+      (typeof demoUsers)[number],
+      (typeof demoUsers)[number],
+      (typeof demoUsers)[number],
+      (typeof demoUsers)[number],
+    ];
     this.knowledgeFeedback.push(
       {
         id: randomUUID(),
         articleId: "running-easy-start",
-        userId: randomUUID(),
-        authorDisplayName: "새벽러너 민지",
+        userId: minji.id,
+        authorDisplayName: minji.displayName,
         content: "처음 2주는 3분 달리기와 2분 걷기를 번갈아 하니 무리 없이 이어갈 수 있었어요.",
         context: "러닝 입문 · 주 3회",
         createdAt: new Date(now - 42 * 60_000).toISOString(),
@@ -168,8 +402,8 @@ export class MemoryStore implements AppStore {
       {
         id: randomUUID(),
         articleId: "hiking-ten-essentials",
-        userId: randomUUID(),
-        authorDisplayName: "클라이머 도윤",
+        userId: doyun.id,
+        authorDisplayName: doyun.displayName,
         content: "해가 짧은 계절에는 짧은 코스라도 휴대전화와 별도로 헤드램프를 챙깁니다.",
         context: "겨울 당일 산행",
         createdAt: new Date(now - 90 * 60_000).toISOString(),
@@ -178,16 +412,18 @@ export class MemoryStore implements AppStore {
     this.posts.push(
       {
         id: randomUUID(),
-        userId: randomUUID(),
-        authorDisplayName: "새벽러너 민지",
+        userId: minji.id,
+        authorDisplayName: minji.displayName,
         sport: "running",
         content: "한강 5K 이지런 완료. 기록보다 호흡에 집중하니 끝까지 편안했어요.",
+        contentType: "post",
+        likeCount: 42,
         createdAt: new Date(now - 18 * 60_000).toISOString(),
         comments: [
           {
             id: randomUUID(),
-            userId: randomUUID(),
-            authorDisplayName: "페이스메이커 준",
+            userId: jun.id,
+            authorDisplayName: jun.displayName,
             content: "꾸준한 이지런이 가장 강한 기반이에요!",
             createdAt: new Date(now - 12 * 60_000).toISOString(),
           },
@@ -195,22 +431,33 @@ export class MemoryStore implements AppStore {
       },
       {
         id: randomUUID(),
-        userId: randomUUID(),
-        authorDisplayName: "클라이머 도윤",
+        userId: doyun.id,
+        authorDisplayName: doyun.displayName,
         sport: "hiking",
         content: "주말 북한산 크루 준비 중입니다. 물과 보온 레이어를 꼭 챙겨요.",
+        contentType: "story",
+        likeCount: 28,
         createdAt: new Date(now - 64 * 60_000).toISOString(),
         comments: [],
       },
       {
         id: randomUUID(),
-        userId: randomUUID(),
-        authorDisplayName: "리프팅 유나",
+        userId: yuna.id,
+        authorDisplayName: yuna.displayName,
         sport: "strength",
         content: "오늘은 중량보다 스쿼트 깊이와 무릎 궤적을 천천히 확인했습니다.",
+        contentType: "post",
+        likeCount: 35,
         createdAt: new Date(now - 3 * 60 * 60_000).toISOString(),
         comments: [],
       },
     );
+  }
+
+  private clonePost(post: FeedPost): FeedPost {
+    return {
+      ...post,
+      comments: post.comments.map((comment) => ({ ...comment })),
+    };
   }
 }

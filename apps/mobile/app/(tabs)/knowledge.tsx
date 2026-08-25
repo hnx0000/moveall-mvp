@@ -1,4 +1,4 @@
-import { sportLabels, sportValues, type SportType } from "@moveall/contracts";
+import { sportLabels, sportValues, type Medal, type SportType } from "@moveall/contracts";
 import { useCallback, useEffect, useState } from "react";
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "../../src/api/client";
@@ -29,6 +29,15 @@ export default function KnowledgeScreen() {
   const [feedback, setFeedback] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [medals, setMedals] = useState<Medal[]>([]);
+
+  useEffect(() => {
+    if (!session) return;
+    void api
+      .medals(session.accessToken)
+      .then(setMedals)
+      .catch(() => setMedals([]));
+  }, [session]);
 
   useEffect(() => {
     setExpandedId(null);
@@ -71,6 +80,39 @@ export default function KnowledgeScreen() {
 
   return (
     <Screen title="">
+      <View style={styles.medalShelfHeader}>
+        <View>
+          <Text style={styles.medalEyebrow}>SPORT MEDALS</Text>
+          <Text style={styles.medalShelfTitle}>나의 운동 컬렉션</Text>
+        </View>
+        <Text style={styles.medalShelfCount}>
+          {medals.filter((medal) => medal.earned).length} / {medals.length}
+        </Text>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={styles.medalShelf}>
+          {medals
+            .filter((medal) => filter === "all" || medal.sport === filter)
+            .slice(0, filter === "all" ? 12 : 3)
+            .map((medal) => (
+              <View key={medal.id} style={styles.medalItem}>
+                <View
+                  style={[
+                    styles.medalSphere,
+                    medal.earned ? styles.medalSphereEarned : styles.medalSphereLocked,
+                  ]}
+                >
+                  <Text style={[styles.medalLetter, !medal.earned && styles.medalLetterLocked]}>
+                    {medal.earned ? sportLabels[medal.sport].slice(0, 1) : "·"}
+                  </Text>
+                </View>
+                <Text numberOfLines={1} style={styles.medalLabel}>
+                  {medal.title}
+                </Text>
+              </View>
+            ))}
+        </View>
+      </ScrollView>
       <View>
         <Text style={styles.pageTitle}>운동 바이블</Text>
         <Text style={styles.pageSubtitle}>
@@ -244,6 +286,29 @@ export default function KnowledgeScreen() {
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
+    medalShelfHeader: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      justifyContent: "space-between",
+    },
+    medalEyebrow: { color: colors.primary, fontSize: 7, fontWeight: "900", letterSpacing: 1 },
+    medalShelfTitle: { color: colors.ink, fontSize: 14, fontWeight: "900", marginTop: 3 },
+    medalShelfCount: { color: colors.muted, fontSize: 8, fontWeight: "800" },
+    medalShelf: { flexDirection: "row", gap: 12, paddingRight: 16 },
+    medalItem: { width: 57, alignItems: "center", gap: 5 },
+    medalSphere: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+    },
+    medalSphereEarned: { backgroundColor: colors.primary, borderColor: colors.primary },
+    medalSphereLocked: { backgroundColor: colors.surfaceMuted, borderColor: colors.border },
+    medalLetter: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
+    medalLetterLocked: { color: colors.muted },
+    medalLabel: { width: 57, color: colors.muted, fontSize: 7, textAlign: "center" },
     pageTitle: { color: colors.ink, fontSize: 22, fontWeight: "900" },
     pageSubtitle: { color: colors.muted, fontSize: 10, lineHeight: 16, marginTop: 5 },
     filters: { flexDirection: "row", gap: 7, paddingVertical: 2, paddingRight: 16 },

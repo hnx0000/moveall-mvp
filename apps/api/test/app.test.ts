@@ -9,6 +9,8 @@ const config: AppConfig = {
   port: 3000,
   dataStore: "memory",
   authSecret: "test-secret-that-is-at-least-32-characters",
+  googleClientIds: ["test-google-client.apps.googleusercontent.com"],
+  devAuthBypass: false,
   corsOrigins: ["http://localhost:8081"],
 };
 
@@ -65,6 +67,211 @@ describe("MoveAll API", () => {
     expect(routine.json()).toMatchObject({
       ok: true,
       data: { title: "첫 5K 준비", sport: "running" },
+    });
+    await app.close();
+  });
+
+  it("verifies a Google identity, persists the account, and validates the session", async () => {
+    const app = await createApp({
+      config,
+      store,
+      googleTokenVerifier: async (_idToken, clientIds) => {
+        expect(clientIds).toEqual(config.googleClientIds);
+        return {
+          subject: "google-subject-123",
+          email: "runner@gmail.com",
+          displayName: "구글 러너",
+        };
+      },
+    });
+    const login = await app.inject({
+      method: "POST",
+      url: "/v1/auth/google",
+      payload: { idToken: "x".repeat(120) },
+    });
+    expect(login.statusCode).toBe(200);
+    const token = login.json().data.accessToken as string;
+
+    const me = await app.inject({
+      method: "GET",
+      url: "/v1/auth/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(me.statusCode).toBe(200);
+    expect(me.json()).toMatchObject({
+      ok: true,
+      data: { email: "runner@gmail.com", displayName: "구글 러너" },
+    });
+    await app.close();
+  });
+
+  it("issues a server-verified session only when the development bypass is enabled", async () => {
+    const app = await createApp({
+      config: { ...config, nodeEnv: "development", devAuthBypass: true },
+      store,
+    });
+    const login = await app.inject({ method: "POST", url: "/v1/auth/development" });
+    expect(login.statusCode).toBe(200);
+    expect(login.json()).toMatchObject({
+      ok: true,
+      data: { user: { email: "developer@moveall.dev", displayName: "MOVE 개발자" } },
+    });
+
+    const me = await app.inject({
+      method: "GET",
+      url: "/v1/auth/me",
+      headers: { authorization: `Bearer ${login.json().data.accessToken as string}` },
+    });
+    expect(me.statusCode).toBe(200);
+
+    const headers = { authorization: `Bearer ${login.json().data.accessToken as string}` };
+    const [workouts, routines, posts, social] = await Promise.all([
+      app.inject({ method: "GET", url: "/v1/workout-sessions/me", headers }),
+      app.inject({ method: "GET", url: "/v1/routines/me", headers }),
+      app.inject({ method: "GET", url: "/v1/posts/me", headers }),
+      app.inject({ method: "GET", url: "/v1/social/me", headers }),
+    ]);
+    expect(workouts.json().data).toHaveLength(3);
+    expect(routines.json().data).toHaveLength(3);
+    expect(posts.json().data).toHaveLength(3);
+    expect(social.json().data).toMatchObject({ followersCount: 3, followingCount: 3 });
+
+    const invalidNickname = await app.inject({
+      method: "PATCH",
+      url: "/v1/users/me/profile",
+      headers,
+      payload: { displayName: "moveall_official" },
+    });
+    expect(invalidNickname.statusCode).toBe(400);
+    const updatedProfile = await app.inject({
+      method: "PATCH",
+      url: "/v1/users/me/profile",
+      headers,
+      payload: { displayName: "move.runner_01" },
+    });
+    expect(updatedProfile.json()).toMatchObject({
+      ok: true,
+      data: { displayName: "move.runner_01" },
+    });
+
+    const postId = posts.json().data[0].id as string;
+    const archived = await app.inject({
+      method: "POST",
+      url: `/v1/posts/${postId}/archive`,
+      headers,
+    });
+    expect(archived.statusCode).toBe(200);
+    expect(
+      (await app.inject({ method: "GET", url: "/v1/posts/me/archive", headers })).json().data,
+    ).toHaveLength(1);
+
+    const restored = await app.inject({
+      method: "DELETE",
+      url: `/v1/posts/${postId}/archive`,
+      headers,
+    });
+    expect(restored.statusCode).toBe(200);
+    const edited = await app.inject({
+      method: "PATCH",
+      url: `/v1/posts/${postId}`,
+      headers,
+      payload: { content: "수정한 운동 인증 기록" },
+    });
+    expect(edited.json()).toMatchObject({
+      ok: true,
+      data: { content: "수정한 운동 인증 기록" },
+    });
+
+    const friendId = social.json().data.followers[0].id as string;
+    const message = await app.inject({
+      method: "POST",
+      url: `/v1/messages/${friendId}`,
+      headers,
+      payload: { content: "다음 운동도 같이 해요." },
+    });
+    expect(message.statusCode).toBe(201);
+    expect(
+      (await app.inject({ method: "GET", url: `/v1/messages/${friendId}`, headers })).json().data,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ content: "다음 운동도 같이 해요." })]),
+    );
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/v1/users/${friendId}/block`,
+      headers,
+    });
+    expect(blocked.statusCode).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/v1/messages/${friendId}`,
+          headers,
+          payload: { content: "차단 이후에는 전송되지 않아야 합니다." },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await app.close();
+  });
+
+  it("stores workouts, earns sport medals, and follows another user", async () => {
+    const app = await createApp({ config, store });
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: { email: "first@example.com", password: "very-secure-1234", displayName: "첫 러너" },
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "second@example.com",
+        password: "very-secure-1234",
+        displayName: "둘째 러너",
+      },
+    });
+    const token = first.json().data.accessToken as string;
+    const secondId = second.json().data.user.id as string;
+
+    const workout = await app.inject({
+      method: "POST",
+      url: "/v1/workout-sessions",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        sport: "running",
+        startedAt: "2026-08-25T01:00:00.000Z",
+        endedAt: "2026-08-25T01:30:00.000Z",
+        perceivedExertion: 5,
+        metrics: { distanceKm: 5.24 },
+        source: "manual",
+      },
+    });
+    expect(workout.statusCode).toBe(201);
+
+    const medals = await app.inject({
+      method: "GET",
+      url: "/v1/medals/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(medals.json().data).toContainEqual(
+      expect.objectContaining({ id: "running-1", earned: true, progress: 1 }),
+    );
+
+    const follow = await app.inject({
+      method: "POST",
+      url: `/v1/users/${secondId}/follow`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(follow.statusCode).toBe(201);
+    const social = await app.inject({
+      method: "GET",
+      url: "/v1/social/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(social.json()).toMatchObject({
+      ok: true,
+      data: { followingCount: 1, following: [{ id: secondId, displayName: "둘째 러너" }] },
     });
     await app.close();
   });

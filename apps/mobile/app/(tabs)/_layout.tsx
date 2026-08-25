@@ -1,5 +1,5 @@
 import { Tabs } from "expo-router";
-import { StyleSheet, Text, View, type ColorValue } from "react-native";
+import { StyleSheet, View, type ColorValue } from "react-native";
 import { type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
@@ -18,9 +18,7 @@ export default function TabsLayout() {
         tabBarShowLabel: false,
         tabBarIcon: ({ color }) =>
           route.name === "routines" ? (
-            <View style={styles.recordIcon}>
-              <Text style={styles.recordPlus}>＋</Text>
-            </View>
+            <RecordTabIcon styles={styles} />
           ) : (
             <TabGlyph color={color} name={route.name} styles={styles} />
           ),
@@ -90,7 +88,25 @@ function TabGlyph({
   }
   return (
     <View style={styles.tabIconFrame}>
-      <Text style={[styles.icon, { color }]}>▤</Text>
+      <View style={styles.bookIcon}>
+        <View style={[styles.bookPage, styles.bookPageLeft, { borderColor: color }]} />
+        <View style={[styles.bookPage, styles.bookPageRight, { borderColor: color }]} />
+        <View style={[styles.bookSpine, { backgroundColor: color }]} />
+      </View>
+    </View>
+  );
+}
+
+function RecordTabIcon({ styles }: { styles: ReturnType<typeof createStyles> }) {
+  return (
+    <View style={styles.recordIcon}>
+      <View style={styles.recordRouteLineLeft} />
+      <View style={styles.recordRouteLineRight} />
+      <View style={styles.recordStartDot} />
+      <View style={styles.recordMiddleDot} />
+      <View style={styles.recordFinishPin}>
+        <View style={styles.recordFinishCenter} />
+      </View>
     </View>
   );
 }
@@ -111,14 +127,13 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "center",
     },
-    icon: { fontWeight: "500", fontSize: 22, lineHeight: 24 },
     homeRoof: {
       position: "absolute",
       top: 3,
       width: 15,
       height: 15,
-      borderLeftWidth: 1.5,
-      borderTopWidth: 1.5,
+      borderLeftWidth: 1.8,
+      borderTopWidth: 1.8,
       borderTopLeftRadius: 2,
       transform: [{ rotate: "45deg" }],
     },
@@ -127,7 +142,7 @@ function createStyles(colors: ThemeColors) {
       bottom: 2,
       width: 17,
       height: 12,
-      borderWidth: 1.5,
+      borderWidth: 1.8,
       borderTopWidth: 0,
       borderBottomLeftRadius: 2,
       borderBottomRightRadius: 2,
@@ -137,13 +152,13 @@ function createStyles(colors: ThemeColors) {
     homeDoor: {
       width: 5,
       height: 7,
-      borderWidth: 1.5,
+      borderWidth: 1.8,
       borderBottomWidth: 0,
     },
     feedCircle: {
       width: 22,
       height: 22,
-      borderWidth: 1.3,
+      borderWidth: 1.8,
       borderRadius: 11,
       position: "relative",
     },
@@ -177,12 +192,46 @@ function createStyles(colors: ThemeColors) {
       borderBottomLeftRadius: 1.5,
       borderBottomRightRadius: 1.5,
     },
-    personIcon: { width: 22, height: 23, alignItems: "center" },
-    personHead: { width: 8, height: 8, borderWidth: 1.3, borderRadius: 4 },
+    bookIcon: {
+      width: 22,
+      height: 21,
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "center",
+      position: "relative",
+    },
+    bookPage: {
+      width: 11,
+      height: 19,
+      borderWidth: 1.8,
+      backgroundColor: "transparent",
+    },
+    bookPageLeft: {
+      borderTopLeftRadius: 3,
+      borderBottomLeftRadius: 3,
+      borderRightWidth: 0,
+      transform: [{ skewY: "5deg" }],
+    },
+    bookPageRight: {
+      borderTopRightRadius: 3,
+      borderBottomRightRadius: 3,
+      borderLeftWidth: 0,
+      transform: [{ skewY: "-5deg" }],
+    },
+    bookSpine: {
+      position: "absolute",
+      top: 1,
+      bottom: 1,
+      left: 10.1,
+      width: 1.8,
+      borderRadius: 1,
+    },
+    personIcon: { width: 24, height: 24, alignItems: "center", paddingTop: 1 },
+    personHead: { width: 8.5, height: 8.5, borderWidth: 1.8, borderRadius: 5 },
     personBody: {
-      width: 18,
+      width: 19,
       height: 12,
-      borderWidth: 1.3,
+      borderWidth: 1.8,
       borderBottomWidth: 0,
       borderTopLeftRadius: 10,
       borderTopRightRadius: 10,
@@ -196,6 +245,61 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "center",
     },
-    recordPlus: { color: "#FFFFFF", fontWeight: "300", fontSize: 27, lineHeight: 29 },
+    recordRouteLineLeft: {
+      position: "absolute",
+      left: 10,
+      top: 21,
+      width: 11,
+      height: 2.2,
+      borderRadius: 2,
+      backgroundColor: "#FFFFFF",
+      transform: [{ rotate: "-36deg" }],
+    },
+    recordRouteLineRight: {
+      position: "absolute",
+      left: 19,
+      top: 16,
+      width: 10,
+      height: 2.2,
+      borderRadius: 2,
+      backgroundColor: "#FFFFFF",
+      transform: [{ rotate: "27deg" }],
+    },
+    recordStartDot: {
+      position: "absolute",
+      left: 8,
+      bottom: 10,
+      width: 5,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: "#FFFFFF",
+    },
+    recordMiddleDot: {
+      position: "absolute",
+      left: 19,
+      top: 16,
+      width: 5,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: "#FFFFFF",
+    },
+    recordFinishPin: {
+      position: "absolute",
+      right: 8,
+      top: 8,
+      width: 9,
+      height: 9,
+      borderWidth: 2,
+      borderColor: "#FFFFFF",
+      borderRadius: 5,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    recordFinishCenter: {
+      width: 2.5,
+      height: 2.5,
+      borderRadius: 2,
+      backgroundColor: "#FFFFFF",
+    },
   });
 }
