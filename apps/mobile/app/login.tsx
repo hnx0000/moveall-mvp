@@ -22,7 +22,7 @@ const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 const androidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
 const placeholderClientId = "google-oauth-client-not-configured.apps.googleusercontent.com";
-const demoMode = process.env.EXPO_PUBLIC_DEMO_MODE === "true";
+const demoMode = process.env.EXPO_PUBLIC_LOGIN_REQUIRED !== "true";
 
 export default function LoginScreen() {
   const { colors } = useAppTheme();

@@ -178,8 +178,6 @@ const liveApi = {
     }),
 };
 
-const usePreviewApi =
-  process.env.EXPO_PUBLIC_DEMO_MODE === "true" ||
-  (__DEV__ && process.env.EXPO_PUBLIC_DEV_AUTH_BYPASS !== "false");
+const usePreviewApi = process.env.EXPO_PUBLIC_LOGIN_REQUIRED !== "true";
 
 export const api = usePreviewApi ? demoApi : liveApi;
