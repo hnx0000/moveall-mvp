@@ -18,7 +18,9 @@ import { Platform } from "react-native";
 import { api } from "../api/client";
 
 const storageKey = "moveall-auth-session";
-const developmentAuthBypass = __DEV__ && process.env.EXPO_PUBLIC_DEV_AUTH_BYPASS !== "false";
+const authenticationBypass =
+  process.env.EXPO_PUBLIC_DEMO_MODE === "true" ||
+  (__DEV__ && process.env.EXPO_PUBLIC_DEV_AUTH_BYPASS !== "false");
 
 type AuthContextValue = {
   session: AuthSession | null;
@@ -74,7 +76,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           }
         }
 
-        if (!developmentAuthBypass) return null;
+        if (!authenticationBypass) return null;
 
         try {
           const developmentSession = await api.devLogin();

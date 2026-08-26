@@ -170,7 +170,7 @@ http://10.0.2.2:3000 으로 변경해야 할 수 있습니다. 실제 기기에�
 
 ## 환경 분리
 
-- development: 메모리 저장소 기본, 상세 개발 로그
+- development: 로그인 없이 내장 MVP 세션 사용, 메모리 저장소 기본, 상세 개발 로그
 - test: Fastify 주입 테스트와 독립 메모리 저장소
 - production: PostgreSQL과 별도 비밀키 사용, info 수준 구조화 로그
 
