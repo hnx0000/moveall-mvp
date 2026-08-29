@@ -5,7 +5,7 @@ export function PetMascot({ size = 132 }: { size?: number }) {
   return (
     <View style={[styles.glow, { width: size, height: size }]}>
       <Image
-        accessibilityLabel="MoveAll 운동 메이트 구름이"
+        accessibilityLabel="GROOV 운동 메이트 구름이"
         resizeMode="contain"
         source={mascotImage}
         style={{ width: size, height: size }}

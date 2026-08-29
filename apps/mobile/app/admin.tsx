@@ -86,7 +86,7 @@ export default function AdminScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.topBar}>
           <View>
-            <Text style={styles.brand}>MOVEALL</Text>
+            <Text style={styles.brand}>GROOV</Text>
             <Text style={styles.adminLabel}>PRODUCT CONTROL</Text>
           </View>
           <Pressable
@@ -351,7 +351,7 @@ function PageCard({
     <View style={[styles.pageCard, isWide && styles.pageCardWide]}>
       <View style={styles.pageMock}>
         <View style={styles.mockTop}>
-          <Text style={styles.mockBrand}>MOVEALL</Text>
+          <Text style={styles.mockBrand}>GROOV</Text>
           <View style={styles.mockCircle} />
         </View>
         <View style={styles.mockTitleLine} />

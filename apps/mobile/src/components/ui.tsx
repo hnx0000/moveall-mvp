@@ -63,7 +63,7 @@ export function Screen({
 
 export function Wordmark({ size = 20 }: { size?: number }) {
   const { colors } = useAppTheme();
-  return <Text style={[typography.wordmark(size), { color: colors.primary }]}>MOVEALL</Text>;
+  return <Text style={[typography.wordmark(size), { color: colors.primary }]}>GROOV</Text>;
 }
 
 type AppTextProps = TextProps & { size?: number; color?: string };

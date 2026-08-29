@@ -63,7 +63,7 @@ export function RecordsScreen({ sport }: { sport?: SportType }) {
           <Pressable onPress={() => router.back()}>
             <Text style={styles.back}>← BACK</Text>
           </Pressable>
-          <Text style={styles.brand}>MOVEALL</Text>
+          <Text style={styles.brand}>GROOV</Text>
         </View>
         <Text style={styles.eyebrow}>MY PERFORMANCE</Text>
         <Text style={styles.title}>{title} 아카이브</Text>

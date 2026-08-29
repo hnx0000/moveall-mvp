@@ -88,7 +88,7 @@ export function ConnectionsScreen({ mode }: { mode: "followers" | "following" })
           <Pressable onPress={() => router.back()}>
             <Text style={styles.back}>← BACK</Text>
           </Pressable>
-          <Text style={styles.brand}>MOVEALL</Text>
+          <Text style={styles.brand}>GROOV</Text>
         </View>
         <Text style={styles.eyebrow}>SOCIAL CONTROL</Text>
         <Text style={styles.title}>{mode === "followers" ? "팔로워" : "팔로잉"}</Text>
@@ -120,7 +120,7 @@ export function ConnectionsScreen({ mode }: { mode: "followers" | "following" })
               )}
               <View style={styles.personCopy}>
                 <Text style={styles.name}>{person.displayName}</Text>
-                <Text style={styles.status}>MOVEALL MEMBER</Text>
+                <Text style={styles.status}>GROOV MEMBER</Text>
               </View>
               <View style={styles.actions}>
                 <Pressable

@@ -65,7 +65,7 @@ function SessionGate() {
   if (restoring) {
     return (
       <View style={[styles.splash, { backgroundColor: colors.background }]}>
-        <Text style={[styles.brand, { color: colors.primary }]}>MOVEALL</Text>
+        <Text style={[styles.brand, { color: colors.primary }]}>GROOV</Text>
         <ActivityIndicator color={colors.primary} />
         <Text style={[styles.status, { color: colors.muted }]}>안전하게 로그인 확인 중</Text>
       </View>

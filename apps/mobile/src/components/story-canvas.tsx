@@ -88,7 +88,7 @@ export function StoryCanvas({
         </View>
       ) : null}
       <View style={styles.topLine}>
-        <Text style={styles.brand}>MOVEALL</Text>
+        <Text style={styles.brand}>GROOV</Text>
         <Text style={styles.sport}>{sportLabel}</Text>
       </View>
       {layers.includes("text") && customText.trim() ? (

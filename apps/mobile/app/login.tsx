@@ -81,7 +81,7 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.topBar}>
-          <Text style={styles.brand}>MOVEALL</Text>
+          <Text style={styles.brand}>GROOV</Text>
           <View style={styles.securePill}>
             <View style={styles.secureDot} />
             <Text style={styles.secureText}>SECURE SIGN IN</Text>
@@ -149,8 +149,8 @@ export default function LoginScreen() {
             </View>
           ) : null}
           <Text style={styles.legal}>
-            계속하면 MoveAll의 이용 정책과 개인정보 처리 원칙에 동의하게 됩니다. Google 비밀번호는
-            MoveAll 서버에 전달되거나 저장되지 않습니다.
+            계속하면 GROOV의 이용 정책과 개인정보 처리 원칙에 동의하게 됩니다. Google 비밀번호는
+            GROOV 서버에 전달되거나 저장되지 않습니다.
           </Text>
         </View>
       </ScrollView>

@@ -65,7 +65,7 @@ describe("shared API contracts", () => {
 
   it("accepts a localized handle and rejects reserved or abusive nicknames", () => {
     expect(NicknameSchema.safeParse("러너.minji_24").success).toBe(true);
-    expect(NicknameSchema.safeParse("moveall_official").success).toBe(false);
+    expect(NicknameSchema.safeParse("groov_official").success).toBe(false);
     expect(NicknameSchema.safeParse("욕설_씨발").success).toBe(false);
     expect(NicknameSchema.safeParse("공백 닉네임").success).toBe(false);
   });

@@ -419,10 +419,10 @@ export class MemoryStore implements AppStore {
   private seedDemoFeed(): void {
     const now = Date.now();
     const demoUsers = [
-      { id: randomUUID(), email: "minji@moveall.demo", displayName: "새벽러너 민지" },
-      { id: randomUUID(), email: "jun@moveall.demo", displayName: "페이스메이커 준" },
-      { id: randomUUID(), email: "doyun@moveall.demo", displayName: "클라이머 도윤" },
-      { id: randomUUID(), email: "yuna@moveall.demo", displayName: "리프팅 유나" },
+      { id: randomUUID(), email: "minji@groov.demo", displayName: "새벽러너 민지" },
+      { id: randomUUID(), email: "jun@groov.demo", displayName: "페이스메이커 준" },
+      { id: randomUUID(), email: "doyun@groov.demo", displayName: "클라이머 도윤" },
+      { id: randomUUID(), email: "yuna@groov.demo", displayName: "리프팅 유나" },
     ];
     for (const item of demoUsers) {
       this.users.set(item.id, {

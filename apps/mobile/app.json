@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "MoveAll",
+    "name": "GROOV",
     "slug": "moveall",
     "version": "0.1.0",
     "orientation": "portrait",
@@ -26,14 +26,14 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "MoveAll이 운동 경로와 거리를 기록하려면 현재 위치 접근이 필요합니다."
+          "locationWhenInUsePermission": "GROOV가 운동 경로와 거리를 기록하려면 현재 위치 접근이 필요합니다."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "MoveAll이 운동 인증샷을 선택하려면 사진 보관함 접근이 필요합니다.",
-          "cameraPermission": "MoveAll이 운동 인증샷을 촬영하려면 카메라 접근이 필요합니다.",
+          "photosPermission": "GROOV가 운동 인증샷을 선택하려면 사진 보관함 접근이 필요합니다.",
+          "cameraPermission": "GROOV가 운동 인증샷을 촬영하려면 카메라 접근이 필요합니다.",
           "microphonePermission": false
         }
       ]

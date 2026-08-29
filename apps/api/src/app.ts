@@ -138,9 +138,9 @@ export async function createApp(dependencies: AppDependencies) {
     ]);
 
     const friendSeeds = [
-      { email: "minji@moveall.demo", displayName: "runner.minji" },
-      { email: "jun@moveall.demo", displayName: "pace_jun" },
-      { email: "yuna@moveall.demo", displayName: "lift.yuna" },
+      { email: "minji@groov.demo", displayName: "runner.minji" },
+      { email: "jun@groov.demo", displayName: "pace_jun" },
+      { email: "yuna@groov.demo", displayName: "lift.yuna" },
     ];
     const friends = await Promise.all(
       friendSeeds.map(
@@ -236,7 +236,7 @@ export async function createApp(dependencies: AppDependencies) {
   app.get("/health", async () =>
     success({
       status: "ok",
-      service: "moveall-api",
+      service: "groov-api",
       timestamp: new Date().toISOString(),
     }),
   );
@@ -291,12 +291,12 @@ export async function createApp(dependencies: AppDependencies) {
       "/v1/auth/development",
       { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
       async () => {
-        const email = "developer@moveall.dev";
+        const email = "developer@groov.dev";
         let user = await dependencies.store.findUserByEmail(email);
         if (!user) {
           user = await dependencies.store.createUser({
             email,
-            displayName: "MOVE 개발자",
+            displayName: "GROOV 개발자",
             passwordHash: await hashPassword(randomUUID() + randomUUID()),
           });
           await seedDevelopmentAccount(user);

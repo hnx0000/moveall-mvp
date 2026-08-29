@@ -8,11 +8,11 @@ $pnpmPath = Join-Path $runtimePath "bin\fallback\pnpm.cmd"
 $appUrl = "http://localhost:8081/"
 
 if (-not (Test-Path -LiteralPath $nodePath)) {
-  throw "MOVEALL 실행에 필요한 Node.js를 찾지 못했습니다: $nodePath"
+  throw "GROOV 실행에 필요한 Node.js를 찾지 못했습니다: $nodePath"
 }
 
 if (-not (Test-Path -LiteralPath $pnpmPath)) {
-  throw "MOVEALL 실행에 필요한 pnpm을 찾지 못했습니다: $pnpmPath"
+  throw "GROOV 실행에 필요한 pnpm을 찾지 못했습니다: $pnpmPath"
 }
 
 function Test-LocalPort {
@@ -59,4 +59,4 @@ while ([DateTime]::UtcNow -lt $deadline) {
   Start-Sleep -Milliseconds 500
 }
 
-throw "MOVEALL 서버가 제한 시간 안에 시작되지 않았습니다."
+throw "GROOV 서버가 제한 시간 안에 시작되지 않았습니다."

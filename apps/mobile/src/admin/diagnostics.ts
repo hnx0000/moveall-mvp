@@ -49,7 +49,7 @@ const checks: DiagnosticCheck[] = [
         data?: { service?: string; status?: string };
       };
       if (!payload.ok || payload.data?.status !== "ok") throw new Error("상태 응답 형식 오류");
-      return `${payload.data.service ?? "moveall-api"} 정상`;
+      return `${payload.data.service ?? "groov-api"} 정상`;
     },
   },
   {

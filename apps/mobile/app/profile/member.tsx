@@ -47,7 +47,7 @@ export default function MemberFeedPage() {
           <Pressable onPress={() => router.back()}>
             <Text style={[styles.back, { color: colors.muted }]}>← BACK</Text>
           </Pressable>
-          <Text style={[styles.brand, { color: colors.primary }]}>MOVEALL</Text>
+          <Text style={[styles.brand, { color: colors.primary }]}>GROOV</Text>
         </View>
         {!user && !error ? <ActivityIndicator color={colors.primary} /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}

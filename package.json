@@ -2,7 +2,7 @@
   "name": "moveall",
   "version": "0.1.0",
   "private": true,
-  "description": "MoveAll 운동 루틴, 기록, 피드백 및 커뮤니티 플랫폼",
+  "description": "GROOV 운동 루틴, 기록, 피드백 및 커뮤니티 플랫폼",
   "packageManager": "pnpm@11.19.0",
   "engines": {
     "node": ">=22.13 <25"

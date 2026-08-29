@@ -204,7 +204,7 @@ const archived: FeedPost[] = [];
 const messages: DirectMessage[] = [];
 let avatarDataUri: string | undefined;
 
-let activeSession: AuthSession = sessionFor("mvp@moveall.demo", "MVP 점검자");
+let activeSession: AuthSession = sessionFor("mvp@groov.demo", "MVP 점검자");
 
 export const demoApi = {
   register: async (input: RegisterInput) => {
@@ -212,7 +212,7 @@ export const demoApi = {
     return activeSession;
   },
   login: async (input: LoginInput) => {
-    activeSession = sessionFor(input.email, input.email.split("@")[0] || "MoveAll 사용자");
+    activeSession = sessionFor(input.email, input.email.split("@")[0] || "GROOV 사용자");
     return activeSession;
   },
   googleLogin: async (_input: GoogleLoginInput) => activeSession,

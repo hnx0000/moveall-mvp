@@ -316,7 +316,7 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.topBar}>
-          <Text style={styles.brand}>MOVEALL</Text>
+          <Text style={styles.brand}>GROOV</Text>
           <Pressable accessibilityRole="button" onPress={() => router.push("/admin")}>
             <Text style={styles.adminLink}>ADMIN ↗</Text>
           </Pressable>

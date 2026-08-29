@@ -14,7 +14,7 @@ const config: AppConfig = {
   corsOrigins: ["http://localhost:8081"],
 };
 
-describe("MoveAll API", () => {
+describe("GROOV API", () => {
   let store: MemoryStore;
 
   beforeEach(() => {
@@ -192,7 +192,7 @@ describe("MoveAll API", () => {
     expect(login.statusCode).toBe(200);
     expect(login.json()).toMatchObject({
       ok: true,
-      data: { user: { email: "developer@moveall.dev", displayName: "MOVE 개발자" } },
+      data: { user: { email: "developer@groov.dev", displayName: "GROOV 개발자" } },
     });
 
     const me = await app.inject({
@@ -218,7 +218,7 @@ describe("MoveAll API", () => {
       method: "PATCH",
       url: "/v1/users/me/profile",
       headers,
-      payload: { displayName: "moveall_official" },
+      payload: { displayName: "groov_official" },
     });
     expect(invalidNickname.statusCode).toBe(400);
     const updatedProfile = await app.inject({

@@ -109,7 +109,7 @@ export function ContentScreen({ archived = false }: { archived?: boolean }) {
               <Text style={styles.archiveLink}>ARCHIVE ↗</Text>
             </Pressable>
           ) : (
-            <Text style={styles.brand}>MOVEALL</Text>
+            <Text style={styles.brand}>GROOV</Text>
           )}
         </View>
         <Text style={styles.eyebrow}>{archived ? "PRIVATE ARCHIVE" : "CONTENT CONTROL"}</Text>

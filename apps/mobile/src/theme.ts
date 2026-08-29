@@ -1,7 +1,7 @@
 import { Platform, type TextStyle, type ViewStyle } from "react-native";
 
 /**
- * MOVEALL 디자인 토큰.
+ * GROOV 디자인 토큰.
  * moveall-design-export의 색상/간격/타이포그래피를 기존 테마 전환 구조에 맞게 통합합니다.
  */
 export const lightColors = {
