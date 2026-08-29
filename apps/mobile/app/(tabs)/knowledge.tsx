@@ -1,15 +1,29 @@
 import { sportLabels, sportValues, type Medal, type SportType } from "@moveall/contracts";
+import { Bookmark } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Image,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import bibleDumbbellImage from "../../assets/images/bible-dumbbell.jpg";
+import bibleRunImage from "../../assets/images/bible-run.jpg";
+import bibleWaterImage from "../../assets/images/bible-water.jpg";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
-import { ArticleArtwork } from "../../src/components/workout-artwork";
 import { useAsyncData } from "../../src/hooks/use-async-data";
-import { type ThemeColors } from "../../src/theme";
+import { fonts, radius, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
 type KnowledgeFilter = "all" | SportType;
+
+const articleImages = [bibleRunImage, bibleWaterImage, bibleDumbbellImage];
 
 export default function KnowledgeScreen() {
   const { session } = useAuth();
@@ -159,9 +173,12 @@ export default function KnowledgeScreen() {
                 onPress={() => toggleBookmark(article.id)}
                 style={styles.bookmark}
               >
-                <Text style={[styles.bookmarkText, bookmarked && styles.bookmarkActive]}>
-                  {bookmarked ? "▣" : "▢"}
-                </Text>
+                <Bookmark
+                  color={bookmarked ? colors.primary : colors.muted}
+                  fill={bookmarked ? colors.primarySoft : "transparent"}
+                  size={20}
+                  strokeWidth={2}
+                />
               </Pressable>
             </View>
             <Pressable
@@ -176,7 +193,11 @@ export default function KnowledgeScreen() {
                   {article.summary}
                 </Text>
               </View>
-              <ArticleArtwork colors={colors} kind={index % 3} />
+              <Image
+                accessibilityLabel={`${article.title} 대표 이미지`}
+                source={articleImages[index % articleImages.length]}
+                style={styles.articleThumb}
+              />
             </Pressable>
 
             {expanded ? (
@@ -291,48 +312,60 @@ function createStyles(colors: ThemeColors) {
       alignItems: "flex-end",
       justifyContent: "space-between",
     },
-    medalEyebrow: { color: colors.primary, fontSize: 7, fontWeight: "900", letterSpacing: 1 },
-    medalShelfTitle: { color: colors.ink, fontSize: 14, fontWeight: "900", marginTop: 3 },
-    medalShelfCount: { color: colors.muted, fontSize: 8, fontWeight: "800" },
+    medalEyebrow: { color: colors.primary, fontSize: 8, fontFamily: fonts.bold, letterSpacing: 1 },
+    medalShelfTitle: { color: colors.ink, fontSize: 16, fontFamily: fonts.bold, marginTop: 3 },
+    medalShelfCount: { color: colors.muted, fontSize: 9, fontFamily: fonts.semibold },
     medalShelf: { flexDirection: "row", gap: 12, paddingRight: 16 },
     medalItem: { width: 57, alignItems: "center", gap: 5 },
     medalSphere: {
       width: 50,
       height: 50,
-      borderRadius: 25,
+      borderRadius: radius.full,
       alignItems: "center",
       justifyContent: "center",
       borderWidth: 1,
     },
     medalSphereEarned: { backgroundColor: colors.primary, borderColor: colors.primary },
     medalSphereLocked: { backgroundColor: colors.surfaceMuted, borderColor: colors.border },
-    medalLetter: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
+    medalLetter: { color: "#FFFFFF", fontSize: 13, fontFamily: fonts.bold },
     medalLetterLocked: { color: colors.muted },
-    medalLabel: { width: 57, color: colors.muted, fontSize: 7, textAlign: "center" },
-    pageTitle: { color: colors.ink, fontSize: 22, fontWeight: "900" },
-    pageSubtitle: { color: colors.muted, fontSize: 10, lineHeight: 16, marginTop: 5 },
-    filters: { flexDirection: "row", gap: 7, paddingVertical: 2, paddingRight: 16 },
+    medalLabel: {
+      width: 57,
+      color: colors.muted,
+      fontSize: 8,
+      fontFamily: fonts.regular,
+      textAlign: "center",
+    },
+    pageTitle: { color: colors.ink, fontSize: 24, fontFamily: fonts.bold },
+    pageSubtitle: {
+      color: colors.muted,
+      fontSize: 12,
+      fontFamily: fonts.regular,
+      lineHeight: 19,
+      marginTop: 5,
+    },
+    filters: { flexDirection: "row", gap: space[2], paddingVertical: 2, paddingRight: space[4] },
     filter: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 16,
+      borderRadius: radius.full,
       paddingHorizontal: 12,
       paddingVertical: 7,
     },
     filterActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    filterText: { color: colors.ink, fontSize: 9, fontWeight: "800" },
+    filterText: { color: colors.ink, fontSize: 11, fontFamily: fonts.semibold },
     filterTextActive: { color: "#FFFFFF" },
-    articleCard: { gap: 10 },
+    articleCard: { gap: space[3], padding: space[4] },
     badgeRow: { flexDirection: "row", alignItems: "center", gap: 7 },
-    category: { color: colors.primary, fontSize: 9, fontWeight: "900" },
+    category: { color: colors.primary, fontSize: 10, fontFamily: fonts.bold },
     reviewBadge: {
       color: colors.warning,
       backgroundColor: colors.surfaceMuted,
-      borderRadius: 10,
+      borderRadius: radius.sm,
       paddingHorizontal: 7,
       paddingVertical: 3,
       fontSize: 8,
-      fontWeight: "800",
+      fontFamily: fonts.semibold,
     },
     bookmark: {
       marginLeft: "auto",
@@ -341,12 +374,17 @@ function createStyles(colors: ThemeColors) {
       alignItems: "flex-end",
       justifyContent: "center",
     },
-    bookmarkText: { color: colors.ink, fontSize: 20, fontWeight: "300" },
-    bookmarkActive: { color: colors.primary },
     articleHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
     articleCopy: { flex: 1 },
-    articleTitle: { color: colors.ink, fontSize: 17, lineHeight: 23, fontWeight: "900" },
-    summary: { color: colors.muted, fontSize: 10, lineHeight: 17, marginTop: 7 },
+    articleTitle: { color: colors.ink, fontSize: 18, lineHeight: 25, fontFamily: fonts.bold },
+    summary: {
+      color: colors.muted,
+      fontSize: 12,
+      fontFamily: fonts.regular,
+      lineHeight: 19,
+      marginTop: 7,
+    },
+    articleThumb: { width: 84, height: 84, borderRadius: radius.md },
     articleBody: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 },
     bodyTitle: { color: colors.ink, fontSize: 12, fontWeight: "900", marginBottom: 9 },
     pointRow: { flexDirection: "row", gap: 9, marginBottom: 8 },

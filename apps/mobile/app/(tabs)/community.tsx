@@ -1,7 +1,26 @@
 import { sportLabels, sportValues, type SportType } from "@moveall/contracts";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import {
+  BarChart3,
+  Bookmark,
+  Camera,
+  Heart,
+  Image as ImageIcon,
+  MessageCircle,
+  Send,
+} from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ImageBackground,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import feedRunImage from "../../assets/images/feed-run.jpg";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { BellButton, Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
@@ -13,7 +32,7 @@ import {
 } from "../../src/components/story-canvas";
 import { type MapPoint } from "../../src/components/workout-map.types";
 import { useAsyncData } from "../../src/hooks/use-async-data";
-import { type ThemeColors } from "../../src/theme";
+import { fonts, gradients, radius, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
 const stories = [
@@ -255,15 +274,15 @@ export default function CommunityScreen() {
           </Text>
         </Pressable>
         <View style={styles.composerActions}>
-          {["▧", "▥", "◎"].map((icon, index) => (
+          {[ImageIcon, BarChart3, Camera].map((ComposerIcon, index) => (
             <Pressable
               accessibilityLabel={["사진 추가", "운동 기록 추가", "카메라 열기"][index]}
               accessibilityRole="button"
-              key={icon}
+              key={index}
               onPress={() => setComposerOpen(true)}
               style={styles.composerAction}
             >
-              <Text style={styles.composerActionIcon}>{icon}</Text>
+              <ComposerIcon color={colors.muted} size={20} strokeWidth={2} />
             </Pressable>
           ))}
         </View>
@@ -416,12 +435,22 @@ export default function CommunityScreen() {
                 <Text style={styles.time}>2시간 전</Text>
               </View>
             </View>
-            <View style={styles.feedArtwork}>
+            <ImageBackground
+              accessibilityLabel={`${sportLabels[post.sport]} 운동 기록 사진`}
+              imageStyle={styles.feedArtworkImage}
+              source={feedRunImage}
+              style={styles.feedArtwork}
+            >
+              <LinearGradient
+                colors={gradients.imageOverlay.colors}
+                end={gradients.imageOverlay.end}
+                start={gradients.imageOverlay.start}
+                style={StyleSheet.absoluteFill}
+              />
               <Text style={styles.feedArtworkBrand}>MOVE STORY</Text>
-              <View style={styles.feedArtworkMark} />
               <Text style={styles.feedArtworkSport}>{sportLabels[post.sport]}</Text>
               <Text style={styles.feedArtworkMeta}>SHARED TODAY</Text>
-            </View>
+            </ImageBackground>
             <Text style={styles.postCopy}>{post.content}</Text>
             <Text style={styles.tags}>#아침러닝 #이지런 #완주</Text>
             <View style={styles.postActions}>
@@ -430,8 +459,14 @@ export default function CommunityScreen() {
                 onPress={() => toggle(post.id, cheeredPosts, setCheeredPosts)}
                 style={styles.action}
               >
-                <Text style={[styles.actionText, cheered && styles.activeAction]}>
-                  {cheered ? "♥" : "♡"} {cheered ? 43 : 42}
+                <Heart
+                  color={cheered ? colors.primary : colors.ink}
+                  fill={cheered ? colors.primary : "transparent"}
+                  size={20}
+                  strokeWidth={2}
+                />
+                <Text style={[styles.actionCount, cheered && styles.activeAction]}>
+                  {cheered ? 43 : 42}
                 </Text>
               </Pressable>
               <Pressable
@@ -439,23 +474,27 @@ export default function CommunityScreen() {
                 onPress={() => toggle(post.id, openComments, setOpenComments)}
                 style={styles.action}
               >
-                <Text style={styles.actionText}>○ {post.comments.length}</Text>
+                <MessageCircle color={colors.ink} size={20} strokeWidth={2} />
+                <Text style={styles.actionCount}>{post.comments.length}</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
                 onPress={() => setComposerOpen(true)}
                 style={styles.action}
               >
-                <Text style={styles.actionText}>↗</Text>
+                <Send color={colors.ink} size={20} strokeWidth={2} />
               </Pressable>
               <Pressable
                 accessibilityRole="button"
                 onPress={() => toggle(post.id, bookmarkedPosts, setBookmarkedPosts)}
                 style={styles.bookmark}
               >
-                <Text style={[styles.actionText, bookmarked && styles.activeAction]}>
-                  {bookmarked ? "▣" : "▢"}
-                </Text>
+                <Bookmark
+                  color={bookmarked ? colors.primary : colors.ink}
+                  fill={bookmarked ? colors.primarySoft : "transparent"}
+                  size={20}
+                  strokeWidth={2}
+                />
               </Pressable>
             </View>
             {commentsOpen ? (
@@ -533,32 +572,32 @@ function parseVisibility(value: string): StoryVisibility {
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
-    pageTitle: { color: colors.ink, fontSize: 18, fontWeight: "900" },
-    notice: { color: colors.primary, fontSize: 10, marginTop: -9 },
-    stories: { gap: 12, paddingVertical: 3, paddingRight: 14 },
-    story: { width: 53, alignItems: "center", gap: 5 },
+    pageTitle: { color: colors.ink, fontSize: 20, fontFamily: fonts.bold },
+    notice: { color: colors.primary, fontSize: 11, fontFamily: fonts.medium, marginTop: -9 },
+    stories: { gap: space[4], paddingVertical: 3, paddingRight: space[4] },
+    story: { width: 56, alignItems: "center", gap: space[2] },
     storyRing: {
       width: 48,
       height: 48,
-      borderRadius: 24,
-      borderWidth: 1,
+      borderRadius: radius.full,
+      borderWidth: 2,
       borderColor: colors.border,
       alignItems: "center",
       justifyContent: "center",
     },
-    storyRingSelected: { borderWidth: 2, borderColor: colors.primary },
+    storyRingSelected: { borderColor: colors.primary },
     storyAvatar: {
       width: 39,
       height: 39,
-      borderRadius: 20,
+      borderRadius: radius.full,
       backgroundColor: colors.hero,
       alignItems: "center",
       justifyContent: "center",
     },
     myStory: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-    storyInitial: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
-    myStoryText: { color: colors.primary, fontSize: 22, fontWeight: "300" },
-    storyName: { color: colors.ink, fontSize: 9 },
+    storyInitial: { color: "#FFFFFF", fontSize: 15, fontFamily: fonts.bold },
+    myStoryText: { color: colors.primary, fontSize: 22, fontFamily: fonts.regular },
+    storyName: { color: colors.ink, fontSize: 10, fontFamily: fonts.regular },
     storyStatus: {
       flexDirection: "row",
       justifyContent: "space-between",
@@ -566,39 +605,38 @@ function createStyles(colors: ThemeColors) {
       borderBottomColor: colors.border,
       paddingBottom: 10,
     },
-    storyStatusText: { color: colors.muted, fontSize: 10 },
-    close: { color: colors.primary, fontSize: 10, fontWeight: "900" },
+    storyStatusText: { color: colors.muted, fontSize: 10, fontFamily: fonts.regular },
+    close: { color: colors.primary, fontSize: 10, fontFamily: fonts.bold },
     composer: { padding: 0, overflow: "hidden" },
     composerPrompt: {
       minHeight: 57,
       flexDirection: "row",
       alignItems: "center",
-      gap: 10,
-      paddingHorizontal: 12,
+      gap: space[3],
+      paddingHorizontal: space[4],
     },
     miniAvatar: {
       width: 28,
       height: 28,
-      borderRadius: 14,
+      borderRadius: radius.full,
       backgroundColor: colors.surfaceMuted,
       alignItems: "center",
       justifyContent: "center",
     },
-    miniAvatarText: { color: colors.ink, fontSize: 10, fontWeight: "900" },
-    composerPromptText: { color: colors.muted, fontSize: 11 },
+    miniAvatarText: { color: colors.ink, fontSize: 10, fontFamily: fonts.bold },
+    composerPromptText: { color: colors.muted, fontSize: 12, fontFamily: fonts.regular },
     composerActions: { flexDirection: "row", borderTopWidth: 1, borderTopColor: colors.border },
     composerAction: { flex: 1, minHeight: 46, alignItems: "center", justifyContent: "center" },
-    composerActionIcon: { color: colors.ink, fontSize: 18, fontWeight: "300" },
-    composerForm: { padding: 12, borderTopWidth: 1, borderTopColor: colors.border },
+    composerForm: { padding: space[4], borderTopWidth: 1, borderTopColor: colors.border },
     sportPicker: { flexDirection: "row", gap: 6, paddingBottom: 9 },
     sportChip: {
-      borderRadius: 14,
+      borderRadius: radius.full,
       paddingHorizontal: 10,
       paddingVertical: 6,
       backgroundColor: colors.surfaceMuted,
     },
     sportChipActive: { backgroundColor: colors.primary },
-    sportChipText: { color: colors.muted, fontSize: 9, fontWeight: "800" },
+    sportChipText: { color: colors.muted, fontSize: 10, fontFamily: fonts.semibold },
     sportChipTextActive: { color: "#FFFFFF" },
     storyPreviewWrap: { marginBottom: 10 },
     sharePrivacy: {
@@ -641,14 +679,14 @@ function createStyles(colors: ThemeColors) {
       color: colors.ink,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 7,
+      borderRadius: radius.md,
       padding: 10,
       textAlignVertical: "top",
       marginBottom: 9,
     },
     error: { color: colors.danger, fontSize: 10, marginBottom: 8 },
-    sectionTitle: { color: colors.ink, fontSize: 16, fontWeight: "900" },
-    post: { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 16 },
+    sectionTitle: { color: colors.ink, fontSize: 17, fontFamily: fonts.bold },
+    post: { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: space[5] },
     postHeader: {
       flexDirection: "row",
       alignItems: "center",
@@ -664,8 +702,8 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "center",
     },
-    authorInitial: { color: colors.primary, fontSize: 11, fontWeight: "900" },
-    author: { color: colors.ink, fontSize: 12, fontWeight: "800" },
+    authorInitial: { color: colors.primary, fontSize: 11, fontFamily: fonts.bold },
+    author: { color: colors.ink, fontSize: 13, fontFamily: fonts.semibold },
     postHeaderMeta: { flexDirection: "row", alignItems: "center", gap: 9 },
     followButton: {
       minHeight: 28,
@@ -676,49 +714,46 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
     },
     followButtonActive: { backgroundColor: colors.surfaceMuted },
-    followText: { color: "#FFFFFF", fontSize: 8, fontWeight: "900" },
+    followText: { color: "#FFFFFF", fontSize: 9, fontFamily: fonts.bold },
     followTextActive: { color: colors.ink },
-    time: { color: colors.muted, fontSize: 10 },
+    time: { color: colors.muted, fontSize: 10, fontFamily: fonts.regular },
     feedArtwork: {
-      height: 238,
-      borderRadius: 9,
+      height: 288,
+      borderRadius: radius["2xl"],
       overflow: "hidden",
       backgroundColor: colors.hero,
-      padding: 18,
+      padding: space[5],
       justifyContent: "flex-end",
     },
+    feedArtworkImage: { borderRadius: radius["2xl"] },
     feedArtworkBrand: {
       position: "absolute",
-      left: 18,
-      top: 17,
+      left: space[5],
+      top: space[5],
       color: colors.primary,
       fontSize: 9,
-      fontWeight: "900",
+      fontFamily: fonts.bold,
       letterSpacing: 1.2,
     },
-    feedArtworkMark: {
-      position: "absolute",
-      width: 170,
-      height: 170,
-      borderRadius: 85,
-      right: -38,
-      top: 25,
-      borderWidth: 22,
-      borderColor: "rgba(255,255,255,0.06)",
-    },
-    feedArtworkSport: { color: "#FFFFFF", fontSize: 28, fontWeight: "900" },
+    feedArtworkSport: { color: "#FFFFFF", fontSize: 30, fontFamily: fonts.bold },
     feedArtworkMeta: {
       color: "rgba(255,255,255,0.5)",
       fontSize: 8,
-      fontWeight: "900",
+      fontFamily: fonts.bold,
       letterSpacing: 1.3,
       marginTop: 5,
     },
-    postCopy: { color: colors.ink, fontSize: 12, lineHeight: 19, marginTop: 11 },
-    tags: { color: colors.muted, fontSize: 11, marginTop: 6 },
+    postCopy: {
+      color: colors.ink,
+      fontSize: 13,
+      fontFamily: fonts.regular,
+      lineHeight: 21,
+      marginTop: 12,
+    },
+    tags: { color: colors.primary, fontSize: 12, fontFamily: fonts.semibold, marginTop: 6 },
     postActions: { flexDirection: "row", alignItems: "center", gap: 18, marginTop: 12 },
-    action: { minHeight: 30, justifyContent: "center" },
-    actionText: { color: colors.ink, fontSize: 15, fontWeight: "400" },
+    action: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 6 },
+    actionCount: { color: colors.ink, fontSize: 12, fontFamily: fonts.medium },
     activeAction: { color: colors.primary },
     bookmark: { minHeight: 30, justifyContent: "center", marginLeft: "auto" },
     comments: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, gap: 5 },

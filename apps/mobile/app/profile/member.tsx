@@ -96,7 +96,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     safe: { flex: 1 },
     page: {
       width: "100%",
-      maxWidth: 720,
+      maxWidth: 448,
       alignSelf: "center",
       padding: 22,
       gap: 20,

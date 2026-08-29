@@ -131,7 +131,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
     safe: { flex: 1 },
     flex: { flex: 1 },
-    page: { flex: 1, width: "100%", maxWidth: 720, alignSelf: "center", padding: 20, gap: 12 },
+    page: { flex: 1, width: "100%", maxWidth: 448, alignSelf: "center", padding: 20, gap: 12 },
     top: {
       flexDirection: "row",
       justifyContent: "space-between",

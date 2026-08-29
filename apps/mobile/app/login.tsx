@@ -164,7 +164,7 @@ function createStyles(colors: ThemeColors) {
     page: {
       flexGrow: 1,
       width: "100%",
-      maxWidth: 520,
+      maxWidth: 448,
       alignSelf: "center",
       paddingHorizontal: 24,
       paddingTop: 24,

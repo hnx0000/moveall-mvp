@@ -1,19 +1,38 @@
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import {
+  Anchor,
+  Bike,
+  CirclePlus,
+  Dumbbell,
+  Footprints,
+  Mountain,
+  Waves,
+  type LucideIcon,
+} from "lucide-react-native";
 import { useCallback, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { api } from "../../src/api/client";
-import { BellButton, Screen, StatePanel } from "../../src/components/ui";
+import { BellButton, Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
 import { useAsyncData } from "../../src/hooks/use-async-data";
-import { type ThemeColors } from "../../src/theme";
+import {
+  fonts,
+  gradients,
+  radius,
+  shadows,
+  space,
+  typography,
+  type ThemeColors,
+} from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
-const sportIcons: Record<string, string> = {
-  strength: "◆",
-  running: "↗",
-  hiking: "△",
-  diving: "≋",
-  cycling: "◉",
-  swimming: "≈",
+const sportIcons: Record<string, LucideIcon> = {
+  strength: Dumbbell,
+  running: Footprints,
+  hiking: Mountain,
+  diving: Anchor,
+  cycling: Bike,
+  swimming: Waves,
 };
 
 const routineItems = ["워밍업 걷기 5분", "편안한 러닝 20분", "쿨다운 걷기 5분"];
@@ -63,58 +82,52 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <View style={styles.divider} />
-
       <View style={styles.sectionHeading}>
         <Text style={styles.sectionTitle}>오늘의 루틴</Text>
-        <View style={styles.counter}>
-          <Text style={styles.counterText}>{completed.length}/3</Text>
+      </View>
+      <Card style={styles.routineCard}>
+        <View style={styles.sectionHeading}>
+          <Text style={styles.routineType}>RUNNING · 30 MIN</Text>
+          <View style={styles.counter}>
+            <Text style={styles.counterText}>{completed.length}/3</Text>
+          </View>
         </View>
-      </View>
-      <Text style={styles.routineType}>RUNNING · 30 MIN</Text>
-      <Text style={styles.routineTitle}>편안한 이지런</Text>
-      <View style={styles.routineList}>
-        {routineItems.map((item, index) => {
-          const isDone = completed.includes(index);
-          return (
-            <Pressable
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: isDone, disabled: !routineStarted }}
-              disabled={!routineStarted}
-              key={item}
-              onPress={() => toggleStep(index)}
-              style={({ pressed }) => [styles.routineItem, pressed && styles.pressed]}
-            >
-              <View style={[styles.stepNumber, isDone && styles.stepNumberDone]}>
-                <Text style={[styles.stepNumberText, isDone && styles.stepNumberTextDone]}>
-                  {isDone ? "✓" : index + 1}
-                </Text>
-              </View>
-              <Text style={[styles.routineText, isDone && styles.routineTextDone]}>{item}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        disabled={completed.length === routineItems.length}
-        onPress={() => setRoutineStarted(true)}
-        style={({ pressed }) => [
-          styles.primaryButton,
-          pressed && styles.pressed,
-          completed.length === routineItems.length && styles.disabled,
-        ]}
-      >
-        <Text style={styles.primaryButtonText}>
-          {completed.length === routineItems.length
-            ? "오늘 루틴 완료"
-            : routineStarted
-              ? "진행 중 · 항목을 눌러 완료"
-              : "루틴 시작"}
-        </Text>
-      </Pressable>
-
-      <View style={styles.divider} />
+        <Text style={styles.routineTitle}>편안한 이지런</Text>
+        <View style={styles.routineList}>
+          {routineItems.map((item, index) => {
+            const isDone = completed.includes(index);
+            return (
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: isDone, disabled: !routineStarted }}
+                disabled={!routineStarted}
+                key={item}
+                onPress={() => toggleStep(index)}
+                style={({ pressed }) => [styles.routineItem, pressed && styles.pressed]}
+              >
+                <View style={[styles.stepNumber, isDone && styles.stepNumberDone]}>
+                  <Text style={[styles.stepNumberText, isDone && styles.stepNumberTextDone]}>
+                    {isDone ? "✓" : index + 1}
+                  </Text>
+                </View>
+                <Text style={[styles.routineText, isDone && styles.routineTextDone]}>{item}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <PrimaryButton
+          disabled={completed.length === routineItems.length}
+          label={
+            completed.length === routineItems.length
+              ? "오늘 루틴 완료"
+              : routineStarted
+                ? "진행 중 · 항목을 눌러 완료"
+                : "루틴 시작"
+          }
+          onPress={() => setRoutineStarted(true)}
+          style={styles.routineButton}
+        />
+      </Card>
 
       <View style={styles.sectionHeading}>
         <Text style={styles.sectionTitle}>바로 기록하기</Text>
@@ -126,22 +139,23 @@ export default function HomeScreen() {
         <View style={styles.sportGrid}>
           {sports.map((sport) => {
             const selected = selectedSport === sport.id;
+            const SportIcon = sportIcons[sport.id] ?? Footprints;
             return (
               <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
                 key={sport.id}
                 onPress={() => setSelectedSport(sport.id)}
-                style={({ pressed }) => [styles.sportButton, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.sportButton,
+                  selected && styles.sportButtonSelected,
+                  pressed && styles.pressed,
+                ]}
               >
-                <View style={[styles.sportVisual, selected && styles.sportButtonSelected]}>
-                  <Text style={[styles.sportIcon, selected && styles.sportSelectedText]}>
-                    {sportIcons[sport.id]}
-                  </Text>
-                  <Text style={[styles.sportLabel, selected && styles.sportSelectedText]}>
-                    {sport.label}
-                  </Text>
-                </View>
+                <SportIcon color={selected ? "#FFFFFF" : colors.ink} size={25} strokeWidth={2} />
+                <Text style={[styles.sportLabel, selected && styles.sportSelectedText]}>
+                  {sport.label}
+                </Text>
               </Pressable>
             );
           })}
@@ -157,9 +171,14 @@ export default function HomeScreen() {
           <Text style={styles.recordCtaKicker}>운동 · 일상 · 공유</Text>
           <Text style={styles.recordCtaTitle}>지금 운동 기록 만들기</Text>
         </View>
-        <View style={styles.recordPlus}>
-          <Text style={styles.recordPlusText}>＋</Text>
-        </View>
+        <LinearGradient
+          colors={gradients.primary.colors}
+          end={gradients.primary.end}
+          start={gradients.primary.start}
+          style={[styles.recordPlus, shadows.pop]}
+        >
+          <CirclePlus color="#FFFFFF" size={26} strokeWidth={2.4} />
+        </LinearGradient>
       </Pressable>
     </Screen>
   );
@@ -188,109 +207,125 @@ function Metric({
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     notice: {
-      minHeight: 42,
+      minHeight: 44,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       borderWidth: 1,
       borderColor: colors.border,
-      paddingHorizontal: 12,
-      borderRadius: 7,
+      backgroundColor: colors.surface,
+      paddingHorizontal: space[4],
+      borderRadius: radius.md,
     },
-    noticeText: { color: colors.muted, fontSize: 11 },
-    noticeClose: { color: colors.primary, fontSize: 11, fontWeight: "900" },
-    activitySection: { paddingTop: 4 },
-    kicker: { color: colors.ink, fontSize: 14, fontWeight: "900" },
-    distanceRow: { flexDirection: "row", alignItems: "flex-end", marginTop: 10 },
-    distance: {
-      color: colors.ink,
-      fontSize: 59,
-      lineHeight: 65,
-      fontWeight: "900",
-      letterSpacing: -2.4,
+    noticeText: { color: colors.muted, fontFamily: fonts.regular, fontSize: 12 },
+    noticeClose: { color: colors.primary, fontFamily: fonts.bold, fontSize: 12 },
+    activitySection: {
+      paddingTop: space[2],
+      paddingBottom: space[5],
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
-    unit: { color: colors.ink, fontSize: 15, fontWeight: "900", marginLeft: 7, marginBottom: 10 },
-    metrics: { flexDirection: "row", justifyContent: "space-between", marginTop: 12 },
+    kicker: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 14 },
+    distanceRow: { flexDirection: "row", alignItems: "flex-end", marginTop: 4 },
+    distance: { ...typography.numeric(60), color: colors.ink, lineHeight: 66 },
+    unit: {
+      color: colors.muted,
+      fontFamily: fonts.bold,
+      fontSize: 17,
+      marginLeft: 7,
+      marginBottom: 8,
+    },
+    metrics: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginTop: space[4],
+      paddingTop: space[4],
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
     metric: { minWidth: 90 },
     metricRight: { alignItems: "flex-end" },
-    metricValue: { color: colors.ink, fontSize: 17, fontWeight: "900" },
-    metricLabel: { color: colors.muted, fontSize: 10, marginTop: 5 },
-    divider: { height: 1, backgroundColor: colors.border, marginVertical: 2 },
+    metricValue: { ...typography.numeric(19), color: colors.ink },
+    metricLabel: { color: colors.muted, fontFamily: fonts.regular, fontSize: 10, marginTop: 4 },
     sectionHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-    sectionTitle: { color: colors.ink, fontSize: 16, fontWeight: "900" },
+    sectionTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 17 },
     counter: {
       backgroundColor: colors.primarySoft,
-      borderRadius: 7,
-      paddingHorizontal: 9,
+      borderRadius: radius.full,
+      paddingHorizontal: 10,
       paddingVertical: 5,
     },
-    counterText: { color: colors.primary, fontSize: 11, fontWeight: "900" },
-    routineType: { color: colors.primary, fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
-    routineTitle: { color: colors.ink, fontSize: 20, fontWeight: "900", marginTop: -7 },
-    routineList: { gap: 4 },
-    routineItem: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 11 },
+    counterText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 11 },
+    routineCard: { padding: space[5], gap: space[3] },
+    routineType: {
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 10,
+      letterSpacing: 0.8,
+    },
+    routineTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 21 },
+    routineList: { gap: space[2], marginTop: space[1] },
+    routineItem: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: space[3] },
     stepNumber: {
-      width: 23,
-      height: 23,
-      borderRadius: 6,
+      width: 25,
+      height: 25,
+      borderRadius: radius.full,
       backgroundColor: colors.surfaceMuted,
       alignItems: "center",
       justifyContent: "center",
     },
     stepNumberDone: { backgroundColor: colors.primary },
-    stepNumberText: { color: colors.ink, fontSize: 10, fontWeight: "900" },
+    stepNumberText: { color: colors.muted, fontFamily: fonts.bold, fontSize: 10 },
     stepNumberTextDone: { color: "#FFFFFF" },
-    routineText: { color: colors.ink, fontSize: 13, fontWeight: "700" },
+    routineText: { color: colors.ink, fontFamily: fonts.medium, fontSize: 13 },
     routineTextDone: { color: colors.muted, textDecorationLine: "line-through" },
-    primaryButton: {
-      minHeight: 43,
-      borderRadius: 7,
-      backgroundColor: colors.primary,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    primaryButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
-    disabled: { opacity: 0.5 },
-    viewAll: { color: colors.muted, fontSize: 11 },
-    sportGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+    routineButton: { marginTop: space[2] },
+    viewAll: { color: colors.muted, fontFamily: fonts.regular, fontSize: 11 },
+    sportGrid: { flexDirection: "row", flexWrap: "wrap", gap: space[3] },
     sportButton: {
-      width: "31%",
+      width: "30%",
+      flexGrow: 1,
+      minHeight: 78,
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 7,
+      gap: space[2],
+      borderRadius: radius["2xl"],
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      ...shadows.card,
     },
-    sportVisual: {
-      width: 74,
-      minHeight: 64,
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 6,
-      borderRadius: 8,
-    },
-    sportButtonSelected: { backgroundColor: colors.primary },
-    sportIcon: { color: colors.ink, fontSize: 22, fontWeight: "400" },
-    sportLabel: { color: colors.ink, fontSize: 11, fontWeight: "700" },
+    sportButtonSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+    sportLabel: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 12 },
     sportSelectedText: { color: "#FFFFFF" },
     recordCta: {
-      minHeight: 70,
-      borderRadius: 8,
+      minHeight: 84,
+      borderRadius: radius["2xl"],
       backgroundColor: colors.hero,
-      paddingHorizontal: 15,
+      paddingHorizontal: space[5],
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
     },
-    recordCtaKicker: { color: colors.primary, fontSize: 9, fontWeight: "900", letterSpacing: 0.6 },
-    recordCtaTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "900", marginTop: 5 },
+    recordCtaKicker: {
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 10,
+      letterSpacing: 0.7,
+    },
+    recordCtaTitle: {
+      color: "#FFFFFF",
+      fontFamily: fonts.bold,
+      fontSize: 18,
+      marginTop: 5,
+    },
     recordPlus: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.primary,
+      width: 46,
+      height: 46,
+      borderRadius: radius.full,
       alignItems: "center",
       justifyContent: "center",
     },
-    recordPlusText: { color: "#FFFFFF", fontSize: 25, fontWeight: "300", lineHeight: 27 },
     pressed: { opacity: 0.72 },
   });
 }

@@ -206,7 +206,7 @@ function createStyles(colors: ThemeColors) {
     safeArea: { flex: 1, backgroundColor: colors.background },
     page: {
       width: "100%",
-      maxWidth: 760,
+      maxWidth: 448,
       alignSelf: "center",
       padding: 22,
       paddingBottom: 100,
