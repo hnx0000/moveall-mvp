@@ -28,12 +28,12 @@ import {
 import { useAppTheme } from "../../src/theme-context";
 
 const homeSportOrder: SportType[] = [
-  "cycling",
-  "hiking",
   "running",
-  "diving",
-  "swimming",
+  "hiking",
+  "cycling",
   "strength",
+  "swimming",
+  "diving",
 ];
 
 const sportLogoIndex: Record<SportType, number> = {
