@@ -116,6 +116,11 @@ export default function MoveStudioScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [photoPrompt, setPhotoPrompt] = useState(proofPrompts[initialSport][0] ?? "오늘의 운동");
   const [manualValue, setManualValue] = useState("45");
+  const [swimLaps, setSwimLaps] = useState("20");
+  const [diveDepth, setDiveDepth] = useState("10");
+  const [dynamicDistance, setDynamicDistance] = useState("25");
+  const [strengthExerciseCount, setStrengthExerciseCount] = useState("5");
+  const [strengthCycles, setStrengthCycles] = useState([true, true, true, false]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [routeSelection, setRouteSelection] = useState<RouteSelection>("start");
   const [planStart, setPlanStart] = useState<MapPoint | null>(null);
@@ -202,6 +207,12 @@ export default function MoveStudioScreen() {
     setPlanFinish(null);
     setPlannedRoute(null);
     setStoryBackground(outdoorSports.includes(nextSport) ? "map" : "photo");
+  }
+
+  function toggleStrengthCycle(index: number) {
+    setStrengthCycles((current) =>
+      current.map((checked, cycleIndex) => (cycleIndex === index ? !checked : checked)),
+    );
   }
 
   async function startLocationWatch(reset: boolean) {
@@ -298,6 +309,26 @@ export default function MoveStudioScreen() {
         metrics: {
           durationMinutes: Math.max(1, Math.round(effectiveDuration / 60)),
           ...(displayDistance > 0 ? { distanceKm: Number(displayDistance.toFixed(3)) } : {}),
+          ...(sport === "running" && paceSeconds > 0
+            ? { paceSeconds: Number(paceSeconds.toFixed(1)) }
+            : {}),
+          ...(sport === "cycling" && effectiveDuration > 0 && displayDistance > 0
+            ? { averageSpeedKmh: Number((displayDistance / (effectiveDuration / 3600)).toFixed(1)) }
+            : {}),
+          ...(sport === "swimming" ? { laps: Math.max(0, Number(swimLaps) || 0) } : {}),
+          ...(sport === "diving"
+            ? {
+                maxDepthM: Math.max(0, Number(diveDepth) || 0),
+                dynamicDistanceM: Math.max(0, Number(dynamicDistance) || 0),
+              }
+            : {}),
+          ...(sport === "strength"
+            ? {
+                exerciseCount: Math.max(0, Number(strengthExerciseCount) || 0),
+                cycles: strengthCycles.filter(Boolean).length,
+                sets: strengthCycles.filter(Boolean).length,
+              }
+            : {}),
           moveScore: projectedMoveScore,
         },
         source: "manual",
@@ -613,6 +644,20 @@ export default function MoveStudioScreen() {
               </Pressable>
             ))}
           </View>
+          <SportMetricEditor
+            diveDepth={diveDepth}
+            dynamicDistance={dynamicDistance}
+            onDiveDepthChange={setDiveDepth}
+            onDynamicDistanceChange={setDynamicDistance}
+            onStrengthCycleToggle={toggleStrengthCycle}
+            onStrengthExerciseCountChange={setStrengthExerciseCount}
+            onSwimLapsChange={setSwimLaps}
+            sport={sport}
+            strengthCycles={strengthCycles}
+            strengthExerciseCount={strengthExerciseCount}
+            styles={styles}
+            swimLaps={swimLaps}
+          />
           {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
           <PrimaryButton
             disabled={workoutDone || savingWorkout}
@@ -634,6 +679,20 @@ export default function MoveStudioScreen() {
             />
             <Text style={styles.manualUnit}>MIN</Text>
           </View>
+          <SportMetricEditor
+            diveDepth={diveDepth}
+            dynamicDistance={dynamicDistance}
+            onDiveDepthChange={setDiveDepth}
+            onDynamicDistanceChange={setDynamicDistance}
+            onStrengthCycleToggle={toggleStrengthCycle}
+            onStrengthExerciseCountChange={setStrengthExerciseCount}
+            onSwimLapsChange={setSwimLaps}
+            sport={sport}
+            strengthCycles={strengthCycles}
+            strengthExerciseCount={strengthExerciseCount}
+            styles={styles}
+            swimLaps={swimLaps}
+          />
           <PrimaryButton
             disabled={workoutDone || savingWorkout || !manualValue}
             label={workoutDone ? "기록 저장됨" : savingWorkout ? "저장 중..." : "기록 확정"}
@@ -755,6 +814,147 @@ export default function MoveStudioScreen() {
       ) : null}
       <PrimaryButton label="피드에서 마무리" disabled={!readyToShare} onPress={shareDraft} />
     </Screen>
+  );
+}
+
+function SportMetricEditor({
+  sport,
+  swimLaps,
+  diveDepth,
+  dynamicDistance,
+  strengthExerciseCount,
+  strengthCycles,
+  onSwimLapsChange,
+  onDiveDepthChange,
+  onDynamicDistanceChange,
+  onStrengthExerciseCountChange,
+  onStrengthCycleToggle,
+  styles,
+}: {
+  sport: SportType;
+  swimLaps: string;
+  diveDepth: string;
+  dynamicDistance: string;
+  strengthExerciseCount: string;
+  strengthCycles: boolean[];
+  onSwimLapsChange: (value: string) => void;
+  onDiveDepthChange: (value: string) => void;
+  onDynamicDistanceChange: (value: string) => void;
+  onStrengthExerciseCountChange: (value: string) => void;
+  onStrengthCycleToggle: (index: number) => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  if (sport === "swimming") {
+    return (
+      <View style={styles.sportMetricPanel}>
+        <Text style={styles.sportMetricEyebrow}>SWIM METRICS</Text>
+        <MetricDraftInput
+          label="완료한 랩"
+          onChangeText={onSwimLapsChange}
+          styles={styles}
+          unit="LAP"
+          value={swimLaps}
+        />
+      </View>
+    );
+  }
+
+  if (sport === "diving") {
+    return (
+      <View style={styles.sportMetricPanel}>
+        <Text style={styles.sportMetricEyebrow}>DIVE METRICS</Text>
+        <View style={styles.sportMetricInputs}>
+          <MetricDraftInput
+            label="수심 PB"
+            onChangeText={onDiveDepthChange}
+            styles={styles}
+            unit="M"
+            value={diveDepth}
+          />
+          <MetricDraftInput
+            label="다이나믹"
+            onChangeText={onDynamicDistanceChange}
+            styles={styles}
+            unit="M"
+            value={dynamicDistance}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  if (sport === "strength") {
+    return (
+      <View style={styles.sportMetricPanel}>
+        <Text style={styles.sportMetricEyebrow}>STRENGTH CHECK</Text>
+        <MetricDraftInput
+          label="실행 운동"
+          onChangeText={onStrengthExerciseCountChange}
+          styles={styles}
+          unit="종목"
+          value={strengthExerciseCount}
+        />
+        <View style={styles.strengthCycleHeading}>
+          <Text style={styles.strengthCycleTitle}>사이클 체크</Text>
+          <Text style={styles.strengthCycleCount}>
+            {strengthCycles.filter(Boolean).length} 완료
+          </Text>
+        </View>
+        <View style={styles.strengthCycleRow}>
+          {strengthCycles.map((checked, index) => (
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked }}
+              key={index}
+              onPress={() => onStrengthCycleToggle(index)}
+              style={[styles.strengthCycleButton, checked && styles.strengthCycleButtonDone]}
+            >
+              <Text
+                style={[
+                  styles.strengthCycleButtonText,
+                  checked && styles.strengthCycleButtonTextDone,
+                ]}
+              >
+                {checked ? "✓" : index + 1}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    );
+  }
+
+  return null;
+}
+
+function MetricDraftInput({
+  label,
+  value,
+  unit,
+  onChangeText,
+  styles,
+}: {
+  label: string;
+  value: string;
+  unit: string;
+  onChangeText: (value: string) => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.metricDraftField}>
+      <Text style={styles.metricDraftLabel}>{label}</Text>
+      <View style={styles.metricDraftControl}>
+        <TextInput
+          accessibilityLabel={label}
+          keyboardType="decimal-pad"
+          maxLength={5}
+          onChangeText={onChangeText}
+          style={styles.metricDraftInput}
+          value={value}
+        />
+        <Text style={styles.metricDraftUnit}>{unit}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -1161,6 +1361,60 @@ function createStyles(colors: ThemeColors) {
     promptChipActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
     promptText: { color: colors.muted, fontSize: 8, fontWeight: "800", textAlign: "center" },
     promptTextActive: { color: colors.primary },
+    sportMetricPanel: {
+      padding: 14,
+      borderRadius: radius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      gap: 11,
+    },
+    sportMetricEyebrow: {
+      color: colors.primary,
+      fontSize: 8,
+      fontWeight: "900",
+      letterSpacing: 1,
+    },
+    sportMetricInputs: { flexDirection: "row", gap: 10 },
+    metricDraftField: { flex: 1, gap: 5 },
+    metricDraftLabel: { color: colors.muted, fontSize: 8, fontWeight: "800" },
+    metricDraftControl: {
+      minHeight: 45,
+      flexDirection: "row",
+      alignItems: "center",
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    metricDraftInput: {
+      flex: 1,
+      color: colors.ink,
+      fontSize: 24,
+      lineHeight: 30,
+      fontWeight: "900",
+      paddingVertical: 5,
+    },
+    metricDraftUnit: { color: colors.muted, fontSize: 8, fontWeight: "900" },
+    strengthCycleHeading: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    strengthCycleTitle: { color: colors.ink, fontSize: 10, fontWeight: "900" },
+    strengthCycleCount: { color: colors.primary, fontSize: 8, fontWeight: "900" },
+    strengthCycleRow: { flexDirection: "row", gap: 8 },
+    strengthCycleButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    strengthCycleButtonDone: { backgroundColor: colors.primary, borderColor: colors.primary },
+    strengthCycleButtonText: { color: colors.muted, fontSize: 9, fontWeight: "900" },
+    strengthCycleButtonTextDone: { color: "#FFFFFF" },
     manualRow: { flexDirection: "row", alignItems: "flex-end", paddingVertical: 30 },
     manualInput: {
       color: colors.ink,

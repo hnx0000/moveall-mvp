@@ -9,7 +9,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import { CirclePlus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Defs, Image as SvgImage, Mask, Rect, Svg } from "react-native-svg";
 import sportLogoSheet from "../../assets/images/sport-logo-sheet.jpg";
 import { api } from "../../src/api/client";
@@ -61,7 +61,7 @@ export default function HomeScreen() {
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [completionMessage, setCompletionMessage] = useState<string | null>(null);
   const [savingCompletion, setSavingCompletion] = useState(false);
-  const [selectedSport, setSelectedSport] = useState("running");
+  const [selectedSport, setSelectedSport] = useState<SportType>("running");
   const [notificationOpen, setNotificationOpen] = useState(false);
 
   const loadDashboard = useCallback(async () => {
@@ -111,7 +111,14 @@ export default function HomeScreen() {
         : 0,
     [todayRoutine, workouts],
   );
-  const activitySummary = useMemo(() => summarizeActivity(todayWorkouts), [todayWorkouts]);
+  const selectedSportWorkouts = useMemo(
+    () => todayWorkouts.filter((workout) => workout.sport === selectedSport),
+    [selectedSport, todayWorkouts],
+  );
+  const activitySummary = useMemo(
+    () => summarizeSportActivity(selectedSport, selectedSportWorkouts),
+    [selectedSport, selectedSportWorkouts],
+  );
 
   useEffect(() => {
     setRoutineStarted(false);
@@ -145,6 +152,13 @@ export default function HomeScreen() {
         metrics: {
           routineCompletion: 1,
           calories: todayRoutineItems.length * 70,
+          ...(todayRoutine.sport === "strength"
+            ? {
+                exerciseCount: todayRoutineItems.length,
+                cycles: todayRoutineItems.length,
+                sets: todayRoutineItems.length,
+              }
+            : {}),
         },
         source: "manual",
       });
@@ -184,48 +198,129 @@ export default function HomeScreen() {
       ) : null}
 
       <View style={styles.activitySection}>
-        <Text style={styles.kicker}>오늘의 활동</Text>
+        <View style={styles.activityHeading}>
+          <Text style={styles.kicker}>오늘의 활동</Text>
+          <Text style={styles.activityDayCount}>{todayWorkouts.length}회 기록</Text>
+        </View>
         {dashboardLoading ? (
           <StatePanel state="loading" message="오늘의 기록을 확인하고 있어요." />
-        ) : todayWorkouts.length === 0 ? (
-          <Card style={styles.activityEmptyCard}>
-            <View style={styles.activityEmptyMark}>
-              <Text style={styles.activityEmptyMarkText}>—</Text>
-            </View>
-            <View style={styles.activityEmptyCopy}>
-              <Text style={styles.activityEmptyTitle}>아직 기록 전</Text>
-              <Text style={styles.activityEmptyText}>
-                운동을 완료하면 시간과 거리, 소모 칼로리가 여기에 정리됩니다.
-              </Text>
-            </View>
-            <Pressable onPress={() => router.push("/routines")}>
-              <Text style={styles.textLink}>운동 시작</Text>
-            </Pressable>
-          </Card>
         ) : (
           <>
-            <View style={styles.activityRecordedRow}>
-              <View>
-                <Text style={styles.activityStateLabel}>RECORDED TODAY</Text>
-                <View style={styles.distanceRow}>
-                  <Text style={styles.distance}>{activitySummary.primaryValue}</Text>
-                  <Text style={styles.unit}>{activitySummary.primaryUnit}</Text>
+            <ScrollView
+              contentContainerStyle={styles.activitySportTabs}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+            >
+              {homeSportOrder.map((sport) => {
+                const active = selectedSport === sport;
+                const count = todayWorkouts.filter((workout) => workout.sport === sport).length;
+                return (
+                  <Pressable
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    key={sport}
+                    onPress={() => setSelectedSport(sport)}
+                    style={[styles.activitySportTab, active && styles.activitySportTabActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.activitySportTabText,
+                        active && styles.activitySportTabTextActive,
+                      ]}
+                    >
+                      {sportLabels[sport]}
+                    </Text>
+                    {count > 0 ? (
+                      <View
+                        style={[styles.activitySportDot, active && styles.activitySportDotActive]}
+                      />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <Card style={styles.activityRecordCard}>
+              <View style={styles.activityRecordedRow}>
+                <View>
+                  <Text style={styles.activityStateLabel}>
+                    {selectedSportWorkouts.length > 0 ? "RECORDED TODAY" : "READY TO MOVE"}
+                  </Text>
+                  <Text style={styles.activitySportName}>{sportLabels[selectedSport]}</Text>
+                </View>
+                <View style={styles.recordCountBadge}>
+                  <Text style={styles.recordCountText}>
+                    {selectedSportWorkouts.length > 0
+                      ? `${selectedSportWorkouts.length}회 기록`
+                      : "기록 전"}
+                  </Text>
                 </View>
               </View>
-              <View style={styles.recordCountBadge}>
-                <Text style={styles.recordCountText}>{todayWorkouts.length}회 기록</Text>
+
+              <View style={styles.activityPrimaryRow}>
+                <View>
+                  <Text style={styles.activityPrimaryLabel}>{activitySummary.primaryLabel}</Text>
+                  <View style={styles.distanceRow}>
+                    <Text style={styles.distance}>{activitySummary.primaryValue}</Text>
+                    <Text style={styles.unit}>{activitySummary.primaryUnit}</Text>
+                  </View>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() =>
+                    router.push({ pathname: "/routines", params: { sport: selectedSport } })
+                  }
+                  style={styles.activityStartButton}
+                >
+                  <Text style={styles.activityStartButtonText}>
+                    {selectedSportWorkouts.length > 0 ? "추가 기록" : "기록 시작"}
+                  </Text>
+                </Pressable>
               </View>
-            </View>
-            <View style={styles.metrics}>
-              <Metric value={activitySummary.duration} label="운동 시간" colors={colors} />
-              <Metric value={activitySummary.sports} label="운동 종목" colors={colors} />
-              <Metric
-                value={`${activitySummary.calories}`}
-                label="kcal"
-                colors={colors}
-                align="right"
-              />
-            </View>
+
+              {activitySummary.cycles ? (
+                <View style={styles.cyclePanel}>
+                  <View style={styles.cycleHeading}>
+                    <Text style={styles.cycleTitle}>오늘의 사이클</Text>
+                    <Text style={styles.cycleCount}>
+                      {activitySummary.cycles.completed}/{activitySummary.cycles.total}
+                    </Text>
+                  </View>
+                  <View style={styles.cycleRow}>
+                    {Array.from({ length: activitySummary.cycles.total }, (_, index) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.cycleCheck,
+                          index < activitySummary.cycles!.completed && styles.cycleCheckDone,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.cycleCheckText,
+                            index < activitySummary.cycles!.completed && styles.cycleCheckTextDone,
+                          ]}
+                        >
+                          {index < activitySummary.cycles!.completed ? "✓" : index + 1}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={styles.metrics}>
+                {activitySummary.metrics.map((metric, index) => (
+                  <Metric
+                    align={index === activitySummary.metrics.length - 1 ? "right" : "left"}
+                    colors={colors}
+                    key={metric.label}
+                    label={metric.label}
+                    value={metric.value}
+                  />
+                ))}
+              </View>
+            </Card>
           </>
         )}
       </View>
@@ -437,32 +532,149 @@ function isSameLocalDay(left: Date, right: Date): boolean {
   );
 }
 
-function summarizeActivity(workouts: WorkoutSession[]) {
-  const durationMinutes = workouts.reduce(
-    (total, workout) =>
-      total +
-      Math.max(
-        1,
-        Math.round((Date.parse(workout.endedAt) - Date.parse(workout.startedAt)) / 60_000),
-      ),
-    0,
+type SportActivitySummary = {
+  primaryLabel: string;
+  primaryValue: string;
+  primaryUnit: string;
+  metrics: Array<{ label: string; value: string }>;
+  cycles?: { completed: number; total: number };
+};
+
+function summarizeSportActivity(
+  sport: SportType,
+  workouts: WorkoutSession[],
+): SportActivitySummary {
+  const durationSeconds = workouts.reduce((total, workout) => total + workoutDuration(workout), 0);
+  const distanceKm = sumMetric(workouts, "distanceKm");
+  const calories = Math.round(sumMetric(workouts, "calories"));
+
+  if (sport === "running") {
+    const paceSeconds = weightedPace(workouts, durationSeconds, distanceKm);
+    return {
+      primaryLabel: "평균 페이스",
+      primaryValue: formatPace(paceSeconds),
+      primaryUnit: "/km",
+      metrics: [
+        { label: "거리", value: `${distanceKm.toFixed(2)} km` },
+        { label: "시간", value: formatClock(durationSeconds) },
+        { label: "소모", value: `${calories} kcal` },
+      ],
+    };
+  }
+
+  if (sport === "cycling") {
+    const averageSpeed = durationSeconds > 0 ? distanceKm / (durationSeconds / 3600) : 0;
+    return {
+      primaryLabel: "라이딩 페이스",
+      primaryValue: averageSpeed > 0 ? averageSpeed.toFixed(1) : "0.0",
+      primaryUnit: "km/h",
+      metrics: [
+        { label: "거리", value: `${distanceKm.toFixed(2)} km` },
+        { label: "시간", value: formatClock(durationSeconds) },
+        { label: "소모", value: `${calories} kcal` },
+      ],
+    };
+  }
+
+  if (sport === "hiking") {
+    return {
+      primaryLabel: "활동 시간",
+      primaryValue: formatClock(durationSeconds),
+      primaryUnit: "",
+      metrics: [
+        { label: "거리", value: `${distanceKm.toFixed(2)} km` },
+        { label: "고도 상승", value: `${Math.round(sumMetric(workouts, "elevationGainM"))} m` },
+        { label: "소모", value: `${calories} kcal` },
+      ],
+    };
+  }
+
+  if (sport === "swimming") {
+    const laps = Math.round(sumMetric(workouts, "laps"));
+    const distanceM =
+      sumMetric(workouts, "distanceM") || Math.round(sumMetric(workouts, "distanceKm") * 1000);
+    return {
+      primaryLabel: "수영 시간",
+      primaryValue: formatClock(durationSeconds),
+      primaryUnit: "",
+      metrics: [
+        { label: "거리", value: `${Math.round(distanceM)} m` },
+        { label: "랩", value: `${laps} lap` },
+        { label: "소모", value: `${calories} kcal` },
+      ],
+    };
+  }
+
+  if (sport === "diving") {
+    const depthPb = Math.max(0, ...workouts.map((workout) => workout.metrics.maxDepthM ?? 0));
+    const dynamicDistance = sumMetric(workouts, "dynamicDistanceM");
+    return {
+      primaryLabel: "수심 PB",
+      primaryValue: depthPb > 0 ? depthPb.toFixed(1) : "0.0",
+      primaryUnit: "m",
+      metrics: [
+        { label: "다이나믹", value: `${Math.round(dynamicDistance)} m` },
+        { label: "다이빙 시간", value: formatClock(durationSeconds) },
+        { label: "세션", value: `${workouts.length}회` },
+      ],
+    };
+  }
+
+  const recordedExerciseCount = Math.round(sumMetric(workouts, "exerciseCount"));
+  const exerciseCount = recordedExerciseCount > 0 ? recordedExerciseCount : workouts.length;
+  const cycles = Math.round(
+    sumMetric(workouts, "cycles") ||
+      sumMetric(workouts, "sets") ||
+      sumMetric(workouts, "routineCompletion"),
   );
-  const distance = workouts.reduce(
-    (total, workout) => total + (workout.metrics.distanceKm ?? 0),
-    0,
-  );
-  const calories = Math.round(
-    workouts.reduce((total, workout) => total + (workout.metrics.calories ?? 0), 0),
-  );
-  const hours = Math.floor(durationMinutes / 60);
-  const minutes = durationMinutes % 60;
+  const cycleTotal = cycles > 4 ? Math.min(cycles, 8) : 4;
   return {
-    primaryValue: distance > 0 ? distance.toFixed(2) : `${durationMinutes}`,
-    primaryUnit: distance > 0 ? "km" : "min",
-    duration: hours > 0 ? `${hours}:${minutes.toString().padStart(2, "0")}` : `${minutes}분`,
-    sports: `${new Set(workouts.map((workout) => workout.sport)).size}종`,
-    calories,
+    primaryLabel: "실행 운동",
+    primaryValue: `${exerciseCount}`,
+    primaryUnit: "종목",
+    metrics: [
+      { label: "완료 세트", value: `${Math.round(sumMetric(workouts, "sets"))} set` },
+      { label: "운동 시간", value: formatClock(durationSeconds) },
+      { label: "볼륨", value: `${Math.round(sumMetric(workouts, "volumeKg"))} kg` },
+    ],
+    cycles: { completed: Math.min(cycles, cycleTotal), total: cycleTotal },
   };
+}
+
+function workoutDuration(workout: WorkoutSession) {
+  const elapsed = (Date.parse(workout.endedAt) - Date.parse(workout.startedAt)) / 1000;
+  return Math.max(0, Number.isFinite(elapsed) ? elapsed : 0);
+}
+
+function sumMetric(workouts: WorkoutSession[], key: string) {
+  return workouts.reduce((total, workout) => total + (workout.metrics[key] ?? 0), 0);
+}
+
+function weightedPace(workouts: WorkoutSession[], durationSeconds: number, distanceKm: number) {
+  if (distanceKm > 0 && durationSeconds > 0) return durationSeconds / distanceKm;
+  const recordedPaces = workouts
+    .map((workout) => workout.metrics.paceSeconds)
+    .filter((pace): pace is number => typeof pace === "number" && pace > 0);
+  return recordedPaces.length > 0
+    ? recordedPaces.reduce((total, pace) => total + pace, 0) / recordedPaces.length
+    : 0;
+}
+
+function formatClock(seconds: number) {
+  if (seconds <= 0) return "00:00";
+  const rounded = Math.round(seconds);
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainingSeconds = rounded % 60;
+  return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`
+    : `${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
+}
+
+function formatPace(seconds: number) {
+  if (seconds <= 0 || !Number.isFinite(seconds)) return "--'--\"";
+  const rounded = Math.round(seconds);
+  return `${Math.floor(rounded / 60)}'${(rounded % 60).toString().padStart(2, "0")}"`;
 }
 
 function createStyles(colors: ThemeColors) {
@@ -487,6 +699,86 @@ function createStyles(colors: ThemeColors) {
       borderBottomColor: colors.border,
     },
     kicker: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 14 },
+    activityHeading: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    activityDayCount: { color: colors.muted, fontFamily: fonts.medium, fontSize: 10 },
+    activitySportTabs: { gap: 8, paddingTop: space[3], paddingBottom: space[3] },
+    activitySportTab: {
+      minHeight: 32,
+      paddingHorizontal: 13,
+      borderRadius: radius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    activitySportTabActive: { borderColor: colors.primary, backgroundColor: colors.primary },
+    activitySportTabText: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 10 },
+    activitySportTabTextActive: { color: "#FFFFFF" },
+    activitySportDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.primary },
+    activitySportDotActive: { backgroundColor: "#FFFFFF" },
+    activityRecordCard: { padding: space[5] },
+    activitySportName: {
+      color: colors.ink,
+      fontFamily: fonts.bold,
+      fontSize: 17,
+      marginTop: 4,
+    },
+    activityPrimaryRow: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      justifyContent: "space-between",
+      marginTop: space[4],
+    },
+    activityPrimaryLabel: {
+      color: colors.muted,
+      fontFamily: fonts.semibold,
+      fontSize: 10,
+      letterSpacing: 0.4,
+    },
+    activityStartButton: {
+      minHeight: 34,
+      paddingHorizontal: 13,
+      borderRadius: radius.full,
+      backgroundColor: colors.hero,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 8,
+    },
+    activityStartButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
+    cyclePanel: {
+      marginTop: space[3],
+      padding: space[3],
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceMuted,
+      gap: space[2],
+    },
+    cycleHeading: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    cycleTitle: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 11 },
+    cycleCount: { color: colors.primary, fontFamily: fonts.bold, fontSize: 10 },
+    cycleRow: { flexDirection: "row", gap: 7 },
+    cycleCheck: {
+      width: 28,
+      height: 28,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    cycleCheckDone: { borderColor: colors.primary, backgroundColor: colors.primary },
+    cycleCheckText: { color: colors.muted, fontFamily: fonts.bold, fontSize: 9 },
+    cycleCheckTextDone: { color: "#FFFFFF" },
     activityEmptyCard: {
       minHeight: 96,
       marginTop: space[3],
