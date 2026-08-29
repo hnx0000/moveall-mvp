@@ -1,11 +1,18 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { CirclePlus } from "lucide-react-native";
+import {
+  Anchor,
+  Bike,
+  CirclePlus,
+  Dumbbell,
+  Footprints,
+  Mountain,
+  Waves,
+  type LucideIcon,
+} from "lucide-react-native";
 import { useCallback, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import type { SportType } from "@moveall/contracts";
 import { api } from "../../src/api/client";
-import { SportGlyph } from "../../src/components/sport-glyph";
 import { BellButton, Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
 import { useAsyncData } from "../../src/hooks/use-async-data";
 import {
@@ -19,14 +26,14 @@ import {
 } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
-const homeSportOrder: SportType[] = [
-  "running",
-  "hiking",
-  "cycling",
-  "strength",
-  "swimming",
-  "diving",
-];
+const sportIcons: Record<string, LucideIcon> = {
+  strength: Dumbbell,
+  running: Footprints,
+  hiking: Mountain,
+  diving: Anchor,
+  cycling: Bike,
+  swimming: Waves,
+};
 
 const routineItems = ["워밍업 걷기 5분", "편안한 러닝 20분", "쿨다운 걷기 5분"];
 
@@ -130,32 +137,28 @@ export default function HomeScreen() {
       {error ? <StatePanel state="error" message={error} onRetry={() => void reload()} /> : null}
       {sports ? (
         <View style={styles.sportGrid}>
-          {homeSportOrder
-            .map((sportId) => sports.find((sport) => sport.id === sportId))
-            .filter((sport) => sport !== undefined)
-            .map((sport) => {
-              const selected = selectedSport === sport.id;
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  key={sport.id}
-                  onPress={() => setSelectedSport(sport.id)}
-                  style={({ pressed }) => [
-                    styles.sportButton,
-                    selected && styles.sportButtonSelected,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <View style={[styles.sportIconShell, selected && styles.sportIconShellSelected]}>
-                    <SportGlyph sport={sport.id} />
-                  </View>
-                  <Text style={[styles.sportLabel, selected && styles.sportSelectedText]}>
-                    {sport.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+          {sports.map((sport) => {
+            const selected = selectedSport === sport.id;
+            const SportIcon = sportIcons[sport.id] ?? Footprints;
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                key={sport.id}
+                onPress={() => setSelectedSport(sport.id)}
+                style={({ pressed }) => [
+                  styles.sportButton,
+                  selected && styles.sportButtonSelected,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SportIcon color={selected ? "#FFFFFF" : colors.ink} size={25} strokeWidth={2} />
+                <Text style={[styles.sportLabel, selected && styles.sportSelectedText]}>
+                  {sport.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       ) : null}
 
@@ -282,7 +285,7 @@ function createStyles(colors: ThemeColors) {
     sportButton: {
       width: "30%",
       flexGrow: 1,
-      minHeight: 104,
+      minHeight: 78,
       alignItems: "center",
       justifyContent: "center",
       gap: space[2],
@@ -292,25 +295,9 @@ function createStyles(colors: ThemeColors) {
       borderColor: colors.border,
       ...shadows.card,
     },
-    sportButtonSelected: {
-      backgroundColor: colors.primarySoft,
-      borderColor: colors.primary,
-      borderWidth: 1.5,
-    },
-    sportIconShell: {
-      width: 52,
-      height: 52,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "#151515",
-      borderRadius: radius.lg,
-    },
-    sportIconShellSelected: {
-      borderColor: colors.primary,
-      borderWidth: 2,
-    },
+    sportButtonSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     sportLabel: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 12 },
-    sportSelectedText: { color: colors.primary },
+    sportSelectedText: { color: "#FFFFFF" },
     recordCta: {
       minHeight: 84,
       borderRadius: radius["2xl"],
