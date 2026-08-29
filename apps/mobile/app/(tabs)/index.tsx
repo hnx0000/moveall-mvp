@@ -5,9 +5,7 @@ import {
   type SportType,
   type WorkoutSession,
 } from "@moveall/contracts";
-import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
-import { CirclePlus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Defs, Image as SvgImage, Mask, Rect, Svg } from "react-native-svg";
@@ -16,15 +14,7 @@ import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { BellButton, Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
 import { useAsyncData } from "../../src/hooks/use-async-data";
-import {
-  fonts,
-  gradients,
-  radius,
-  shadows,
-  space,
-  typography,
-  type ThemeColors,
-} from "../../src/theme";
+import { fonts, radius, shadows, space, typography, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
 const homeSportOrder: SportType[] = [
@@ -118,6 +108,13 @@ export default function HomeScreen() {
   const activitySummary = useMemo(
     () => summarizeSportActivity(selectedSport, selectedSportWorkouts),
     [selectedSport, selectedSportWorkouts],
+  );
+  const selectedSportHistory = useMemo(
+    () =>
+      workouts
+        .filter((workout) => workout.sport === selectedSport)
+        .sort((left, right) => Date.parse(right.endedAt) - Date.parse(left.endedAt)),
+    [selectedSport, workouts],
   );
 
   useEffect(() => {
@@ -411,8 +408,8 @@ export default function HomeScreen() {
       )}
 
       <View style={styles.sectionHeading}>
-        <Text style={styles.sectionTitle}>바로 기록하기</Text>
-        <Text style={styles.viewAll}>전체</Text>
+        <Text style={styles.sectionTitle}>기록</Text>
+        <Text style={styles.viewAll}>종목을 선택하세요</Text>
       </View>
       {loading ? <StatePanel state="loading" message="운동 종목을 불러오는 중이에요." /> : null}
       {error ? <StatePanel state="error" message={error} onRetry={() => void reload()} /> : null}
@@ -445,24 +442,76 @@ export default function HomeScreen() {
         </View>
       ) : null}
 
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => router.push({ pathname: "/routines", params: { sport: selectedSport } })}
-        style={({ pressed }) => [styles.recordCta, pressed && styles.pressed]}
-      >
-        <View>
-          <Text style={styles.recordCtaKicker}>운동 · 일상 · 공유</Text>
-          <Text style={styles.recordCtaTitle}>지금 운동 기록 만들기</Text>
+      <View style={styles.historySection}>
+        <View style={styles.historyHeading}>
+          <View>
+            <Text style={styles.historyEyebrow}>ACTIVITY ARCHIVE</Text>
+            <Text style={styles.historyTitle}>{sportLabels[selectedSport]} 이전 기록</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() =>
+              router.push({ pathname: "/profile/sport", params: { sport: selectedSport } })
+            }
+          >
+            <Text style={styles.historyViewAll}>전체 {selectedSportHistory.length}개 보기 →</Text>
+          </Pressable>
         </View>
-        <LinearGradient
-          colors={gradients.primary.colors}
-          end={gradients.primary.end}
-          start={gradients.primary.start}
-          style={[styles.recordPlus, shadows.pop]}
-        >
-          <CirclePlus color="#FFFFFF" size={26} strokeWidth={2.4} />
-        </LinearGradient>
-      </Pressable>
+
+        {selectedSportHistory.length === 0 ? (
+          <Card style={styles.historyEmptyCard}>
+            <Text style={styles.historyEmptyTitle}>
+              아직 {sportLabels[selectedSport]} 기록이 없습니다.
+            </Text>
+            <Text style={styles.historyEmptyText}>
+              첫 기록을 남기면 날짜와 핵심 지표가 여기에 쌓입니다.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() =>
+                router.push({ pathname: "/routines", params: { sport: selectedSport } })
+              }
+              style={styles.historyStartButton}
+            >
+              <Text style={styles.historyStartButtonText}>첫 기록 시작</Text>
+            </Pressable>
+          </Card>
+        ) : (
+          <View style={styles.historyList}>
+            {selectedSportHistory.slice(0, 4).map((workout, index) => {
+              const summary = summarizeSportActivity(selectedSport, [workout]);
+              return (
+                <View key={workout.id} style={styles.historyCard}>
+                  <View style={styles.historyIndex}>
+                    <Text style={styles.historyIndexText}>
+                      {String(index + 1).padStart(2, "0")}
+                    </Text>
+                  </View>
+                  <View style={styles.historyBody}>
+                    <Text style={styles.historyDate}>{formatHistoryDate(workout.endedAt)}</Text>
+                    <Text numberOfLines={1} style={styles.historyNote}>
+                      {workout.notes ?? `${sportLabels[selectedSport]} 운동 기록`}
+                    </Text>
+                    <Text style={styles.historySubMetric}>
+                      {summary.metrics
+                        .slice(0, 2)
+                        .map((metric) => `${metric.label} ${metric.value}`)
+                        .join(" · ")}
+                    </Text>
+                  </View>
+                  <View style={styles.historyPrimary}>
+                    <Text style={styles.historyPrimaryLabel}>{summary.primaryLabel}</Text>
+                    <Text style={styles.historyPrimaryValue}>
+                      {summary.primaryValue}
+                      {summary.primaryUnit ? ` ${summary.primaryUnit}` : ""}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </View>
     </Screen>
   );
 }
@@ -530,6 +579,18 @@ function isSameLocalDay(left: Date, right: Date): boolean {
     left.getMonth() === right.getMonth() &&
     left.getDate() === right.getDate()
   );
+}
+
+function formatHistoryDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "날짜 미상";
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "short",
+    day: "numeric",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 type SportActivitySummary = {
@@ -926,33 +987,67 @@ function createStyles(colors: ThemeColors) {
     sportButtonSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     sportLabel: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 12 },
     sportSelectedText: { color: "#FFFFFF" },
-    recordCta: {
-      minHeight: 84,
-      borderRadius: radius["2xl"],
-      backgroundColor: colors.hero,
-      paddingHorizontal: space[5],
+    historySection: { gap: space[3], marginTop: space[2] },
+    historyHeading: {
       flexDirection: "row",
-      alignItems: "center",
+      alignItems: "flex-end",
       justifyContent: "space-between",
     },
-    recordCtaKicker: {
+    historyEyebrow: {
       color: colors.primary,
       fontFamily: fonts.bold,
+      fontSize: 8,
+      letterSpacing: 1,
+    },
+    historyTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 17, marginTop: 4 },
+    historyViewAll: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 9 },
+    historyEmptyCard: { padding: space[5], gap: space[2] },
+    historyEmptyTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 14 },
+    historyEmptyText: {
+      color: colors.muted,
+      fontFamily: fonts.regular,
       fontSize: 10,
-      letterSpacing: 0.7,
+      lineHeight: 16,
     },
-    recordCtaTitle: {
-      color: "#FFFFFF",
-      fontFamily: fonts.bold,
-      fontSize: 18,
-      marginTop: 5,
-    },
-    recordPlus: {
-      width: 46,
-      height: 46,
+    historyStartButton: {
+      minHeight: 38,
+      marginTop: space[2],
       borderRadius: radius.full,
+      backgroundColor: colors.hero,
       alignItems: "center",
       justifyContent: "center",
+    },
+    historyStartButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
+    historyList: { borderTopWidth: 1, borderTopColor: colors.border },
+    historyCard: {
+      minHeight: 86,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space[3],
+      paddingVertical: space[3],
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    historyIndex: {
+      width: 34,
+      height: 34,
+      borderRadius: radius.full,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    historyIndexText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
+    historyBody: { flex: 1, minWidth: 0 },
+    historyDate: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 11 },
+    historyNote: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9, marginTop: 4 },
+    historySubMetric: { color: colors.muted, fontFamily: fonts.medium, fontSize: 8, marginTop: 4 },
+    historyPrimary: { alignItems: "flex-end", maxWidth: 120 },
+    historyPrimaryLabel: { color: colors.muted, fontFamily: fonts.medium, fontSize: 8 },
+    historyPrimaryValue: {
+      color: colors.ink,
+      fontFamily: fonts.bold,
+      fontSize: 14,
+      marginTop: 4,
     },
     pressed: { opacity: 0.72 },
   });
