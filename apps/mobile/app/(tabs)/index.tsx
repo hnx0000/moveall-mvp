@@ -9,7 +9,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import { CirclePlus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Defs, Image as SvgImage, Mask, Rect, Svg } from "react-native-svg";
 import sportLogoSheet from "../../assets/images/sport-logo-sheet.jpg";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
@@ -339,7 +340,7 @@ export default function HomeScreen() {
                     pressed && styles.pressed,
                   ]}
                 >
-                  <SportLogo sport={sport.id} />
+                  <SportLogo selected={selected} sport={sport.id} />
                   <Text style={[styles.sportLabel, selected && styles.sportSelectedText]}>
                     {sport.label}
                   </Text>
@@ -391,22 +392,40 @@ function Metric({
   );
 }
 
-function SportLogo({ sport }: { sport: SportType }) {
+function SportLogo({ selected, sport }: { selected: boolean; sport: SportType }) {
+  const { colors } = useAppTheme();
   const cell = 48;
+  const maskId = `sport-logo-${sport}`;
+
   return (
-    <View style={{ width: cell, height: cell, overflow: "hidden" }}>
-      <Image
-        resizeMode="stretch"
-        source={sportLogoSheet}
-        style={{
-          position: "absolute",
-          left: -sportLogoIndex[sport] * cell,
-          top: 0,
-          width: cell * 6,
-          height: cell * 2,
-        }}
+    <Svg height={cell} viewBox={`0 0 ${cell} ${cell}`} width={cell}>
+      <Defs>
+        <Mask
+          height={cell}
+          id={maskId}
+          maskContentUnits="userSpaceOnUse"
+          maskUnits="userSpaceOnUse"
+          width={cell}
+          x={0}
+          y={0}
+        >
+          <SvgImage
+            height={cell * 2}
+            href={sportLogoSheet}
+            preserveAspectRatio="none"
+            width={cell * 6}
+            x={-sportLogoIndex[sport] * cell}
+            y={0}
+          />
+        </Mask>
+      </Defs>
+      <Rect
+        fill={selected ? "#FFFFFF" : colors.ink}
+        height={cell}
+        mask={`url(#${maskId})`}
+        width={cell}
       />
-    </View>
+    </Svg>
   );
 }
 
