@@ -4,3 +4,8 @@ dist
 coverage
 pnpm-lock.yaml
 apps/mobile/assets/pets/
+apps/mobile/expo-env.d.ts
+moveall-design-export/
+artifacts/
+output/
+tmp/
