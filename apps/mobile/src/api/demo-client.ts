@@ -17,6 +17,8 @@ import {
   type RegisterInput,
   type Routine,
   type RoutineCreateInput,
+  type RoutineReorderInput,
+  type RoutineUpdateInput,
   type SocialSummary,
   type SportSummary,
   type SportType,
@@ -178,7 +180,7 @@ const posts: FeedPost[] = [
   },
 ];
 
-const routines: Routine[] = [
+const defaultRoutines: Routine[] = [
   {
     id: "demo-routine-strength",
     userId: "demo-user",
@@ -190,11 +192,13 @@ const routines: Routine[] = [
       { name: "기본 전신 운동", target: "30분", order: 1 },
       { name: "정리 운동", target: "5분", order: 2 },
     ],
+    sortOrder: 0,
     createdAt: new Date(now - 7 * 86_400_000).toISOString(),
   },
 ];
 
-const workouts: WorkoutSession[] = [];
+const routines = readStored<Routine[]>("moveall-demo-routines-v2", defaultRoutines);
+const workouts = readStored<WorkoutSession[]>("moveall-demo-workouts-v2", []);
 const followingIds = new Set<string>();
 const archived: FeedPost[] = [];
 const messages: DirectMessage[] = [];
@@ -254,14 +258,43 @@ export const demoApi = {
   feed: async () => posts,
   routines: async (_token: string) => routines,
   createRoutine: async (_token: string, input: RoutineCreateInput) => {
+    routines.forEach((routine) => {
+      routine.sortOrder += 1;
+    });
     const item: Routine = {
       id: makeId("routine"),
       userId: activeSession.user.id,
       ...input,
+      sortOrder: 0,
       createdAt: new Date().toISOString(),
     };
     routines.unshift(item);
+    persistDemoState();
     return item;
+  },
+  updateRoutine: async (_token: string, routineId: string, input: RoutineUpdateInput) => {
+    const routine = routines.find((item) => item.id === routineId)!;
+    Object.assign(routine, input);
+    persistDemoState();
+    return routine;
+  },
+  deleteRoutine: async (_token: string, routineId: string) => {
+    const index = routines.findIndex((item) => item.id === routineId);
+    if (index >= 0) routines.splice(index, 1);
+    routines.forEach((routine, sortOrder) => {
+      routine.sortOrder = sortOrder;
+    });
+    persistDemoState();
+    return { deleted: true as const };
+  },
+  reorderRoutines: async (_token: string, input: RoutineReorderInput) => {
+    const ordered = input.routineIds.map((id) => routines.find((routine) => routine.id === id)!);
+    routines.splice(0, routines.length, ...ordered);
+    routines.forEach((routine, sortOrder) => {
+      routine.sortOrder = sortOrder;
+    });
+    persistDemoState();
+    return routines;
   },
   createPost: async (_token: string, input: PostCreateInput) => {
     const item: FeedPost = {
@@ -286,6 +319,7 @@ export const demoApi = {
       createdAt: new Date().toISOString(),
     };
     workouts.unshift(item);
+    persistDemoState();
     return item;
   },
   myPosts: async (_token: string) => posts.filter((post) => post.userId === activeSession.user.id),
@@ -418,4 +452,24 @@ function sessionFor(email: string, displayName: string): AuthSession {
 
 function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function readStored<T>(key: string, fallback: T): T {
+  try {
+    if (!("localStorage" in globalThis)) return fallback;
+    const stored = globalThis.localStorage.getItem(key);
+    return stored ? (JSON.parse(stored) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function persistDemoState() {
+  try {
+    if (!("localStorage" in globalThis)) return;
+    globalThis.localStorage.setItem("moveall-demo-routines-v2", JSON.stringify(routines));
+    globalThis.localStorage.setItem("moveall-demo-workouts-v2", JSON.stringify(workouts));
+  } catch {
+    // 저장소를 사용할 수 없는 환경에서는 현재 세션의 메모리 상태를 유지합니다.
+  }
 }

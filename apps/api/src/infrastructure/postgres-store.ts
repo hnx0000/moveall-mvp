@@ -9,6 +9,7 @@ import type {
   PublicUser,
   Routine,
   RoutineCreateInput,
+  RoutineUpdateInput,
   SportType,
   WorkoutSession,
   WorkoutSessionCreateInput,
@@ -32,6 +33,7 @@ type RoutineRow = QueryResultRow & {
   sport: SportType;
   days_of_week: number[];
   items: Routine["items"];
+  sort_order: number;
   created_at: Date;
 };
 
@@ -195,19 +197,84 @@ export class PostgresStore implements AppStore {
   }
 
   async createRoutine(userId: string, input: RoutineCreateInput): Promise<Routine> {
-    const result = await this.pool.query<RoutineRow>(
-      "INSERT INTO routines (user_id, title, sport, days_of_week, items) VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING *",
-      [userId, input.title, input.sport, input.daysOfWeek, JSON.stringify(input.items)],
-    );
-    return this.mapRoutine(result.rows[0]!);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("UPDATE routines SET sort_order = sort_order + 1 WHERE user_id = $1", [
+        userId,
+      ]);
+      const result = await client.query<RoutineRow>(
+        "INSERT INTO routines (user_id, title, sport, days_of_week, items, sort_order) VALUES ($1, $2, $3, $4, $5::jsonb, 0) RETURNING *",
+        [userId, input.title, input.sport, input.daysOfWeek, JSON.stringify(input.items)],
+      );
+      await client.query("COMMIT");
+      return this.mapRoutine(result.rows[0]!);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listRoutines(userId: string): Promise<Routine[]> {
     const result = await this.pool.query<RoutineRow>(
-      "SELECT * FROM routines WHERE user_id = $1 ORDER BY created_at DESC",
+      "SELECT * FROM routines WHERE user_id = $1 ORDER BY sort_order ASC, created_at DESC",
       [userId],
     );
     return result.rows.map((row) => this.mapRoutine(row));
+  }
+
+  async updateRoutine(
+    userId: string,
+    routineId: string,
+    input: RoutineUpdateInput,
+  ): Promise<Routine | null> {
+    const result = await this.pool.query<RoutineRow>(
+      "UPDATE routines SET title = $3, sport = $4, days_of_week = $5, items = $6::jsonb WHERE user_id = $1 AND id = $2 RETURNING *",
+      [userId, routineId, input.title, input.sport, input.daysOfWeek, JSON.stringify(input.items)],
+    );
+    return result.rows[0] ? this.mapRoutine(result.rows[0]) : null;
+  }
+
+  async deleteRoutine(userId: string, routineId: string): Promise<boolean> {
+    const result = await this.pool.query("DELETE FROM routines WHERE user_id = $1 AND id = $2", [
+      userId,
+      routineId,
+    ]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async reorderRoutines(userId: string, routineIds: string[]): Promise<boolean> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const owned = await client.query<{ id: string }>(
+        "SELECT id FROM routines WHERE user_id = $1 FOR UPDATE",
+        [userId],
+      );
+      if (
+        owned.rows.length !== routineIds.length ||
+        routineIds.some((id) => !owned.rows.some((routine) => routine.id === id))
+      ) {
+        await client.query("ROLLBACK");
+        return false;
+      }
+      for (const [sortOrder, routineId] of routineIds.entries()) {
+        await client.query("UPDATE routines SET sort_order = $3 WHERE user_id = $1 AND id = $2", [
+          userId,
+          routineId,
+          sortOrder,
+        ]);
+      }
+      await client.query("COMMIT");
+      return true;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async createWorkoutSession(
@@ -493,6 +560,7 @@ export class PostgresStore implements AppStore {
       sport: row.sport,
       daysOfWeek: row.days_of_week,
       items: row.items,
+      sortOrder: row.sort_order,
       createdAt: row.created_at.toISOString(),
     };
   }

@@ -71,6 +71,84 @@ describe("MoveAll API", () => {
     await app.close();
   });
 
+  it("updates, reorders, and deletes only the current user's routines", async () => {
+    const app = await createApp({ config, store });
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "routine-manager@example.com",
+        password: "very-secure-1234",
+        displayName: "루틴관리자",
+      },
+    });
+    const headers = {
+      authorization: "Bearer " + (registration.json().data.accessToken as string),
+    };
+    const base = {
+      sport: "strength",
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      items: [{ name: "스쿼트", target: "10회", order: 0 }],
+    };
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/routines",
+      headers,
+      payload: { ...base, title: "첫 루틴" },
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/routines",
+      headers,
+      payload: { ...base, title: "둘째 루틴", sport: "swimming" },
+    });
+    const firstId = first.json().data.id as string;
+    const secondId = second.json().data.id as string;
+
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/v1/routines/${firstId}`,
+      headers,
+      payload: { ...base, title: "수정한 첫 루틴", sport: "diving" },
+    });
+    expect(updated.json()).toMatchObject({
+      ok: true,
+      data: { title: "수정한 첫 루틴", sport: "diving" },
+    });
+
+    const reordered = await app.inject({
+      method: "PUT",
+      url: "/v1/routines/order",
+      headers,
+      payload: { routineIds: [firstId, secondId] },
+    });
+    expect(reordered.json().data.map((routine: { id: string }) => routine.id)).toEqual([
+      firstId,
+      secondId,
+    ]);
+
+    expect(
+      (
+        await app.inject({
+          method: "DELETE",
+          url: `/v1/routines/${firstId}`,
+          headers,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: `/v1/routines/${firstId}`,
+          headers,
+          payload: { ...base, title: "없는 루틴" },
+        })
+      ).statusCode,
+    ).toBe(404);
+    await app.close();
+  });
+
   it("verifies a Google identity, persists the account, and validates the session", async () => {
     const app = await createApp({
       config,

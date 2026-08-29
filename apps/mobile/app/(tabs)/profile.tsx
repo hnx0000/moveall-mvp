@@ -1,5 +1,6 @@
 import {
   NicknameSchema,
+  RoutineCreateInputSchema,
   sportLabels,
   sportValues,
   type FeedPost,
@@ -11,7 +12,7 @@ import {
   type WorkoutSession,
 } from "@moveall/contracts";
 import * as ImagePicker from "expo-image-picker";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -39,6 +40,11 @@ import { useAppTheme } from "../../src/theme-context";
 
 type ProfileTab = "records" | "posts" | "routines";
 type RecordFilter = "all" | SportType;
+type RoutineSport = "strength" | "swimming" | "diving";
+type RoutineDraftItem = { name: string; target: string };
+
+const routineSports: RoutineSport[] = ["strength", "swimming", "diving"];
+const emptyRoutineItem = (): RoutineDraftItem => ({ name: "", target: "" });
 
 const emptySocial: SocialSummary = {
   followersCount: 0,
@@ -49,10 +55,11 @@ const emptySocial: SocialSummary = {
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ tab?: string }>();
   const { colors, mode, setMode } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { session, logout, updateUser } = useAuth();
-  const [tab, setTab] = useState<ProfileTab>("records");
+  const [tab, setTab] = useState<ProfileTab>(params.tab === "routines" ? "routines" : "records");
   const [recordFilter] = useState<RecordFilter>("all");
   const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
   const [posts, setPosts] = useState<FeedPost[]>([]);
@@ -65,6 +72,11 @@ export default function ProfileScreen() {
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [routineTitle, setRoutineTitle] = useState("");
+  const [routineSport, setRoutineSport] = useState<RoutineSport>("strength");
+  const [routineItems, setRoutineItems] = useState<RoutineDraftItem[]>([emptyRoutineItem()]);
+  const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
+  const [pendingDeleteRoutineId, setPendingDeleteRoutineId] = useState<string | null>(null);
+  const [routineMessage, setRoutineMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingRoutine, setSavingRoutine] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,8 +111,9 @@ export default function ProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (params.tab === "routines") setTab("routines");
       void loadProfile();
-    }, [loadProfile]),
+    }, [loadProfile, params.tab]),
   );
 
   const visibleWorkouts = useMemo(
@@ -185,24 +198,116 @@ export default function ProfileScreen() {
     }
   };
 
-  const createRoutine = async () => {
-    if (!session || routineTitle.trim().length < 2) return;
+  const resetRoutineComposer = () => {
+    setRoutineTitle("");
+    setRoutineSport("strength");
+    setRoutineItems([emptyRoutineItem()]);
+    setEditingRoutineId(null);
+  };
+
+  const saveRoutine = async () => {
+    if (!session) return;
+    const parsed = RoutineCreateInputSchema.safeParse({
+      title: routineTitle.trim(),
+      sport: routineSport,
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      items: routineItems
+        .filter((item) => item.name.trim() && item.target.trim())
+        .map((item, order) => ({ name: item.name.trim(), target: item.target.trim(), order })),
+    });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? "루틴 내용을 확인해 주세요.");
+      return;
+    }
     setSavingRoutine(true);
     setError(null);
+    setRoutineMessage(null);
     try {
-      const routine = await api.createRoutine(session.accessToken, {
-        title: routineTitle.trim(),
-        sport: recordFilter === "all" ? "strength" : recordFilter,
-        daysOfWeek: [1, 3, 5],
-        items: [{ name: "운동 시작", target: "내 페이스로 30분", order: 0 }],
-      });
-      setRoutines((current) => [routine, ...current]);
-      setRoutineTitle("");
+      if (editingRoutineId) {
+        const routine = await api.updateRoutine(session.accessToken, editingRoutineId, parsed.data);
+        setRoutines((current) =>
+          current.map((item) => (item.id === editingRoutineId ? routine : item)),
+        );
+        setRoutineMessage("루틴을 수정했습니다.");
+      } else {
+        const routine = await api.createRoutine(session.accessToken, parsed.data);
+        setRoutines((current) => [routine, ...current]);
+        setRoutineMessage("새 루틴을 저장했습니다. 홈의 오늘 루틴에 바로 연결됩니다.");
+      }
+      resetRoutineComposer();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "루틴을 저장하지 못했습니다.");
     } finally {
       setSavingRoutine(false);
     }
+  };
+
+  const editRoutine = (routine: Routine) => {
+    setRoutineTitle(routine.title);
+    setRoutineSport(
+      routineSports.includes(routine.sport as RoutineSport)
+        ? (routine.sport as RoutineSport)
+        : "strength",
+    );
+    setRoutineItems(
+      [...routine.items]
+        .sort((left, right) => left.order - right.order)
+        .map(({ name, target }) => ({ name, target })),
+    );
+    setEditingRoutineId(routine.id);
+    setRoutineMessage("수정할 내용을 바꾼 뒤 저장해 주세요.");
+  };
+
+  const deleteRoutine = async (routineId: string) => {
+    if (!session) return;
+    setSavingRoutine(true);
+    setError(null);
+    try {
+      await api.deleteRoutine(session.accessToken, routineId);
+      setRoutines((current) => current.filter((routine) => routine.id !== routineId));
+      if (editingRoutineId === routineId) resetRoutineComposer();
+      setPendingDeleteRoutineId(null);
+      setRoutineMessage("루틴을 제거했습니다.");
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "루틴을 제거하지 못했습니다.");
+    } finally {
+      setSavingRoutine(false);
+    }
+  };
+
+  const moveRoutine = async (index: number, direction: -1 | 1) => {
+    if (!session) return;
+    const target = index + direction;
+    if (target < 0 || target >= routines.length) return;
+    const next = [...routines];
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    setRoutines(next);
+    try {
+      const ordered = await api.reorderRoutines(session.accessToken, {
+        routineIds: next.map((routine) => routine.id),
+      });
+      setRoutines(ordered);
+      setRoutineMessage("홈에 표시되는 루틴 순서를 변경했습니다.");
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "순서를 변경하지 못했습니다.");
+      await loadProfile();
+    }
+  };
+
+  const updateRoutineItem = (index: number, field: keyof RoutineDraftItem, value: string) => {
+    setRoutineItems((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? { ...item, [field]: value } : item)),
+    );
+  };
+
+  const moveRoutineItem = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= routineItems.length) return;
+    setRoutineItems((current) => {
+      const next = [...current];
+      [next[index], next[target]] = [next[target]!, next[index]!];
+      return next;
+    });
   };
 
   if (!session) return null;
@@ -416,33 +521,213 @@ export default function ProfileScreen() {
         {!loading && tab === "routines" ? (
           <View style={styles.contentSection}>
             <View style={styles.routineComposer}>
-              <Text style={styles.cardEyebrow}>NEW ROUTINE</Text>
+              <View style={styles.routineComposerHeader}>
+                <View>
+                  <Text style={styles.cardEyebrow}>
+                    {editingRoutineId ? "EDIT ROUTINE" : "NEW ROUTINE"}
+                  </Text>
+                  <Text style={styles.routineComposerTitle}>
+                    {editingRoutineId ? "루틴 수정" : "나만의 루틴 만들기"}
+                  </Text>
+                </View>
+                {editingRoutineId ? (
+                  <Pressable onPress={resetRoutineComposer}>
+                    <Text style={styles.textAction}>취소</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              <Text style={styles.fieldLabel}>운동 종류</Text>
+              <View style={styles.routineSportRow}>
+                {routineSports.map((sport) => (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: routineSport === sport }}
+                    key={sport}
+                    onPress={() => setRoutineSport(sport)}
+                    style={[
+                      styles.routineSportChip,
+                      routineSport === sport && styles.routineSportChipActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.routineSportText,
+                        routineSport === sport && styles.routineSportTextActive,
+                      ]}
+                    >
+                      {sportLabels[sport]}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={styles.fieldLabel}>루틴 이름</Text>
               <TextInput
                 value={routineTitle}
                 onChangeText={setRoutineTitle}
-                placeholder="예: 월수금 러닝 베이스"
+                placeholder="예: 출근 전 전신 루틴"
                 placeholderTextColor={colors.muted}
                 style={styles.routineInput}
               />
+              <View style={styles.fieldHeading}>
+                <Text style={styles.fieldLabel}>루틴 항목</Text>
+                <Pressable
+                  onPress={() => setRoutineItems((current) => [...current, emptyRoutineItem()])}
+                >
+                  <Text style={styles.textAction}>+ 항목 추가</Text>
+                </Pressable>
+              </View>
+              <View style={styles.routineDraftList}>
+                {routineItems.map((item, index) => (
+                  <View key={`routine-item-${index}`} style={styles.routineDraftItem}>
+                    <View style={styles.routineItemNumber}>
+                      <Text style={styles.routineItemNumberText}>{index + 1}</Text>
+                    </View>
+                    <View style={styles.routineItemFields}>
+                      <TextInput
+                        onChangeText={(value) => updateRoutineItem(index, "name", value)}
+                        placeholder="운동명 또는 단계"
+                        placeholderTextColor={colors.muted}
+                        style={styles.routineItemInput}
+                        value={item.name}
+                      />
+                      <TextInput
+                        onChangeText={(value) => updateRoutineItem(index, "target", value)}
+                        placeholder="횟수·시간·거리"
+                        placeholderTextColor={colors.muted}
+                        style={styles.routineTargetInput}
+                        value={item.target}
+                      />
+                    </View>
+                    <View style={styles.itemActions}>
+                      <Pressable
+                        accessibilityLabel={`${index + 1}번 항목 위로`}
+                        disabled={index === 0}
+                        onPress={() => moveRoutineItem(index, -1)}
+                      >
+                        <Text style={[styles.iconAction, index === 0 && styles.actionDisabled]}>
+                          ↑
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel={`${index + 1}번 항목 아래로`}
+                        disabled={index === routineItems.length - 1}
+                        onPress={() => moveRoutineItem(index, 1)}
+                      >
+                        <Text
+                          style={[
+                            styles.iconAction,
+                            index === routineItems.length - 1 && styles.actionDisabled,
+                          ]}
+                        >
+                          ↓
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel={`${index + 1}번 항목 제거`}
+                        disabled={routineItems.length === 1}
+                        onPress={() =>
+                          setRoutineItems((current) =>
+                            current.filter((_, itemIndex) => itemIndex !== index),
+                          )
+                        }
+                      >
+                        <Text
+                          style={[
+                            styles.iconAction,
+                            routineItems.length === 1 && styles.actionDisabled,
+                          ]}
+                        >
+                          ×
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+              </View>
               <Pressable
-                disabled={savingRoutine || routineTitle.trim().length < 2}
-                onPress={() => void createRoutine()}
-                style={styles.primaryButton}
+                disabled={savingRoutine}
+                onPress={() => void saveRoutine()}
+                style={[styles.primaryButton, savingRoutine && styles.buttonDisabled]}
               >
                 <Text style={styles.primaryButtonText}>
-                  {savingRoutine ? "저장 중" : "+ 새 루틴 저장"}
+                  {savingRoutine ? "저장 중" : editingRoutineId ? "수정 내용 저장" : "루틴 저장"}
                 </Text>
               </Pressable>
             </View>
-            {routines.slice(0, 3).map((routine) => (
+            {routineMessage ? <Text style={styles.routineMessage}>{routineMessage}</Text> : null}
+            <View style={styles.savedRoutineHeader}>
+              <Text style={styles.savedRoutineTitle}>저장한 루틴</Text>
+              <Text style={styles.savedRoutineCount}>{routines.length}개</Text>
+            </View>
+            {routines.map((routine, index) => (
               <View key={routine.id} style={styles.routineCard}>
-                <View>
-                  <Text style={styles.cardEyebrow}>{sportLabels[routine.sport]}</Text>
-                  <Text style={styles.cardTitle}>{routine.title}</Text>
+                <View style={styles.routineCardHeader}>
+                  <View style={styles.routineCardCopy}>
+                    <Text style={styles.cardEyebrow}>{sportLabels[routine.sport]}</Text>
+                    <Text style={styles.cardTitle}>{routine.title}</Text>
+                    <Text style={styles.routineMeta}>
+                      {routine.items.length}개 항목 · 매일 표시
+                    </Text>
+                  </View>
+                  <View style={styles.routineOrderActions}>
+                    <Pressable
+                      accessibilityLabel={`${routine.title} 위로 이동`}
+                      disabled={index === 0}
+                      onPress={() => void moveRoutine(index, -1)}
+                    >
+                      <Text style={[styles.orderAction, index === 0 && styles.actionDisabled]}>
+                        ↑
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityLabel={`${routine.title} 아래로 이동`}
+                      disabled={index === routines.length - 1}
+                      onPress={() => void moveRoutine(index, 1)}
+                    >
+                      <Text
+                        style={[
+                          styles.orderAction,
+                          index === routines.length - 1 && styles.actionDisabled,
+                        ]}
+                      >
+                        ↓
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
-                <Text style={styles.routineMeta}>
-                  주 {routine.daysOfWeek.length}회 · {routine.items.length} 단계
-                </Text>
+                <View style={styles.routinePreviewList}>
+                  {[...routine.items]
+                    .sort((left, right) => left.order - right.order)
+                    .map((item, itemIndex) => (
+                      <View key={`${routine.id}-${item.order}`} style={styles.routinePreviewItem}>
+                        <Text style={styles.routinePreviewNumber}>{itemIndex + 1}</Text>
+                        <Text style={styles.routinePreviewName}>{item.name}</Text>
+                        <Text style={styles.routinePreviewTarget}>{item.target}</Text>
+                      </View>
+                    ))}
+                </View>
+                <View style={styles.routineCardActions}>
+                  {pendingDeleteRoutineId === routine.id ? (
+                    <>
+                      <Text style={styles.deleteConfirmText}>이 루틴을 제거할까요?</Text>
+                      <Pressable onPress={() => setPendingDeleteRoutineId(null)}>
+                        <Text style={styles.secondaryAction}>취소</Text>
+                      </Pressable>
+                      <Pressable onPress={() => void deleteRoutine(routine.id)}>
+                        <Text style={styles.deleteAction}>제거</Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <>
+                      <Pressable onPress={() => editRoutine(routine)}>
+                        <Text style={styles.secondaryAction}>수정</Text>
+                      </Pressable>
+                      <Pressable onPress={() => setPendingDeleteRoutineId(routine.id)}>
+                        <Text style={styles.deleteAction}>제거</Text>
+                      </Pressable>
+                    </>
+                  )}
+                </View>
               </View>
             ))}
             {routines.length === 0 ? (
@@ -845,6 +1130,39 @@ function createStyles(colors: ThemeColors) {
       padding: 14,
       gap: 10,
     },
+    routineComposerHeader: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+    },
+    routineComposerTitle: {
+      color: colors.ink,
+      fontFamily: fonts.bold,
+      fontSize: 17,
+      marginTop: 4,
+    },
+    fieldLabel: { color: colors.muted, fontFamily: fonts.bold, fontSize: 9 },
+    fieldHeading: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 4,
+    },
+    textAction: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
+    routineSportRow: { flexDirection: "row", gap: 7 },
+    routineSportChip: {
+      flex: 1,
+      minHeight: 36,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.full,
+      backgroundColor: colors.surface,
+    },
+    routineSportChipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+    routineSportText: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 9 },
+    routineSportTextActive: { color: colors.background },
     routineInput: {
       minHeight: 44,
       color: colors.ink,
@@ -853,6 +1171,45 @@ function createStyles(colors: ThemeColors) {
       fontSize: 13,
       fontWeight: "800",
     },
+    routineDraftList: { gap: 8 },
+    routineDraftItem: {
+      minHeight: 68,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 9,
+      padding: 9,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    routineItemNumber: {
+      width: 24,
+      height: 24,
+      borderRadius: radius.full,
+      backgroundColor: colors.primarySoft,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    routineItemNumberText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
+    routineItemFields: { flex: 1 },
+    routineItemInput: {
+      minHeight: 28,
+      color: colors.ink,
+      fontFamily: fonts.semibold,
+      fontSize: 11,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    routineTargetInput: {
+      minHeight: 27,
+      color: colors.muted,
+      fontFamily: fonts.regular,
+      fontSize: 9,
+    },
+    itemActions: { alignItems: "center", justifyContent: "center", gap: 2 },
+    iconAction: { color: colors.ink, fontFamily: fonts.bold, fontSize: 15, paddingHorizontal: 5 },
+    actionDisabled: { color: colors.border },
     primaryButton: {
       minHeight: 43,
       borderRadius: 6,
@@ -861,15 +1218,66 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
     },
     primaryButtonText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" },
+    buttonDisabled: { opacity: 0.5 },
+    routineMessage: {
+      color: colors.primary,
+      backgroundColor: colors.primarySoft,
+      borderRadius: radius.md,
+      padding: 10,
+      fontFamily: fonts.semibold,
+      fontSize: 9,
+    },
+    savedRoutineHeader: {
+      flexDirection: "row",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      marginTop: 8,
+    },
+    savedRoutineTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 15 },
+    savedRoutineCount: { color: colors.muted, fontFamily: fonts.medium, fontSize: 9 },
     routineCard: {
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-      paddingVertical: 13,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.xl,
+      padding: 14,
+      gap: 11,
+      backgroundColor: colors.surface,
+      ...shadows.card,
+    },
+    routineCardHeader: { flexDirection: "row", alignItems: "flex-start" },
+    routineCardCopy: { flex: 1 },
+    routineMeta: { color: colors.muted, fontSize: 8, marginTop: 4 },
+    routineOrderActions: { flexDirection: "row", gap: 4 },
+    orderAction: {
+      color: colors.ink,
+      fontFamily: fonts.bold,
+      fontSize: 15,
+      paddingHorizontal: 7,
+      paddingVertical: 3,
+    },
+    routinePreviewList: { gap: 5 },
+    routinePreviewItem: { flexDirection: "row", alignItems: "center", gap: 7 },
+    routinePreviewNumber: {
+      width: 18,
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 8,
+    },
+    routinePreviewName: { flex: 1, color: colors.ink, fontFamily: fonts.medium, fontSize: 9 },
+    routinePreviewTarget: { color: colors.muted, fontFamily: fonts.regular, fontSize: 8 },
+    routineCardActions: {
+      minHeight: 29,
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between",
+      justifyContent: "flex-end",
+      gap: 15,
+      paddingTop: 8,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
     },
-    routineMeta: { color: colors.muted, fontSize: 8 },
+    secondaryAction: { color: colors.ink, fontFamily: fonts.bold, fontSize: 9 },
+    deleteAction: { color: colors.danger, fontFamily: fonts.bold, fontSize: 9 },
+    deleteConfirmText: { flex: 1, color: colors.muted, fontFamily: fonts.medium, fontSize: 9 },
     empty: {
       alignItems: "center",
       paddingVertical: 44,

@@ -4,6 +4,7 @@ import {
   NicknameSchema,
   RegisterInputSchema,
   RoutineCreateInputSchema,
+  RoutineReorderInputSchema,
   WorkoutSessionCreateInputSchema,
 } from "../src/index.js";
 
@@ -49,6 +50,13 @@ describe("shared API contracts", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("rejects duplicate routine ids in a reorder request", () => {
+    const routineId = "f928f020-3a90-4f99-892d-422cac210478";
+    expect(
+      RoutineReorderInputSchema.safeParse({ routineIds: [routineId, routineId] }).success,
+    ).toBe(false);
   });
 
   it("rejects an empty knowledge feedback", () => {

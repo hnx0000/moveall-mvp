@@ -10,6 +10,7 @@ import type {
   PublicUser,
   Routine,
   RoutineCreateInput,
+  RoutineUpdateInput,
   WorkoutSession,
   WorkoutSessionCreateInput,
 } from "@moveall/contracts";
@@ -108,10 +109,14 @@ export class MemoryStore implements AppStore {
   }
 
   async createRoutine(userId: string, input: RoutineCreateInput): Promise<Routine> {
+    this.routines.forEach((routine) => {
+      if (routine.userId === userId) routine.sortOrder += 1;
+    });
     const routine: Routine = {
       id: randomUUID(),
       userId,
       ...input,
+      sortOrder: 0,
       createdAt: new Date().toISOString(),
     };
     this.routines.push(routine);
@@ -119,7 +124,51 @@ export class MemoryStore implements AppStore {
   }
 
   async listRoutines(userId: string): Promise<Routine[]> {
-    return this.routines.filter((routine) => routine.userId === userId);
+    return this.routines
+      .filter((routine) => routine.userId === userId)
+      .sort((left, right) => left.sortOrder - right.sortOrder)
+      .map((routine) => ({ ...routine, items: routine.items.map((item) => ({ ...item })) }));
+  }
+
+  async updateRoutine(
+    userId: string,
+    routineId: string,
+    input: RoutineUpdateInput,
+  ): Promise<Routine | null> {
+    const routine = this.routines.find((item) => item.id === routineId && item.userId === userId);
+    if (!routine) return null;
+    Object.assign(routine, input);
+    return { ...routine, items: routine.items.map((item) => ({ ...item })) };
+  }
+
+  async deleteRoutine(userId: string, routineId: string): Promise<boolean> {
+    const index = this.routines.findIndex(
+      (routine) => routine.id === routineId && routine.userId === userId,
+    );
+    if (index < 0) return false;
+    this.routines.splice(index, 1);
+    const remaining = this.routines
+      .filter((routine) => routine.userId === userId)
+      .sort((left, right) => left.sortOrder - right.sortOrder);
+    remaining.forEach((routine, sortOrder) => {
+      routine.sortOrder = sortOrder;
+    });
+    return true;
+  }
+
+  async reorderRoutines(userId: string, routineIds: string[]): Promise<boolean> {
+    const owned = this.routines.filter((routine) => routine.userId === userId);
+    if (
+      owned.length !== routineIds.length ||
+      routineIds.some((id) => !owned.some((routine) => routine.id === id))
+    ) {
+      return false;
+    }
+    routineIds.forEach((id, sortOrder) => {
+      const routine = owned.find((item) => item.id === id)!;
+      routine.sortOrder = sortOrder;
+    });
+    return true;
   }
 
   async createWorkoutSession(

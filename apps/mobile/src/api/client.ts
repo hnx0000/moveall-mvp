@@ -19,6 +19,8 @@ import type {
   RegisterInput,
   Routine,
   RoutineCreateInput,
+  RoutineReorderInput,
+  RoutineUpdateInput,
   SocialSummary,
   SportSummary,
   SportType,
@@ -113,6 +115,23 @@ const liveApi = {
     request<Routine>("/v1/routines", {
       token,
       method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateRoutine: (token: string, routineId: string, input: RoutineUpdateInput) =>
+    request<Routine>(`/v1/routines/${routineId}`, {
+      token,
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteRoutine: (token: string, routineId: string) =>
+    request<{ deleted: true }>(`/v1/routines/${routineId}`, {
+      token,
+      method: "DELETE",
+    }),
+  reorderRoutines: (token: string, input: RoutineReorderInput) =>
+    request<Routine[]>("/v1/routines/order", {
+      token,
+      method: "PUT",
       body: JSON.stringify(input),
     }),
   createPost: (token: string, input: PostCreateInput) =>

@@ -12,6 +12,8 @@ import {
   ProfileUpdateInputSchema,
   RegisterInputSchema,
   RoutineCreateInputSchema,
+  RoutineReorderInputSchema,
+  RoutineUpdateInputSchema,
   SportTypeSchema,
   WorkoutSessionCreateInputSchema,
   type ApiSuccess,
@@ -414,6 +416,33 @@ export async function createApp(dependencies: AppDependencies) {
     const input = RoutineCreateInputSchema.parse(request.body);
     const routine = await dependencies.store.createRoutine(user.id, input);
     return reply.status(201).send(success(routine));
+  });
+
+  app.put("/v1/routines/order", async (request) => {
+    const user = await currentUser(request);
+    const input = RoutineReorderInputSchema.parse(request.body);
+    const reordered = await dependencies.store.reorderRoutines(user.id, input.routineIds);
+    if (!reordered) {
+      throw new AppError(400, "ROUTINE_ORDER_INVALID", "루틴 순서를 다시 확인해 주세요.");
+    }
+    return success(await dependencies.store.listRoutines(user.id));
+  });
+
+  app.patch("/v1/routines/:routineId", async (request) => {
+    const user = await currentUser(request);
+    const parameters = z.object({ routineId: z.uuid() }).parse(request.params);
+    const input = RoutineUpdateInputSchema.parse(request.body);
+    const routine = await dependencies.store.updateRoutine(user.id, parameters.routineId, input);
+    if (!routine) throw new AppError(404, "ROUTINE_NOT_FOUND", "루틴을 찾을 수 없습니다.");
+    return success(routine);
+  });
+
+  app.delete("/v1/routines/:routineId", async (request) => {
+    const user = await currentUser(request);
+    const parameters = z.object({ routineId: z.uuid() }).parse(request.params);
+    const deleted = await dependencies.store.deleteRoutine(user.id, parameters.routineId);
+    if (!deleted) throw new AppError(404, "ROUTINE_NOT_FOUND", "루틴을 찾을 수 없습니다.");
+    return success({ deleted: true as const });
   });
 
   app.post("/v1/workout-sessions", async (request, reply) => {

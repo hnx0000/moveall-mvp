@@ -131,6 +131,20 @@ export const RoutineCreateInputSchema = z.object({
 });
 export type RoutineCreateInput = z.infer<typeof RoutineCreateInputSchema>;
 
+export const RoutineUpdateInputSchema = RoutineCreateInputSchema;
+export type RoutineUpdateInput = z.infer<typeof RoutineUpdateInputSchema>;
+
+export const RoutineReorderInputSchema = z.object({
+  routineIds: z
+    .array(z.uuid())
+    .min(1)
+    .max(100)
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: "루틴 순서에는 중복된 항목이 없어야 합니다.",
+    }),
+});
+export type RoutineReorderInput = z.infer<typeof RoutineReorderInputSchema>;
+
 export const WorkoutSessionCreateInputSchema = z
   .object({
     sport: SportTypeSchema,
@@ -202,6 +216,7 @@ export type SportSummary = {
 export type Routine = RoutineCreateInput & {
   id: string;
   userId: string;
+  sortOrder: number;
   createdAt: string;
 };
 

@@ -9,6 +9,7 @@ import type {
   PublicUser,
   Routine,
   RoutineCreateInput,
+  RoutineUpdateInput,
   WorkoutSession,
   WorkoutSessionCreateInput,
 } from "@moveall/contracts";
@@ -36,6 +37,13 @@ export interface AppStore {
   }): Promise<User>;
   createRoutine(userId: string, input: RoutineCreateInput): Promise<Routine>;
   listRoutines(userId: string): Promise<Routine[]>;
+  updateRoutine(
+    userId: string,
+    routineId: string,
+    input: RoutineUpdateInput,
+  ): Promise<Routine | null>;
+  deleteRoutine(userId: string, routineId: string): Promise<boolean>;
+  reorderRoutines(userId: string, routineIds: string[]): Promise<boolean>;
   createWorkoutSession(userId: string, input: WorkoutSessionCreateInput): Promise<WorkoutSession>;
   listWorkoutSessions(userId: string): Promise<WorkoutSession[]>;
   createPost(
