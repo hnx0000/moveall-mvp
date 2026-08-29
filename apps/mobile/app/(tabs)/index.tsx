@@ -410,7 +410,7 @@ function SportLogo({ selected, sport }: { selected: boolean; sport: SportType })
           y={0}
         >
           <SvgImage
-            height={cell * 2}
+            height={cell * 2 + 4}
             href={sportLogoSheet}
             preserveAspectRatio="none"
             width={cell * 6}
