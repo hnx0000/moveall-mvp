@@ -1,6 +1,6 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { Tabs } from "expo-router";
-import { CirclePlus, Compass, FileText, Home, User, type LucideIcon } from "lucide-react-native";
+import { CirclePlus, Compass, Home, Trophy, User, type LucideIcon } from "lucide-react-native";
 import type { ComponentProps } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { gradients, maxContentWidth, radius, shadows, type ThemeColors } from "../../src/theme";
@@ -12,7 +12,7 @@ const icons: Record<string, LucideIcon> = {
   index: Home,
   community: Compass,
   routines: CirclePlus,
-  knowledge: FileText,
+  knowledge: Trophy,
   profile: User,
 };
 
@@ -20,7 +20,7 @@ const labels: Record<string, string> = {
   index: "홈",
   community: "피드",
   routines: "운동 기록",
-  knowledge: "운동 바이블",
+  knowledge: "동네 리그",
   profile: "내 정보",
 };
 
@@ -30,7 +30,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="index" options={{ title: "홈" }} />
       <Tabs.Screen name="community" options={{ title: "피드" }} />
       <Tabs.Screen name="routines" options={{ title: "기록" }} />
-      <Tabs.Screen name="knowledge" options={{ title: "바이블" }} />
+      <Tabs.Screen name="knowledge" options={{ title: "동네 리그" }} />
       <Tabs.Screen name="profile" options={{ title: "내 정보" }} />
     </Tabs>
   );
