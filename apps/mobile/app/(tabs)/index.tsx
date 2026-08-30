@@ -22,6 +22,7 @@ import { Defs, Image as SvgImage, Mask, Rect, Svg } from "react-native-svg";
 import sportLogoSheet from "../../assets/images/sport-logo-sheet.jpg";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
+import { LiveWorkoutRecorder } from "../../src/components/live-workout-recorder";
 import { BellButton, Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
 import { useAsyncData } from "../../src/hooks/use-async-data";
 import { fonts, radius, shadows, space, typography, type ThemeColors } from "../../src/theme";
@@ -98,6 +99,7 @@ export default function HomeScreen() {
   const [completionMessage, setCompletionMessage] = useState<string | null>(null);
   const [savingCompletion, setSavingCompletion] = useState(false);
   const [selectedSport, setSelectedSport] = useState<SportType>("running");
+  const [recordingSport, setRecordingSport] = useState<SportType | null>(null);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<WorkoutSession | null>(null);
   const [editNotes, setEditNotes] = useState("");
@@ -341,9 +343,14 @@ export default function HomeScreen() {
                   <Pressable
                     accessibilityRole="tab"
                     accessibilityState={{ selected: active }}
+                    disabled={recordingSport !== null}
                     key={sport}
                     onPress={() => setSelectedSport(sport)}
-                    style={[styles.activitySportTab, active && styles.activitySportTabActive]}
+                    style={[
+                      styles.activitySportTab,
+                      active && styles.activitySportTabActive,
+                      recordingSport !== null && styles.recordingSelectionLocked,
+                    ]}
                   >
                     <Text
                       style={[
@@ -390,13 +397,19 @@ export default function HomeScreen() {
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  onPress={() =>
-                    router.push({ pathname: "/routines", params: { sport: selectedSport } })
-                  }
-                  style={styles.activityStartButton}
+                  disabled={recordingSport !== null}
+                  onPress={() => setRecordingSport(selectedSport)}
+                  style={[
+                    styles.activityStartButton,
+                    recordingSport !== null && styles.activityStartButtonDisabled,
+                  ]}
                 >
                   <Text style={styles.activityStartButtonText}>
-                    {selectedSportWorkouts.length > 0 ? "추가 기록" : "기록 시작"}
+                    {recordingSport === selectedSport
+                      ? "기록 중"
+                      : selectedSportWorkouts.length > 0
+                        ? "추가 기록"
+                        : "기록 시작"}
                   </Text>
                 </Pressable>
               </View>
@@ -443,6 +456,15 @@ export default function HomeScreen() {
                   />
                 ))}
               </View>
+
+              {recordingSport === selectedSport ? (
+                <LiveWorkoutRecorder
+                  onClose={() => setRecordingSport(null)}
+                  onSaved={loadDashboard}
+                  routines={routines}
+                  sport={recordingSport}
+                />
+              ) : null}
             </Card>
           </>
         )}
@@ -549,11 +571,13 @@ export default function HomeScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
+                  disabled={recordingSport !== null}
                   key={sport.id}
                   onPress={() => setSelectedSport(sport.id)}
                   style={({ pressed }) => [
                     styles.sportButton,
                     selected && styles.sportButtonSelected,
+                    recordingSport !== null && styles.recordingSelectionLocked,
                     pressed && styles.pressed,
                   ]}
                 >
@@ -1119,6 +1143,7 @@ function createStyles(colors: ThemeColors) {
       gap: 6,
     },
     activitySportTabActive: { borderColor: colors.primary, backgroundColor: colors.primary },
+    recordingSelectionLocked: { opacity: 0.55 },
     activitySportTabText: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 10 },
     activitySportTabTextActive: { color: "#FFFFFF" },
     activitySportDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.primary },
@@ -1151,6 +1176,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       marginBottom: 8,
     },
+    activityStartButtonDisabled: { opacity: 0.7 },
     activityStartButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
     cyclePanel: {
       marginTop: space[3],
