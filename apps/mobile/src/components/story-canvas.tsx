@@ -1,4 +1,4 @@
-import { Image, StyleSheet, Text, View } from "react-native";
+import { Image, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
 import { type ThemeColors } from "../theme";
 import { RouteTrace } from "./route-trace";
 import { WorkoutMap } from "./workout-map";
@@ -6,6 +6,7 @@ import { type MapPoint } from "./workout-map.types";
 
 export type StoryBackground = "photo" | "map" | "ink";
 export type StoryLayer = "record" | "route" | "text" | "points";
+export type StoryLayout = "editorial" | "centered" | "split" | "low";
 export type StoryVisibility = {
   distance: boolean;
   duration: boolean;
@@ -19,15 +20,19 @@ type StoryCanvasProps = {
   colors: ThemeColors;
   customText: string;
   distance: string;
+  distanceUnit?: string;
   duration: string;
+  layout?: StoryLayout;
   layers: StoryLayer[];
   moveScore: number;
   pace: string;
+  photoSource?: ImageSourcePropType;
   photoUri: string | null;
   routePoints: MapPoint[];
   sportLabel: string;
   themeLabel: string;
   visibility: StoryVisibility;
+  height?: number;
 };
 
 export function StoryCanvas({
@@ -35,32 +40,45 @@ export function StoryCanvas({
   colors,
   customText,
   distance,
+  distanceUnit = "KM",
   duration,
+  layout = "editorial",
   layers,
   moveScore,
   pace,
+  photoSource,
   photoUri,
   routePoints,
   sportLabel,
   themeLabel,
   visibility,
+  height = 356,
 }: StoryCanvasProps) {
   const showMap = background === "map" && visibility.route;
-  const showPhoto = background === "photo" && photoUri;
+  const resolvedPhotoSource = photoSource ?? (photoUri ? { uri: photoUri } : null);
+  const showPhoto = background === "photo" && resolvedPhotoSource;
+  const customTextStyle =
+    layout === "centered"
+      ? styles.customTextCentered
+      : layout === "split"
+        ? styles.customTextSplit
+        : layout === "low"
+          ? styles.customTextLow
+          : styles.customTextEditorial;
   const metrics = [
-    visibility.distance ? `${distance} KM` : null,
+    visibility.distance ? `${distance} ${distanceUnit}` : null,
     visibility.duration ? duration : null,
     visibility.pace ? pace : null,
   ].filter(Boolean);
 
   return (
-    <View accessibilityLabel="운동 스토리 편집 미리보기" style={styles.canvas}>
+    <View accessibilityLabel="운동 스토리 편집 미리보기" style={[styles.canvas, { height }]}>
       {showMap ? (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           <WorkoutMap
             backgroundColor={colors.map}
             currentPoint={undefined}
-            height={356}
+            height={height}
             isSample={false}
             minimal
             points={routePoints}
@@ -72,7 +90,7 @@ export function StoryCanvas({
       ) : showPhoto ? (
         <Image
           accessibilityLabel="스토리 배경 인증샷"
-          source={{ uri: photoUri }}
+          source={resolvedPhotoSource}
           style={StyleSheet.absoluteFill}
         />
       ) : (
@@ -92,14 +110,20 @@ export function StoryCanvas({
         <Text style={styles.sport}>{sportLabel}</Text>
       </View>
       {layers.includes("text") && customText.trim() ? (
-        <Text numberOfLines={3} style={styles.customText}>
+        <Text numberOfLines={3} style={[styles.customText, customTextStyle]}>
           {customText.trim()}
         </Text>
       ) : null}
-      <View style={styles.bottomContent}>
+      <View
+        style={[
+          styles.bottomContent,
+          showMap && styles.mapBottomContent,
+          layout === "centered" && styles.bottomContentCentered,
+        ]}
+      >
         <Text style={styles.theme}>{themeLabel}</Text>
         {layers.includes("record") && metrics.length ? (
-          <View style={styles.metrics}>
+          <View style={[styles.metrics, layout === "centered" && styles.metricsCentered]}>
             {metrics.map((metric, index) => (
               <Text
                 key={`${metric}-${index}`}
@@ -112,12 +136,17 @@ export function StoryCanvas({
         ) : null}
       </View>
       {layers.includes("points") && visibility.points ? (
-        <View style={styles.scoreBadge}>
-          <Text style={styles.scoreLabel}>MOVE SCORE</Text>
+        <View
+          style={[
+            styles.scoreBadge,
+            layout === "split" ? styles.scoreBadgeLeft : styles.scoreBadgeRight,
+          ]}
+        >
+          <Text style={styles.scoreLabel}>GROOV POINTS</Text>
           <Text style={styles.scoreValue}>{moveScore.toLocaleString()} P</Text>
         </View>
       ) : null}
-      {background === "photo" && !photoUri ? (
+      {background === "photo" && !resolvedPhotoSource ? (
         <View style={styles.emptyPhoto}>
           <Text style={styles.emptyPhotoText}>ADD YOUR CUT</Text>
         </View>
@@ -159,23 +188,46 @@ const styles = StyleSheet.create({
   sport: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
   customText: {
     position: "absolute",
-    left: 20,
-    right: 85,
-    top: 86,
     color: "#FFFFFF",
     fontSize: 24,
     lineHeight: 30,
     fontWeight: "900",
     letterSpacing: -0.7,
   },
+  customTextEditorial: { left: 20, right: 85, top: 86 },
+  customTextCentered: {
+    left: 32,
+    right: 32,
+    top: 178,
+    textAlign: "center",
+    fontSize: 28,
+    lineHeight: 34,
+  },
+  customTextSplit: {
+    left: 148,
+    right: 20,
+    top: 112,
+    textAlign: "right",
+    fontSize: 22,
+    lineHeight: 28,
+  },
+  customTextLow: {
+    left: 20,
+    right: 20,
+    bottom: 132,
+    fontSize: 27,
+    lineHeight: 33,
+  },
   bottomContent: { position: "absolute", left: 18, right: 18, bottom: 18 },
+  mapBottomContent: { bottom: 36 },
+  bottomContentCentered: { alignItems: "center" },
   theme: { color: "rgba(255,255,255,0.75)", fontSize: 9, fontWeight: "800" },
   metrics: { flexDirection: "row", alignItems: "flex-end", gap: 12, marginTop: 6 },
+  metricsCentered: { justifyContent: "center" },
   metricMain: { color: "#FFFFFF", fontSize: 28, lineHeight: 32, fontWeight: "900" },
   metric: { color: "#FFFFFF", fontSize: 11, fontWeight: "800", marginBottom: 4 },
   scoreBadge: {
     position: "absolute",
-    right: 16,
     top: 56,
     borderRadius: 10,
     backgroundColor: "rgba(255,90,36,0.92)",
@@ -183,6 +235,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     alignItems: "flex-end",
   },
+  scoreBadgeRight: { right: 16 },
+  scoreBadgeLeft: { left: 16 },
   scoreLabel: { color: "rgba(255,255,255,0.75)", fontSize: 6, fontWeight: "900" },
   scoreValue: { color: "#FFFFFF", fontSize: 12, fontWeight: "900", marginTop: 2 },
   emptyPhoto: {

@@ -12,6 +12,7 @@ import type {
   RoutineUpdateInput,
   WorkoutSession,
   WorkoutSessionCreateInput,
+  WorkoutSessionUpdateInput,
 } from "@moveall/contracts";
 
 export type User = {
@@ -46,6 +47,12 @@ export interface AppStore {
   reorderRoutines(userId: string, routineIds: string[]): Promise<boolean>;
   createWorkoutSession(userId: string, input: WorkoutSessionCreateInput): Promise<WorkoutSession>;
   listWorkoutSessions(userId: string): Promise<WorkoutSession[]>;
+  updateWorkoutSession(
+    userId: string,
+    workoutId: string,
+    input: WorkoutSessionUpdateInput,
+  ): Promise<WorkoutSession | null>;
+  deleteWorkoutSession(userId: string, workoutId: string): Promise<boolean>;
   createPost(
     userId: string,
     authorDisplayName: string,

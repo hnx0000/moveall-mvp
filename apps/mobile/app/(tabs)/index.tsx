@@ -6,8 +6,18 @@ import {
   type WorkoutSession,
 } from "@moveall/contracts";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Animated,
+  PanResponder,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { Defs, Image as SvgImage, Mask, Rect, Svg } from "react-native-svg";
 import sportLogoSheet from "../../assets/images/sport-logo-sheet.jpg";
 import { api } from "../../src/api/client";
@@ -35,6 +45,42 @@ const sportLogoIndex: Record<SportType, number> = {
   diving: 5,
 };
 
+const workoutMetricEditFields: Record<
+  SportType,
+  { key: string; label: string; placeholder: string }[]
+> = {
+  running: [
+    { key: "distanceKm", label: "거리 (km)", placeholder: "5.12" },
+    { key: "paceSeconds", label: "페이스 (초/km)", placeholder: "363" },
+    { key: "calories", label: "칼로리 (kcal)", placeholder: "368" },
+  ],
+  hiking: [
+    { key: "distanceKm", label: "거리 (km)", placeholder: "6.42" },
+    { key: "durationMinutes", label: "시간 (분)", placeholder: "126" },
+    { key: "elevationGainM", label: "고도 상승 (m)", placeholder: "498" },
+  ],
+  cycling: [
+    { key: "distanceKm", label: "거리 (km)", placeholder: "18.62" },
+    { key: "averageSpeedKmh", label: "평균 속도 (km/h)", placeholder: "19.3" },
+    { key: "calories", label: "칼로리 (kcal)", placeholder: "514" },
+  ],
+  strength: [
+    { key: "exerciseCount", label: "운동 수", placeholder: "5" },
+    { key: "sets", label: "완료 세트", placeholder: "16" },
+    { key: "volumeKg", label: "총 볼륨 (kg)", placeholder: "4280" },
+  ],
+  swimming: [
+    { key: "distanceM", label: "거리 (m)", placeholder: "1200" },
+    { key: "durationMinutes", label: "시간 (분)", placeholder: "42" },
+    { key: "laps", label: "랩 수", placeholder: "48" },
+  ],
+  diving: [
+    { key: "maxDepthM", label: "최대 수심 (m)", placeholder: "18" },
+    { key: "dynamicDistanceM", label: "다이나믹 (m)", placeholder: "42" },
+    { key: "durationMinutes", label: "시간 (분)", placeholder: "55" },
+  ],
+};
+
 export default function HomeScreen() {
   const router = useRouter();
   const { session } = useAuth();
@@ -53,6 +99,13 @@ export default function HomeScreen() {
   const [savingCompletion, setSavingCompletion] = useState(false);
   const [selectedSport, setSelectedSport] = useState<SportType>("running");
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [editingWorkout, setEditingWorkout] = useState<WorkoutSession | null>(null);
+  const [editNotes, setEditNotes] = useState("");
+  const [editExertion, setEditExertion] = useState("5");
+  const [editMetrics, setEditMetrics] = useState<Record<string, string>>({});
+  const [pendingDeleteWorkout, setPendingDeleteWorkout] = useState<WorkoutSession | null>(null);
+  const [recordActionError, setRecordActionError] = useState<string | null>(null);
+  const [savingRecordAction, setSavingRecordAction] = useState(false);
 
   const loadDashboard = useCallback(async () => {
     if (!session) return;
@@ -177,6 +230,79 @@ export default function HomeScreen() {
       setDashboardError("루틴 완료 기록을 저장하지 못했습니다.");
     } finally {
       setSavingCompletion(false);
+    }
+  }
+
+  function beginWorkoutEdit(workout: WorkoutSession) {
+    setPendingDeleteWorkout(null);
+    setRecordActionError(null);
+    setEditingWorkout(workout);
+    setEditNotes(workout.notes ?? "");
+    setEditExertion(String(workout.perceivedExertion));
+    setEditMetrics(
+      Object.fromEntries(
+        workoutMetricEditFields[workout.sport].map((field) => [
+          field.key,
+          workout.metrics[field.key] === undefined ? "" : String(workout.metrics[field.key]),
+        ]),
+      ),
+    );
+  }
+
+  async function saveWorkoutEdit() {
+    if (!session || !editingWorkout || savingRecordAction) return;
+    const perceivedExertion = Number(editExertion);
+    if (!Number.isInteger(perceivedExertion) || perceivedExertion < 1 || perceivedExertion > 10) {
+      setRecordActionError("운동 강도는 1부터 10 사이의 정수로 입력해 주세요.");
+      return;
+    }
+    const nextMetrics = { ...editingWorkout.metrics };
+    for (const field of workoutMetricEditFields[editingWorkout.sport]) {
+      const rawValue = editMetrics[field.key]?.trim() ?? "";
+      if (!rawValue) {
+        delete nextMetrics[field.key];
+        continue;
+      }
+      const numericValue = Number(rawValue);
+      if (!Number.isFinite(numericValue) || numericValue < 0) {
+        setRecordActionError(`${field.label} 항목에 0 이상의 숫자를 입력해 주세요.`);
+        return;
+      }
+      nextMetrics[field.key] = numericValue;
+    }
+    setSavingRecordAction(true);
+    setRecordActionError(null);
+    try {
+      const updated = await api.updateWorkoutSession(session.accessToken, editingWorkout.id, {
+        notes: editNotes.trim() || null,
+        perceivedExertion,
+        metrics: nextMetrics,
+      });
+      setWorkouts((current) =>
+        current.map((workout) => (workout.id === updated.id ? updated : workout)),
+      );
+      setEditingWorkout(null);
+    } catch {
+      setRecordActionError("운동 기록을 수정하지 못했습니다.");
+    } finally {
+      setSavingRecordAction(false);
+    }
+  }
+
+  async function deleteWorkout() {
+    if (!session || !pendingDeleteWorkout || savingRecordAction) return;
+    setSavingRecordAction(true);
+    setRecordActionError(null);
+    try {
+      await api.deleteWorkoutSession(session.accessToken, pendingDeleteWorkout.id);
+      const nextMedals = await api.medals(session.accessToken);
+      setWorkouts((current) => current.filter((workout) => workout.id !== pendingDeleteWorkout.id));
+      setMedals(nextMedals);
+      setPendingDeleteWorkout(null);
+    } catch {
+      setRecordActionError("운동 기록을 제거하지 못했습니다.");
+    } finally {
+      setSavingRecordAction(false);
     }
   }
 
@@ -409,7 +535,6 @@ export default function HomeScreen() {
 
       <View style={styles.sectionHeading}>
         <Text style={styles.sectionTitle}>기록</Text>
-        <Text style={styles.viewAll}>종목을 선택하세요</Text>
       </View>
       {loading ? <StatePanel state="loading" message="운동 종목을 불러오는 중이에요." /> : null}
       {error ? <StatePanel state="error" message={error} onRetry={() => void reload()} /> : null}
@@ -479,40 +604,255 @@ export default function HomeScreen() {
         ) : (
           <View style={styles.historyList}>
             {selectedSportHistory.slice(0, 4).map((workout, index) => {
-              const summary = summarizeSportActivity(selectedSport, [workout]);
               return (
-                <View key={workout.id} style={styles.historyCard}>
-                  <View style={styles.historyIndex}>
-                    <Text style={styles.historyIndexText}>
-                      {String(index + 1).padStart(2, "0")}
-                    </Text>
-                  </View>
-                  <View style={styles.historyBody}>
-                    <Text style={styles.historyDate}>{formatHistoryDate(workout.endedAt)}</Text>
-                    <Text numberOfLines={1} style={styles.historyNote}>
-                      {workout.notes ?? `${sportLabels[selectedSport]} 운동 기록`}
-                    </Text>
-                    <Text style={styles.historySubMetric}>
-                      {summary.metrics
-                        .slice(0, 2)
-                        .map((metric) => `${metric.label} ${metric.value}`)
-                        .join(" · ")}
-                    </Text>
-                  </View>
-                  <View style={styles.historyPrimary}>
-                    <Text style={styles.historyPrimaryLabel}>{summary.primaryLabel}</Text>
-                    <Text style={styles.historyPrimaryValue}>
-                      {summary.primaryValue}
-                      {summary.primaryUnit ? ` ${summary.primaryUnit}` : ""}
-                    </Text>
-                  </View>
-                </View>
+                <SwipeableWorkoutRow
+                  index={index}
+                  key={workout.id}
+                  onDelete={() => {
+                    setEditingWorkout(null);
+                    setRecordActionError(null);
+                    setPendingDeleteWorkout(workout);
+                  }}
+                  onEdit={() => beginWorkoutEdit(workout)}
+                  workout={workout}
+                />
               );
             })}
           </View>
         )}
+
+        {editingWorkout ? (
+          <Card style={styles.recordEditor}>
+            <View style={styles.recordEditorHeading}>
+              <View>
+                <Text style={styles.recordEditorEyebrow}>EDIT RECORD</Text>
+                <Text style={styles.recordEditorTitle}>
+                  {sportLabels[editingWorkout.sport]} 기록 수정
+                </Text>
+              </View>
+              <Text style={styles.recordEditorDate}>
+                {formatHistoryDate(editingWorkout.endedAt)}
+              </Text>
+            </View>
+            <Text style={styles.recordEditorLabel}>운동 메모</Text>
+            <TextInput
+              accessibilityLabel="운동 기록 메모"
+              maxLength={1000}
+              multiline
+              onChangeText={setEditNotes}
+              placeholder="운동 내용과 컨디션을 남겨보세요."
+              placeholderTextColor={colors.muted}
+              style={styles.recordEditorInput}
+              value={editNotes}
+            />
+            <View style={styles.recordMetricGrid}>
+              {workoutMetricEditFields[editingWorkout.sport].map((field) => (
+                <View key={field.key} style={styles.recordMetricField}>
+                  <Text style={styles.recordEditorLabel}>{field.label}</Text>
+                  <TextInput
+                    accessibilityLabel={field.label}
+                    keyboardType="decimal-pad"
+                    onChangeText={(value) =>
+                      setEditMetrics((current) => ({ ...current, [field.key]: value }))
+                    }
+                    placeholder={field.placeholder}
+                    placeholderTextColor={colors.muted}
+                    style={styles.recordMetricInput}
+                    value={editMetrics[field.key] ?? ""}
+                  />
+                </View>
+              ))}
+              <View style={styles.recordMetricField}>
+                <Text style={styles.recordEditorLabel}>운동 강도 (1–10)</Text>
+                <TextInput
+                  accessibilityLabel="운동 강도"
+                  keyboardType="number-pad"
+                  maxLength={2}
+                  onChangeText={setEditExertion}
+                  placeholder="5"
+                  placeholderTextColor={colors.muted}
+                  style={styles.recordMetricInput}
+                  value={editExertion}
+                />
+              </View>
+            </View>
+            <View style={styles.recordEditorActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={savingRecordAction}
+                onPress={() => setEditingWorkout(null)}
+                style={[styles.recordSecondaryButton, savingRecordAction && styles.actionDisabled]}
+              >
+                <Text style={styles.recordSecondaryButtonText}>취소</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={savingRecordAction}
+                onPress={() => void saveWorkoutEdit()}
+                style={[styles.recordSaveButton, savingRecordAction && styles.actionDisabled]}
+              >
+                <Text style={styles.recordSaveButtonText}>
+                  {savingRecordAction ? "저장 중" : "수정 저장"}
+                </Text>
+              </Pressable>
+            </View>
+          </Card>
+        ) : null}
+
+        {pendingDeleteWorkout ? (
+          <Card style={styles.recordDeleteConfirm}>
+            <View style={styles.recordDeleteCopy}>
+              <Text style={styles.recordDeleteTitle}>이 기록을 제거할까요?</Text>
+              <Text numberOfLines={1} style={styles.recordDeleteText}>
+                {pendingDeleteWorkout.notes ?? sportLabels[pendingDeleteWorkout.sport]}
+              </Text>
+            </View>
+            <View style={styles.recordDeleteActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={savingRecordAction}
+                onPress={() => setPendingDeleteWorkout(null)}
+                style={styles.recordDeleteCancel}
+              >
+                <Text style={styles.recordDeleteCancelText}>취소</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={savingRecordAction}
+                onPress={() => void deleteWorkout()}
+                style={[styles.recordDeleteButton, savingRecordAction && styles.actionDisabled]}
+              >
+                <Text style={styles.recordDeleteButtonText}>
+                  {savingRecordAction ? "제거 중" : "제거 확정"}
+                </Text>
+              </Pressable>
+            </View>
+          </Card>
+        ) : null}
+
+        {recordActionError ? (
+          <Text style={styles.recordActionError}>{recordActionError}</Text>
+        ) : null}
       </View>
     </Screen>
+  );
+}
+
+const workoutActionWidth = 132;
+
+function SwipeableWorkoutRow({
+  workout,
+  index,
+  onEdit,
+  onDelete,
+}: {
+  workout: WorkoutSession;
+  index: number;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
+  const translateX = useRef(new Animated.Value(0)).current;
+  const dragOrigin = useRef(0);
+  const [open, setOpen] = useState(false);
+  const summary = summarizeSportActivity(workout.sport, [workout]);
+
+  const settle = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      Animated.spring(translateX, {
+        toValue: nextOpen ? -workoutActionWidth : 0,
+        useNativeDriver: Platform.OS !== "web",
+        damping: 22,
+        stiffness: 240,
+        mass: 0.8,
+      }).start();
+    },
+    [translateX],
+  );
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          Math.abs(gesture.dx) > 6 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+        onPanResponderGrant: () => {
+          dragOrigin.current = open ? -workoutActionWidth : 0;
+          translateX.stopAnimation();
+        },
+        onPanResponderMove: (_event, gesture) => {
+          translateX.setValue(
+            Math.max(-workoutActionWidth, Math.min(0, dragOrigin.current + gesture.dx)),
+          );
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          const position = dragOrigin.current + gesture.dx;
+          settle(position < -workoutActionWidth * 0.38 || gesture.vx < -0.45);
+        },
+        onPanResponderTerminate: () => settle(open),
+      }),
+    [open, settle, translateX],
+  );
+
+  return (
+    <View style={styles.historySwipeShell}>
+      <View style={[styles.historyActions, { pointerEvents: open ? "auto" : "none" }]}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            settle(false);
+            onEdit();
+          }}
+          style={[styles.historyActionButton, styles.historyEditButton]}
+        >
+          <Text style={styles.historyActionText}>수정</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            settle(false);
+            onDelete();
+          }}
+          style={[styles.historyActionButton, styles.historyRemoveButton]}
+        >
+          <Text style={styles.historyActionText}>제거</Text>
+        </Pressable>
+      </View>
+      <Animated.View {...panResponder.panHandlers} style={{ transform: [{ translateX }] }}>
+        <Pressable
+          accessibilityHint="왼쪽으로 밀면 수정과 제거 버튼이 열립니다."
+          accessibilityLabel={`${sportLabels[workout.sport]} 기록 관리`}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          onPress={() => settle(!open)}
+          style={styles.historyCard}
+        >
+          <View style={styles.historyIndex}>
+            <Text style={styles.historyIndexText}>{String(index + 1).padStart(2, "0")}</Text>
+          </View>
+          <View style={styles.historyBody}>
+            <Text style={styles.historyDate}>{formatHistoryDate(workout.endedAt)}</Text>
+            <Text numberOfLines={1} style={styles.historyNote}>
+              {workout.notes ?? `${sportLabels[workout.sport]} 운동 기록`}
+            </Text>
+            <Text style={styles.historySubMetric}>
+              {summary.metrics
+                .slice(0, 2)
+                .map((metric) => `${metric.label} ${metric.value}`)
+                .join(" · ")}
+            </Text>
+          </View>
+          <View style={styles.historyPrimary}>
+            <Text style={styles.historyPrimaryLabel}>{summary.primaryLabel}</Text>
+            <Text style={styles.historyPrimaryValue}>
+              {summary.primaryValue}
+              {summary.primaryUnit ? ` ${summary.primaryUnit}` : ""}
+            </Text>
+          </View>
+        </Pressable>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -969,7 +1309,6 @@ function createStyles(colors: ThemeColors) {
     },
     noRoutineTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 18 },
     noRoutineText: { color: colors.muted, fontFamily: fonts.regular, fontSize: 11, lineHeight: 17 },
-    viewAll: { color: colors.muted, fontFamily: fonts.regular, fontSize: 11 },
     sportGrid: { flexDirection: "row", flexWrap: "wrap", gap: space[3] },
     sportButton: {
       width: "30%",
@@ -1018,15 +1357,34 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
     },
     historyStartButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
-    historyList: { borderTopWidth: 1, borderTopColor: colors.border },
+    historyList: { borderTopWidth: 1, borderTopColor: colors.border, overflow: "hidden" },
+    historySwipeShell: {
+      minHeight: 86,
+      overflow: "hidden",
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+    },
+    historyActions: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      width: workoutActionWidth,
+      flexDirection: "row",
+    },
+    historyActionButton: { flex: 1, alignItems: "center", justifyContent: "center" },
+    historyEditButton: { backgroundColor: "#282320" },
+    historyRemoveButton: { backgroundColor: colors.primary },
+    historyActionText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 11 },
     historyCard: {
       minHeight: 86,
       flexDirection: "row",
       alignItems: "center",
       gap: space[3],
       paddingVertical: space[3],
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      paddingHorizontal: 2,
+      backgroundColor: colors.background,
     },
     historyIndex: {
       width: 34,
@@ -1049,6 +1407,94 @@ function createStyles(colors: ThemeColors) {
       fontSize: 14,
       marginTop: 4,
     },
+    recordEditor: { padding: space[4], gap: space[3] },
+    recordEditorHeading: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      justifyContent: "space-between",
+      gap: space[3],
+    },
+    recordEditorEyebrow: {
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 8,
+      letterSpacing: 1,
+    },
+    recordEditorTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 15, marginTop: 4 },
+    recordEditorDate: { color: colors.muted, fontFamily: fonts.medium, fontSize: 8 },
+    recordEditorLabel: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 10 },
+    recordEditorInput: {
+      minHeight: 88,
+      paddingHorizontal: space[3],
+      paddingVertical: space[3],
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceMuted,
+      color: colors.ink,
+      fontFamily: fonts.regular,
+      fontSize: 11,
+      lineHeight: 17,
+      textAlignVertical: "top",
+    },
+    recordMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: space[2] },
+    recordMetricField: { width: "47%", flexGrow: 1, gap: 5 },
+    recordMetricInput: {
+      minHeight: 42,
+      paddingHorizontal: space[3],
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceMuted,
+      color: colors.ink,
+      fontFamily: fonts.semibold,
+      fontSize: 11,
+    },
+    recordEditorActions: { flexDirection: "row", gap: space[2] },
+    recordSecondaryButton: {
+      minHeight: 40,
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.full,
+      backgroundColor: colors.surface,
+    },
+    recordSecondaryButtonText: { color: colors.ink, fontFamily: fonts.bold, fontSize: 10 },
+    recordSaveButton: {
+      minHeight: 40,
+      flex: 2,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radius.full,
+      backgroundColor: colors.primary,
+    },
+    recordSaveButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
+    recordDeleteConfirm: {
+      padding: space[4],
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space[3],
+      borderColor: colors.border,
+    },
+    recordDeleteCopy: { flex: 1, minWidth: 0 },
+    recordDeleteTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 12 },
+    recordDeleteText: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9, marginTop: 4 },
+    recordDeleteActions: { flexDirection: "row", alignItems: "center", gap: space[2] },
+    recordDeleteCancel: { paddingHorizontal: 6, paddingVertical: 10 },
+    recordDeleteCancelText: { color: colors.muted, fontFamily: fonts.bold, fontSize: 9 },
+    recordDeleteButton: {
+      minHeight: 36,
+      paddingHorizontal: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radius.full,
+      backgroundColor: colors.primary,
+    },
+    recordDeleteButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 9 },
+    recordActionError: { color: colors.danger, fontFamily: fonts.medium, fontSize: 10 },
+    actionDisabled: { opacity: 0.55 },
     pressed: { opacity: 0.72 },
   });
 }

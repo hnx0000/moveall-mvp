@@ -13,6 +13,7 @@ import type {
   RoutineUpdateInput,
   WorkoutSession,
   WorkoutSessionCreateInput,
+  WorkoutSessionUpdateInput,
 } from "@moveall/contracts";
 import type { AppStore, User } from "../domain/store.js";
 
@@ -190,6 +191,31 @@ export class MemoryStore implements AppStore {
       .filter((workout) => workout.userId === userId)
       .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt))
       .map((workout) => ({ ...workout, metrics: { ...workout.metrics } }));
+  }
+
+  async updateWorkoutSession(
+    userId: string,
+    workoutId: string,
+    input: WorkoutSessionUpdateInput,
+  ): Promise<WorkoutSession | null> {
+    const workout = this.workouts.find((item) => item.id === workoutId && item.userId === userId);
+    if (!workout) return null;
+    if (input.notes === null) delete workout.notes;
+    else if (input.notes !== undefined) workout.notes = input.notes;
+    if (input.perceivedExertion !== undefined) {
+      workout.perceivedExertion = input.perceivedExertion;
+    }
+    if (input.metrics !== undefined) workout.metrics = { ...input.metrics };
+    return { ...workout, metrics: { ...workout.metrics } };
+  }
+
+  async deleteWorkoutSession(userId: string, workoutId: string): Promise<boolean> {
+    const index = this.workouts.findIndex(
+      (workout) => workout.id === workoutId && workout.userId === userId,
+    );
+    if (index < 0) return false;
+    this.workouts.splice(index, 1);
+    return true;
   }
 
   async createPost(

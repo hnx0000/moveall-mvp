@@ -10,17 +10,27 @@ import {
   MessageCircle,
   Send,
 } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ImageBackground,
+  Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  type ImageSourcePropType,
 } from "react-native";
 import feedRunImage from "../../assets/images/feed-run.jpg";
+import storyDiving01 from "../../assets/images/story-diving-01.jpg";
+import storyDiving02 from "../../assets/images/story-diving-02.png";
+import storyStrength01 from "../../assets/images/story-strength-01.jpg";
+import storyStrength02 from "../../assets/images/story-strength-02.jpg";
+import storyStrength03 from "../../assets/images/story-strength-03.jpg";
+import storySwimming01 from "../../assets/images/story-swimming-01.jpg";
+import storySwimming02 from "../../assets/images/story-swimming-02.jpg";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { BellButton, Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
@@ -28,6 +38,7 @@ import {
   StoryCanvas,
   type StoryBackground,
   type StoryLayer,
+  type StoryLayout,
   type StoryVisibility,
 } from "../../src/components/story-canvas";
 import { type MapPoint } from "../../src/components/workout-map.types";
@@ -35,12 +46,250 @@ import { useAsyncData } from "../../src/hooks/use-async-data";
 import { fonts, gradients, radius, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
-const stories = [
-  { name: "내 스토리", icon: "+" },
-  { name: "민지", icon: "R" },
-  { name: "도윤", icon: "H" },
-  { name: "유나", icon: "S" },
-  { name: "준", icon: "C" },
+type DemoStory = {
+  id: string;
+  sport: SportType;
+  background: StoryBackground;
+  photo?: ImageSourcePropType;
+  themeLabel: string;
+  customText: string;
+  distance: string;
+  distanceUnit: string;
+  duration: string;
+  layout: StoryLayout;
+  pace: string;
+  points: number;
+  routePoints: MapPoint[];
+};
+
+type StoryOwner = {
+  id: string;
+  name: string;
+  icon: string;
+  stories: DemoStory[];
+};
+
+const runningRoute: MapPoint[] = [
+  { latitude: 37.5202, longitude: 126.9944 },
+  { latitude: 37.5215, longitude: 127.0015 },
+  { latitude: 37.5196, longitude: 127.0098 },
+  { latitude: 37.5168, longitude: 127.0172 },
+  { latitude: 37.5191, longitude: 127.0248 },
+  { latitude: 37.5227, longitude: 127.0319 },
+];
+
+const hikingRoute: MapPoint[] = [
+  { latitude: 37.6584, longitude: 126.9771 },
+  { latitude: 37.6612, longitude: 126.9744 },
+  { latitude: 37.6645, longitude: 126.9791 },
+  { latitude: 37.6678, longitude: 126.9752 },
+  { latitude: 37.6708, longitude: 126.9789 },
+];
+
+const cyclingRoute: MapPoint[] = [
+  { latitude: 37.5265, longitude: 126.9349 },
+  { latitude: 37.5243, longitude: 126.9511 },
+  { latitude: 37.5258, longitude: 126.9713 },
+  { latitude: 37.5188, longitude: 126.9956 },
+  { latitude: 37.5163, longitude: 127.0202 },
+  { latitude: 37.5214, longitude: 127.0414 },
+];
+
+const baseStories: Record<SportType, DemoStory> = {
+  running: demoStory(
+    "running",
+    "map",
+    "SUNSET 5K",
+    "도시가 느려지는 시간.",
+    "5.20",
+    "KM",
+    "31:00",
+    "5'58\"",
+    552,
+    runningRoute,
+  ),
+  hiking: demoStory(
+    "hiking",
+    "map",
+    "ABOVE SEOUL",
+    "오늘의 정상은 여기.",
+    "6.42",
+    "KM",
+    "02:06:00",
+    "--'--\"",
+    918,
+    hikingRoute,
+  ),
+  cycling: demoStory(
+    "cycling",
+    "map",
+    "RIVER RIDE",
+    "바람이 루트를 만든다.",
+    "31.48",
+    "KM",
+    "01:34:00",
+    "20.1 KM/H",
+    1286,
+    cyclingRoute,
+  ),
+  strength: demoStory(
+    "strength",
+    "photo",
+    "BODY CHECK",
+    "오늘의 눈바디.",
+    "8",
+    "MOVES",
+    "52:00",
+    "16 SET",
+    684,
+    [],
+    storyStrength01,
+  ),
+  swimming: demoStory(
+    "swimming",
+    "photo",
+    "BLUE LANE",
+    "물속에서 정리한 호흡.",
+    "1,200",
+    "M",
+    "42:00",
+    "48 LAP",
+    596,
+    [],
+    storySwimming01,
+  ),
+  diving: demoStory(
+    "diving",
+    "photo",
+    "DEEP FOCUS",
+    "고요한 18미터.",
+    "18",
+    "M PB",
+    "55:00",
+    "42 M DYNAMIC",
+    742,
+    [],
+    storyDiving01,
+  ),
+};
+
+const storyOwners: StoryOwner[] = [
+  {
+    id: "me",
+    name: "내 스토리",
+    icon: "M",
+    stories: [
+      baseStories.running,
+      baseStories.hiking,
+      baseStories.cycling,
+      baseStories.strength,
+      baseStories.swimming,
+      baseStories.diving,
+    ],
+  },
+  {
+    id: "minji",
+    name: "민지",
+    icon: "R",
+    stories: [
+      { ...baseStories.running, id: "minji-running", customText: "새벽 6시, 가볍게." },
+      {
+        ...baseStories.strength,
+        id: "minji-strength",
+        layout: "split",
+        photo: storyStrength02,
+        customText: "등 운동 끝.",
+      },
+    ],
+  },
+  {
+    id: "doyun",
+    name: "도윤",
+    icon: "H",
+    stories: [
+      {
+        ...baseStories.hiking,
+        id: "doyun-hiking",
+        layout: "low",
+        customText: "능선의 바람.",
+      },
+      { ...baseStories.cycling, id: "doyun-cycling", customText: "한강 30K." },
+    ],
+  },
+  {
+    id: "yuna",
+    name: "유나",
+    icon: "S",
+    stories: [
+      {
+        ...baseStories.strength,
+        id: "yuna-strength",
+        layout: "editorial",
+        photo: storyStrength03,
+        customText: "오늘도 나답게.",
+      },
+      {
+        ...baseStories.swimming,
+        id: "yuna-swimming",
+        layout: "low",
+        photo: storySwimming02,
+        customText: "1,700m clear.",
+      },
+    ],
+  },
+  {
+    id: "jun",
+    name: "준",
+    icon: "C",
+    stories: [
+      { ...baseStories.cycling, id: "jun-cycling", customText: "페이스 유지." },
+      {
+        ...baseStories.running,
+        id: "jun-running",
+        layout: "centered",
+        customText: "마지막 1K push.",
+      },
+    ],
+  },
+  {
+    id: "harin",
+    name: "하린",
+    icon: "W",
+    stories: [
+      {
+        ...baseStories.swimming,
+        id: "harin-swimming",
+        layout: "split",
+        customText: "레인 끝의 평온.",
+      },
+      {
+        ...baseStories.diving,
+        id: "harin-diving",
+        layout: "centered",
+        photo: storyDiving02,
+        customText: "블루홀에서 마주친 순간.",
+      },
+    ],
+  },
+  {
+    id: "taeo",
+    name: "태오",
+    icon: "T",
+    stories: [
+      {
+        ...baseStories.hiking,
+        id: "taeo-hiking",
+        layout: "editorial",
+        customText: "일몰 전 정상.",
+      },
+      {
+        ...baseStories.diving,
+        id: "taeo-diving",
+        layout: "low",
+        customText: "다이나믹 42m.",
+      },
+    ],
+  },
 ];
 
 export default function CommunityScreen() {
@@ -69,7 +318,28 @@ export default function CommunityScreen() {
   const [sport, setSport] = useState<SportType>("running");
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
-  const [selectedStory, setSelectedStory] = useState<string | null>(null);
+  const [selectedStoryOwnerId, setSelectedStoryOwnerId] = useState<string | null>(null);
+  const [storyIndex, setStoryIndex] = useState(0);
+  const [storyCanvasWidth, setStoryCanvasWidth] = useState(0);
+  const storyScrollRef = useRef<ScrollView>(null);
+  const storyScrollOffsetRef = useRef(0);
+  const storyDragStartOffsetRef = useRef(0);
+  const storyPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+          Math.abs(gesture.dx) > 6 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+        onPanResponderGrant: () => {
+          storyDragStartOffsetRef.current = storyScrollOffsetRef.current;
+        },
+        onPanResponderMove: (_event, gesture) => {
+          const nextOffset = Math.max(0, storyDragStartOffsetRef.current - gesture.dx);
+          storyScrollRef.current?.scrollTo({ x: nextOffset, animated: false });
+          storyScrollOffsetRef.current = nextOffset;
+        },
+      }),
+    [],
+  );
   const [composerOpen, setComposerOpen] = useState(false);
   const [cheeredPosts, setCheeredPosts] = useState<string[]>([]);
   const [openComments, setOpenComments] = useState<string[]>([]);
@@ -93,6 +363,70 @@ export default function CommunityScreen() {
     route: true,
     points: true,
   });
+  const selectedStoryOwner = useMemo(
+    () => storyOwners.find((owner) => owner.id === selectedStoryOwnerId) ?? null,
+    [selectedStoryOwnerId],
+  );
+  const activeDemoStory = selectedStoryOwner?.stories[storyIndex] ?? null;
+
+  function openStory(ownerId: string) {
+    setStoryIndex(0);
+    setSelectedStoryOwnerId(ownerId);
+  }
+
+  function closeStory() {
+    setSelectedStoryOwnerId(null);
+    setStoryIndex(0);
+  }
+
+  function showPreviousStory() {
+    if (!selectedStoryOwner) return;
+    if (storyIndex > 0) {
+      setStoryIndex((current) => current - 1);
+      return;
+    }
+    const ownerIndex = storyOwners.findIndex((owner) => owner.id === selectedStoryOwner.id);
+    const previousOwner = storyOwners[ownerIndex - 1];
+    if (!previousOwner) return;
+    setSelectedStoryOwnerId(previousOwner.id);
+    setStoryIndex(previousOwner.stories.length - 1);
+  }
+
+  function showNextStory() {
+    if (!selectedStoryOwner) return;
+    if (storyIndex < selectedStoryOwner.stories.length - 1) {
+      setStoryIndex((current) => current + 1);
+      return;
+    }
+    const ownerIndex = storyOwners.findIndex((owner) => owner.id === selectedStoryOwner.id);
+    const nextOwner = storyOwners[ownerIndex + 1];
+    if (!nextOwner) {
+      closeStory();
+      return;
+    }
+    setSelectedStoryOwnerId(nextOwner.id);
+    setStoryIndex(0);
+  }
+
+  useEffect(() => {
+    if (!selectedStoryOwnerId || !selectedStoryOwner) return;
+    const timer = setTimeout(() => {
+      if (storyIndex < selectedStoryOwner.stories.length - 1) {
+        setStoryIndex((current) => current + 1);
+        return;
+      }
+      const ownerIndex = storyOwners.findIndex((owner) => owner.id === selectedStoryOwner.id);
+      const nextOwner = storyOwners[ownerIndex + 1];
+      if (nextOwner) {
+        setSelectedStoryOwnerId(nextOwner.id);
+        setStoryIndex(0);
+      } else {
+        setSelectedStoryOwnerId(null);
+        setStoryIndex(0);
+      }
+    }, 7000);
+    return () => clearTimeout(timer);
+  }, [selectedStoryOwner, selectedStoryOwnerId, storyIndex]);
 
   useEffect(() => {
     if (typeof params.draft === "string" && params.draft) {
@@ -219,44 +553,148 @@ export default function CommunityScreen() {
       <Text style={styles.pageTitle}>함께 움직이는 중</Text>
       {notificationOpen ? <Text style={styles.notice}>새로운 피드 알림이 없습니다.</Text> : null}
 
+      <Modal
+        animationType="fade"
+        onRequestClose={closeStory}
+        statusBarTranslucent
+        transparent
+        visible={activeDemoStory !== null}
+      >
+        {activeDemoStory && selectedStoryOwner ? (
+          <View style={styles.storyModalBackdrop}>
+            <View style={styles.storyViewer}>
+              <View style={styles.storyProgressRow}>
+                {selectedStoryOwner.stories.map((story, index) => (
+                  <View
+                    key={story.id}
+                    style={[
+                      styles.storyProgressTrack,
+                      index <= storyIndex && styles.storyProgressActive,
+                    ]}
+                  />
+                ))}
+              </View>
+
+              <View style={styles.storyViewerHeader}>
+                <View style={styles.storyViewerIdentity}>
+                  <View style={styles.storyViewerAvatar}>
+                    <Text style={styles.storyViewerAvatarText}>{selectedStoryOwner.icon}</Text>
+                  </View>
+                  <View>
+                    <Text style={styles.storyViewerName}>{selectedStoryOwner.name}</Text>
+                    <Text style={styles.storyViewerMeta}>
+                      방금 전 · {storyIndex + 1}/{selectedStoryOwner.stories.length}
+                    </Text>
+                  </View>
+                </View>
+                <Pressable
+                  accessibilityLabel="스토리 닫기"
+                  accessibilityRole="button"
+                  onPress={closeStory}
+                  style={styles.storyViewerClose}
+                >
+                  <Text style={styles.storyViewerCloseText}>×</Text>
+                </Pressable>
+              </View>
+
+              <View
+                onLayout={(event) => setStoryCanvasWidth(event.nativeEvent.layout.width)}
+                style={styles.storyCanvasTouchArea}
+              >
+                <StoryCanvas
+                  background={activeDemoStory.background}
+                  colors={colors}
+                  customText={activeDemoStory.customText}
+                  distance={activeDemoStory.distance}
+                  distanceUnit={activeDemoStory.distanceUnit}
+                  duration={activeDemoStory.duration}
+                  height={540}
+                  layout={activeDemoStory.layout}
+                  layers={["record", "route", "text", "points"]}
+                  moveScore={activeDemoStory.points}
+                  pace={activeDemoStory.pace}
+                  {...(activeDemoStory.photo ? { photoSource: activeDemoStory.photo } : {})}
+                  photoUri={null}
+                  routePoints={activeDemoStory.routePoints}
+                  sportLabel={sportLabels[activeDemoStory.sport]}
+                  themeLabel={activeDemoStory.themeLabel}
+                  visibility={{
+                    distance: true,
+                    duration: true,
+                    pace: true,
+                    route: true,
+                    points: true,
+                  }}
+                />
+                <View style={styles.storyTapZones}>
+                  <Pressable
+                    accessibilityLabel="스토리 화면, 왼쪽은 이전, 오른쪽은 다음"
+                    accessibilityRole="button"
+                    onPress={(event) => {
+                      const webOffsetX = (event.nativeEvent as unknown as { offsetX?: unknown })
+                        .offsetX;
+                      const tapX =
+                        typeof event.nativeEvent.locationX === "number"
+                          ? event.nativeEvent.locationX
+                          : typeof webOffsetX === "number"
+                            ? webOffsetX
+                            : storyCanvasWidth;
+                      if (tapX < storyCanvasWidth / 2) {
+                        showPreviousStory();
+                      } else {
+                        showNextStory();
+                      }
+                    }}
+                    style={styles.storyTapZone}
+                  />
+                </View>
+              </View>
+            </View>
+          </View>
+        ) : null}
+      </Modal>
+
       <ScrollView
+        {...storyPanResponder.panHandlers}
         contentContainerStyle={styles.stories}
         horizontal
+        onScroll={(event) => {
+          storyScrollOffsetRef.current = event.nativeEvent.contentOffset.x;
+        }}
+        ref={storyScrollRef}
+        scrollEventThrottle={16}
         showsHorizontalScrollIndicator={false}
+        style={styles.storyScroller}
+        testID="story-owner-strip"
       >
-        {stories.map((story, index) => {
-          const selected = selectedStory === story.name;
+        {storyOwners.map((owner, index) => {
+          const selected = selectedStoryOwnerId === owner.id;
           return (
             <Pressable
+              accessibilityLabel={`${owner.name} 스토리 ${owner.stories.length}개 열기`}
               accessibilityRole="button"
               accessibilityState={{ selected }}
-              key={story.name}
-              onPress={() => setSelectedStory(selected ? null : story.name)}
+              key={owner.id}
+              onPress={() => openStory(owner.id)}
               style={styles.story}
             >
               <View style={[styles.storyRing, selected && styles.storyRingSelected]}>
                 <View style={[styles.storyAvatar, index === 0 && styles.myStory]}>
                   <Text style={[styles.storyInitial, index === 0 && styles.myStoryText]}>
-                    {story.icon}
+                    {owner.icon}
                   </Text>
+                </View>
+                <View style={styles.storyCountBadge}>
+                  <Text style={styles.storyCountText}>{owner.stories.length}</Text>
                 </View>
               </View>
               <Text numberOfLines={1} style={styles.storyName}>
-                {story.name}
+                {owner.name}
               </Text>
             </Pressable>
           );
         })}
       </ScrollView>
-
-      {selectedStory ? (
-        <View style={styles.storyStatus}>
-          <Text style={styles.storyStatusText}>{selectedStory}의 운동 스토리를 열었습니다.</Text>
-          <Pressable accessibilityRole="button" onPress={() => setSelectedStory(null)}>
-            <Text style={styles.close}>닫기</Text>
-          </Pressable>
-        </View>
-      ) : null}
 
       <Card style={styles.composer}>
         <Pressable
@@ -447,7 +885,7 @@ export default function CommunityScreen() {
                 start={gradients.imageOverlay.start}
                 style={StyleSheet.absoluteFill}
               />
-              <Text style={styles.feedArtworkBrand}>MOVE STORY</Text>
+              <Text style={styles.feedArtworkBrand}>GROOV STORY</Text>
               <Text style={styles.feedArtworkSport}>{sportLabels[post.sport]}</Text>
               <Text style={styles.feedArtworkMeta}>SHARED TODAY</Text>
             </ImageBackground>
@@ -520,6 +958,43 @@ export default function CommunityScreen() {
 
 const defaultStoryLayers: StoryLayer[] = ["record", "route", "points"];
 
+function demoStory(
+  sport: SportType,
+  background: StoryBackground,
+  themeLabel: string,
+  customText: string,
+  distance: string,
+  distanceUnit: string,
+  duration: string,
+  pace: string,
+  points: number,
+  routePoints: MapPoint[],
+  photo?: ImageSourcePropType,
+): DemoStory {
+  return {
+    id: `demo-${sport}`,
+    sport,
+    background,
+    ...(photo ? { photo } : {}),
+    themeLabel,
+    customText,
+    distance,
+    distanceUnit,
+    duration,
+    layout:
+      sport === "hiking" || sport === "swimming"
+        ? "centered"
+        : sport === "cycling" || sport === "diving"
+          ? "split"
+          : sport === "strength"
+            ? "low"
+            : "editorial",
+    pace,
+    points,
+    routePoints,
+  };
+}
+
 function parseLayers(value: string): StoryLayer[] {
   const validLayers: StoryLayer[] = ["record", "route", "text", "points"];
   const layers = value
@@ -574,6 +1049,7 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     pageTitle: { color: colors.ink, fontSize: 20, fontFamily: fonts.bold },
     notice: { color: colors.primary, fontSize: 11, fontFamily: fonts.medium, marginTop: -9 },
+    storyScroller: { width: "100%" },
     stories: { gap: space[4], paddingVertical: 3, paddingRight: space[4] },
     story: { width: 56, alignItems: "center", gap: space[2] },
     storyRing: {
@@ -584,6 +1060,7 @@ function createStyles(colors: ThemeColors) {
       borderColor: colors.border,
       alignItems: "center",
       justifyContent: "center",
+      position: "relative",
     },
     storyRingSelected: { borderColor: colors.primary },
     storyAvatar: {
@@ -598,15 +1075,94 @@ function createStyles(colors: ThemeColors) {
     storyInitial: { color: "#FFFFFF", fontSize: 15, fontFamily: fonts.bold },
     myStoryText: { color: colors.primary, fontSize: 22, fontFamily: fonts.regular },
     storyName: { color: colors.ink, fontSize: 10, fontFamily: fonts.regular },
-    storyStatus: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-      paddingBottom: 10,
+    storyCountBadge: {
+      position: "absolute",
+      right: -5,
+      bottom: -3,
+      minWidth: 17,
+      height: 17,
+      paddingHorizontal: 4,
+      borderRadius: 9,
+      borderWidth: 2,
+      borderColor: colors.surface,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
     },
-    storyStatusText: { color: colors.muted, fontSize: 10, fontFamily: fonts.regular },
-    close: { color: colors.primary, fontSize: 10, fontFamily: fonts.bold },
+    storyCountText: { color: "#FFFFFF", fontSize: 7, fontFamily: fonts.bold },
+    storyModalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(5,5,6,0.96)",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 14,
+      paddingVertical: 18,
+    },
+    storyViewer: { width: "100%", maxWidth: 420, gap: 10 },
+    storyProgressRow: { flexDirection: "row", gap: 4 },
+    storyProgressTrack: {
+      flex: 1,
+      height: 3,
+      borderRadius: radius.full,
+      backgroundColor: "rgba(255,255,255,0.22)",
+    },
+    storyProgressActive: { backgroundColor: "#FFFFFF" },
+    storyViewerHeader: {
+      minHeight: 44,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    storyViewerIdentity: { flexDirection: "row", alignItems: "center", gap: 9 },
+    storyViewerAvatar: {
+      width: 34,
+      height: 34,
+      borderRadius: radius.full,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: "#1B1B1D",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    storyViewerAvatarText: { color: "#FFFFFF", fontSize: 11, fontFamily: fonts.bold },
+    storyViewerName: { color: "#FFFFFF", fontSize: 12, fontFamily: fonts.bold },
+    storyViewerMeta: {
+      color: "rgba(255,255,255,0.52)",
+      fontSize: 8,
+      fontFamily: fonts.medium,
+      marginTop: 2,
+    },
+    storyViewerClose: {
+      width: 36,
+      height: 36,
+      borderRadius: radius.full,
+      borderWidth: 0,
+      outlineWidth: 0,
+      backgroundColor: "transparent",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    storyViewerCloseText: {
+      color: "#FFFFFF",
+      fontSize: 30,
+      lineHeight: 32,
+      fontFamily: fonts.regular,
+    },
+    storyCanvasTouchArea: { position: "relative", borderRadius: 14, overflow: "hidden" },
+    storyTapZones: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      flexDirection: "row",
+    },
+    storyTapZone: {
+      flex: 1,
+      borderWidth: 0,
+      outlineWidth: 0,
+      backgroundColor: "transparent",
+    },
     composer: { padding: 0, overflow: "hidden" },
     composerPrompt: {
       minHeight: 57,

@@ -164,6 +164,17 @@ export const WorkoutSessionCreateInputSchema = z
   });
 export type WorkoutSessionCreateInput = z.infer<typeof WorkoutSessionCreateInputSchema>;
 
+export const WorkoutSessionUpdateInputSchema = z
+  .object({
+    notes: z.string().trim().max(1000).nullable().optional(),
+    perceivedExertion: z.number().int().min(1).max(10).optional(),
+    metrics: z.record(z.string().max(50), z.number().finite()).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "수정할 운동 기록 내용을 입력해 주세요.",
+  });
+export type WorkoutSessionUpdateInput = z.infer<typeof WorkoutSessionUpdateInputSchema>;
+
 export const PostCreateInputSchema = z.object({
   sport: SportTypeSchema,
   content: z.string().trim().min(1).max(2000),

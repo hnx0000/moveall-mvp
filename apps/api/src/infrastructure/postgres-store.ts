@@ -13,6 +13,7 @@ import type {
   SportType,
   WorkoutSession,
   WorkoutSessionCreateInput,
+  WorkoutSessionUpdateInput,
 } from "@moveall/contracts";
 import { Pool, type QueryResultRow } from "pg";
 import type { AppStore, User } from "../domain/store.js";
@@ -303,6 +304,35 @@ export class PostgresStore implements AppStore {
       [userId],
     );
     return result.rows.map((row) => this.mapWorkout(row));
+  }
+
+  async updateWorkoutSession(
+    userId: string,
+    workoutId: string,
+    input: WorkoutSessionUpdateInput,
+  ): Promise<WorkoutSession | null> {
+    const hasNotes = Object.prototype.hasOwnProperty.call(input, "notes");
+    const result = await this.pool.query<WorkoutRow>(
+      "UPDATE workout_sessions SET notes = CASE WHEN $3::boolean THEN $4 ELSE notes END, perceived_exertion = COALESCE($5, perceived_exertion), metrics = COALESCE($6::jsonb, metrics) WHERE user_id = $1 AND id = $2 RETURNING *",
+      [
+        userId,
+        workoutId,
+        hasNotes,
+        input.notes ?? null,
+        input.perceivedExertion ?? null,
+        input.metrics === undefined ? null : JSON.stringify(input.metrics),
+      ],
+    );
+    const row = result.rows[0];
+    return row ? this.mapWorkout(row) : null;
+  }
+
+  async deleteWorkoutSession(userId: string, workoutId: string): Promise<boolean> {
+    const result = await this.pool.query(
+      "DELETE FROM workout_sessions WHERE user_id = $1 AND id = $2 RETURNING id",
+      [userId, workoutId],
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async createPost(

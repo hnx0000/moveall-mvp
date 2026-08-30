@@ -27,6 +27,7 @@ import type {
   UserProfile,
   WorkoutSession,
   WorkoutSessionCreateInput,
+  WorkoutSessionUpdateInput,
 } from "@moveall/contracts";
 import { demoApi } from "./demo-client";
 
@@ -146,6 +147,17 @@ const liveApi = {
       token,
       method: "POST",
       body: JSON.stringify(input),
+    }),
+  updateWorkoutSession: (token: string, workoutId: string, input: WorkoutSessionUpdateInput) =>
+    request<WorkoutSession>(`/v1/workout-sessions/${workoutId}`, {
+      token,
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteWorkoutSession: (token: string, workoutId: string) =>
+    request<{ deleted: true }>(`/v1/workout-sessions/${workoutId}`, {
+      token,
+      method: "DELETE",
     }),
   myPosts: (token: string) => request<FeedPost[]>("/v1/posts/me", { token }),
   archivedPosts: (token: string) => request<FeedPost[]>("/v1/posts/me/archive", { token }),

@@ -311,6 +311,7 @@ describe("GROOV API", () => {
     });
     const token = first.json().data.accessToken as string;
     const secondId = second.json().data.user.id as string;
+    const secondToken = second.json().data.accessToken as string;
 
     const workout = await app.inject({
       method: "POST",
@@ -326,6 +327,7 @@ describe("GROOV API", () => {
       },
     });
     expect(workout.statusCode).toBe(201);
+    const workoutId = workout.json().data.id as string;
 
     const medals = await app.inject({
       method: "GET",
@@ -351,6 +353,38 @@ describe("GROOV API", () => {
       ok: true,
       data: { followingCount: 1, following: [{ id: secondId, displayName: "둘째 러너" }] },
     });
+
+    const updatedWorkout = await app.inject({
+      method: "PATCH",
+      url: `/v1/workout-sessions/${workoutId}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { notes: "기록 메모 수정 완료" },
+    });
+    expect(updatedWorkout.statusCode).toBe(200);
+    expect(updatedWorkout.json()).toMatchObject({
+      ok: true,
+      data: { id: workoutId, notes: "기록 메모 수정 완료" },
+    });
+
+    const otherUserDelete = await app.inject({
+      method: "DELETE",
+      url: `/v1/workout-sessions/${workoutId}`,
+      headers: { authorization: `Bearer ${secondToken}` },
+    });
+    expect(otherUserDelete.statusCode).toBe(404);
+
+    const deletedWorkout = await app.inject({
+      method: "DELETE",
+      url: `/v1/workout-sessions/${workoutId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(deletedWorkout.statusCode).toBe(200);
+    const remainingWorkouts = await app.inject({
+      method: "GET",
+      url: "/v1/workout-sessions/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(remainingWorkouts.json().data).toHaveLength(0);
     await app.close();
   });
 

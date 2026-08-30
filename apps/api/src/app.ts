@@ -16,6 +16,7 @@ import {
   RoutineUpdateInputSchema,
   SportTypeSchema,
   WorkoutSessionCreateInputSchema,
+  WorkoutSessionUpdateInputSchema,
   type ApiSuccess,
 } from "@moveall/contracts";
 import Fastify, { type FastifyRequest } from "fastify";
@@ -455,6 +456,31 @@ export async function createApp(dependencies: AppDependencies) {
   app.get("/v1/workout-sessions/me", async (request) => {
     const user = await currentUser(request);
     return success(await dependencies.store.listWorkoutSessions(user.id));
+  });
+
+  app.patch("/v1/workout-sessions/:workoutId", async (request) => {
+    const user = await currentUser(request);
+    const parameters = z.object({ workoutId: z.uuid() }).parse(request.params);
+    const input = WorkoutSessionUpdateInputSchema.parse(request.body);
+    const workout = await dependencies.store.updateWorkoutSession(
+      user.id,
+      parameters.workoutId,
+      input,
+    );
+    if (!workout) {
+      throw new AppError(404, "WORKOUT_NOT_FOUND", "운동 기록을 찾을 수 없습니다.");
+    }
+    return success(workout);
+  });
+
+  app.delete("/v1/workout-sessions/:workoutId", async (request) => {
+    const user = await currentUser(request);
+    const parameters = z.object({ workoutId: z.uuid() }).parse(request.params);
+    const deleted = await dependencies.store.deleteWorkoutSession(user.id, parameters.workoutId);
+    if (!deleted) {
+      throw new AppError(404, "WORKOUT_NOT_FOUND", "운동 기록을 찾을 수 없습니다.");
+    }
+    return success({ deleted: true as const });
   });
 
   app.get("/v1/medals/me", async (request) => {

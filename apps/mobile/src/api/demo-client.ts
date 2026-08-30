@@ -24,6 +24,7 @@ import {
   type SportType,
   type WorkoutSession,
   type WorkoutSessionCreateInput,
+  type WorkoutSessionUpdateInput,
 } from "@moveall/contracts";
 
 const now = Date.now();
@@ -197,8 +198,116 @@ const defaultRoutines: Routine[] = [
   },
 ];
 
+const defaultWorkoutSeeds: WorkoutSession[] = [
+  demoWorkout("running-5k", "running", 1, 31, 6, "퇴근 후 한강 이지런", {
+    distanceKm: 5.12,
+    calories: 368,
+    paceSeconds: 363,
+    elevationGainM: 24,
+  }),
+  demoWorkout("running-tempo", "running", 5, 44, 7, "템포 구간을 섞은 7K 러닝", {
+    distanceKm: 7.34,
+    calories: 526,
+    paceSeconds: 360,
+    elevationGainM: 38,
+  }),
+  demoWorkout("running-long", "running", 12, 64, 7, "주말 오전 10K 롱런", {
+    distanceKm: 10.18,
+    calories: 704,
+    paceSeconds: 377,
+    elevationGainM: 57,
+  }),
+  demoWorkout("hiking-bukhansan", "hiking", 2, 126, 7, "북한산 백운대 왕복", {
+    distanceKm: 6.42,
+    calories: 684,
+    elevationGainM: 498,
+  }),
+  demoWorkout("hiking-gwanaksan", "hiking", 8, 172, 8, "관악산 능선 코스", {
+    distanceKm: 8.76,
+    calories: 912,
+    elevationGainM: 731,
+  }),
+  demoWorkout("hiking-inwangsan", "hiking", 15, 82, 5, "인왕산 야간 산책", {
+    distanceKm: 4.18,
+    calories: 436,
+    elevationGainM: 286,
+  }),
+  demoWorkout("cycling-riverside", "cycling", 3, 58, 6, "반포에서 여의도까지 리버사이드 라이딩", {
+    distanceKm: 18.62,
+    calories: 514,
+    averageSpeedKmh: 19.3,
+    paceSeconds: 187,
+  }),
+  demoWorkout("cycling-hanam", "cycling", 9, 94, 7, "미사리 왕복 지구력 라이딩", {
+    distanceKm: 31.48,
+    calories: 826,
+    averageSpeedKmh: 20.1,
+    paceSeconds: 179,
+  }),
+  demoWorkout("cycling-long", "cycling", 16, 126, 8, "주말 40K 롱 라이딩", {
+    distanceKm: 42.26,
+    calories: 1092,
+    averageSpeedKmh: 20.1,
+    paceSeconds: 179,
+  }),
+  demoWorkout("strength-full-body", "strength", 4, 52, 7, "스쿼트 · 벤치프레스 · 로우", {
+    calories: 382,
+    exerciseCount: 5,
+    cycles: 4,
+    sets: 16,
+    volumeKg: 4280,
+  }),
+  demoWorkout("strength-lower", "strength", 10, 61, 8, "하체 집중 볼륨 세션", {
+    calories: 448,
+    exerciseCount: 6,
+    cycles: 5,
+    sets: 20,
+    volumeKg: 6720,
+  }),
+  demoWorkout("strength-upper", "strength", 17, 47, 6, "등과 어깨 중심 상체 루틴", {
+    calories: 336,
+    exerciseCount: 5,
+    cycles: 4,
+    sets: 17,
+    volumeKg: 3910,
+  }),
+  demoWorkout("swimming-technique", "swimming", 6, 42, 5, "자유형 호흡과 스트림라인 드릴", {
+    distanceKm: 1.2,
+    distanceM: 1200,
+    calories: 304,
+    laps: 48,
+  }),
+  demoWorkout("swimming-interval", "swimming", 11, 51, 7, "100m 인터벌 10세트", {
+    distanceKm: 1.5,
+    distanceM: 1500,
+    calories: 386,
+    laps: 60,
+  }),
+  demoWorkout("swimming-endurance", "swimming", 18, 66, 7, "페이스를 유지한 2K 지속주", {
+    distanceKm: 2,
+    distanceM: 2000,
+    calories: 498,
+    laps: 80,
+  }),
+  demoWorkout("diving-pool", "diving", 7, 55, 5, "잠실 풀 세션 · 이퀄라이징 점검", {
+    calories: 246,
+    maxDepthM: 18,
+    dynamicDistanceM: 42,
+  }),
+  demoWorkout("diving-depth", "diving", 13, 68, 7, "딥 다이빙 트레이닝", {
+    calories: 312,
+    maxDepthM: 24.3,
+    dynamicDistanceM: 55,
+  }),
+  demoWorkout("diving-dynamic", "diving", 20, 49, 8, "다이나믹 거리 PB 세션", {
+    calories: 228,
+    maxDepthM: 15.6,
+    dynamicDistanceM: 75,
+  }),
+];
+
 const routines = readStored<Routine[]>("moveall-demo-routines-v2", defaultRoutines);
-const workouts = readStored<WorkoutSession[]>("moveall-demo-workouts-v2", []);
+const workouts = initializeDemoWorkouts();
 const followingIds = new Set<string>();
 const archived: FeedPost[] = [];
 const messages: DirectMessage[] = [];
@@ -321,6 +430,27 @@ export const demoApi = {
     workouts.unshift(item);
     persistDemoState();
     return item;
+  },
+  updateWorkoutSession: async (
+    _token: string,
+    workoutId: string,
+    input: WorkoutSessionUpdateInput,
+  ) => {
+    const workout = workouts.find((item) => item.id === workoutId)!;
+    if (input.notes === null) delete workout.notes;
+    else if (input.notes !== undefined) workout.notes = input.notes;
+    if (input.perceivedExertion !== undefined) {
+      workout.perceivedExertion = input.perceivedExertion;
+    }
+    if (input.metrics !== undefined) workout.metrics = { ...input.metrics };
+    persistDemoState();
+    return workout;
+  },
+  deleteWorkoutSession: async (_token: string, workoutId: string) => {
+    const index = workouts.findIndex((item) => item.id === workoutId);
+    if (index >= 0) workouts.splice(index, 1);
+    persistDemoState();
+    return { deleted: true as const };
   },
   myPosts: async (_token: string) => posts.filter((post) => post.userId === activeSession.user.id),
   archivedPosts: async (_token: string) => archived,
@@ -452,6 +582,71 @@ function sessionFor(email: string, displayName: string): AuthSession {
 
 function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function demoWorkout(
+  id: string,
+  sport: SportType,
+  daysAgo: number,
+  durationMinutes: number,
+  perceivedExertion: number,
+  notes: string,
+  metrics: Record<string, number>,
+): WorkoutSession {
+  const endedAt = new Date(now - daysAgo * 86_400_000 - (daysAgo % 3) * 3_600_000);
+  const startedAt = new Date(endedAt.getTime() - durationMinutes * 60_000);
+  return {
+    id: `demo-workout-${id}`,
+    userId: "demo-user",
+    sport,
+    startedAt: startedAt.toISOString(),
+    endedAt: endedAt.toISOString(),
+    perceivedExertion,
+    notes,
+    metrics: { durationMinutes, ...metrics },
+    source: "manual",
+    createdAt: endedAt.toISOString(),
+  };
+}
+
+function ensureWorkoutCoverage(
+  storedWorkouts: WorkoutSession[],
+  seeds: WorkoutSession[],
+): WorkoutSession[] {
+  const merged = [...storedWorkouts];
+  const knownIds = new Set(merged.map((workout) => workout.id));
+
+  for (const sport of sportValues) {
+    const missingCount = Math.max(
+      0,
+      3 - merged.filter((workout) => workout.sport === sport).length,
+    );
+    const missingSeeds = seeds
+      .filter((workout) => workout.sport === sport && !knownIds.has(workout.id))
+      .slice(0, missingCount);
+    merged.push(...missingSeeds);
+    missingSeeds.forEach((workout) => knownIds.add(workout.id));
+  }
+
+  return merged.sort((left, right) => Date.parse(right.endedAt) - Date.parse(left.endedAt));
+}
+
+function initializeDemoWorkouts(): WorkoutSession[] {
+  const stored = readStored<WorkoutSession[]>("moveall-demo-workouts-v2", []);
+  try {
+    if (!("localStorage" in globalThis)) {
+      return ensureWorkoutCoverage(stored, defaultWorkoutSeeds);
+    }
+    const seedVersionKey = "groov-demo-workout-seed-version";
+    const seedVersion = "1";
+    if (globalThis.localStorage.getItem(seedVersionKey) === seedVersion) return stored;
+    const seeded = ensureWorkoutCoverage(stored, defaultWorkoutSeeds);
+    globalThis.localStorage.setItem("moveall-demo-workouts-v2", JSON.stringify(seeded));
+    globalThis.localStorage.setItem(seedVersionKey, seedVersion);
+    return seeded;
+  } catch {
+    return ensureWorkoutCoverage(stored, defaultWorkoutSeeds);
+  }
 }
 
 function readStored<T>(key: string, fallback: T): T {
