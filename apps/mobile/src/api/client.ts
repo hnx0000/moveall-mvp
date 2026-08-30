@@ -15,6 +15,7 @@ import type {
   PostCreateInput,
   PostUpdateInput,
   ProfileUpdateInput,
+  PublicMemberProfile,
   PublicUser,
   RegisterInput,
   Routine,
@@ -175,6 +176,8 @@ const liveApi = {
     request<{ deleted: true }>(`/v1/posts/${postId}`, { token, method: "DELETE" }),
   userPosts: (token: string, userId: string) =>
     request<{ user: PublicUser; posts: FeedPost[] }>(`/v1/users/${userId}/posts`, { token }),
+  memberProfile: (token: string, userId: string) =>
+    request<PublicMemberProfile>(`/v1/users/${userId}/profile`, { token }),
   socialSummary: (token: string) => request<SocialSummary>("/v1/social/me", { token }),
   medals: (token: string) => request<Medal[]>("/v1/medals/me", { token }),
   followStatus: (token: string, userId: string) =>

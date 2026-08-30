@@ -14,6 +14,7 @@ import {
   type PostCreateInput,
   type PostUpdateInput,
   type ProfileUpdateInput,
+  type PublicMemberProfile,
   type RegisterInput,
   type Routine,
   type RoutineCreateInput,
@@ -179,6 +180,50 @@ const posts: FeedPost[] = [
     createdAt: new Date(now - 4 * 60 * 60_000).toISOString(),
     comments: [],
   },
+  {
+    id: "demo-post-cycling",
+    userId: "demo-friend-2",
+    authorDisplayName: "페이스메이커 준",
+    sport: "cycling",
+    content: "한강 31.4km. 마지막 구간까지 케이던스를 유지했습니다.",
+    contentType: "post",
+    likeCount: 36,
+    createdAt: new Date(now - 6 * 60 * 60_000).toISOString(),
+    comments: [],
+  },
+  {
+    id: "demo-post-strength",
+    userId: "demo-friend-4",
+    authorDisplayName: "스트롱 유나",
+    sport: "strength",
+    content: "하체 루틴 5종목 18세트 완료. 오늘도 한 칸 전진.",
+    contentType: "post",
+    likeCount: 51,
+    createdAt: new Date(now - 8 * 60 * 60_000).toISOString(),
+    comments: [],
+  },
+  {
+    id: "demo-post-swimming",
+    userId: "demo-friend-4",
+    authorDisplayName: "스트롱 유나",
+    sport: "swimming",
+    content: "오전 자유형 1,700m · 68 LAP. 호흡 리듬이 돌아왔어요.",
+    contentType: "story",
+    likeCount: 44,
+    createdAt: new Date(now - 26 * 60 * 60_000).toISOString(),
+    comments: [],
+  },
+  {
+    id: "demo-post-taeo",
+    userId: "demo-friend-6",
+    authorDisplayName: "선셋하이커 태오",
+    sport: "hiking",
+    content: "일몰 전에 정상 도착. 오늘의 고도 612m.",
+    contentType: "post",
+    likeCount: 23,
+    createdAt: new Date(now - 30 * 60 * 60_000).toISOString(),
+    comments: [],
+  },
 ];
 
 const defaultRoutines: Routine[] = [
@@ -305,6 +350,135 @@ const defaultWorkoutSeeds: WorkoutSession[] = [
     dynamicDistanceM: 75,
   }),
 ];
+
+const demoMemberDirectory: Record<
+  string,
+  {
+    displayName: string;
+    isPrivate: boolean;
+    followersCount: number;
+    followingCount: number;
+  }
+> = {
+  "demo-friend-1": {
+    displayName: "새벽러너 민지",
+    isPrivate: false,
+    followersCount: 128,
+    followingCount: 84,
+  },
+  "demo-friend-2": {
+    displayName: "페이스메이커 준",
+    isPrivate: false,
+    followersCount: 214,
+    followingCount: 96,
+  },
+  "demo-friend-3": {
+    displayName: "클라이머 도윤",
+    isPrivate: false,
+    followersCount: 91,
+    followingCount: 73,
+  },
+  "demo-friend-4": {
+    displayName: "스트롱 유나",
+    isPrivate: false,
+    followersCount: 346,
+    followingCount: 112,
+  },
+  "demo-friend-private": {
+    displayName: "블루 하린",
+    isPrivate: true,
+    followersCount: 72,
+    followingCount: 58,
+  },
+  "demo-friend-6": {
+    displayName: "선셋하이커 태오",
+    isPrivate: false,
+    followersCount: 64,
+    followingCount: 51,
+  },
+};
+
+const demoMemberWorkouts: Record<string, WorkoutSession[]> = {
+  "demo-friend-1": [
+    demoMemberWorkout("demo-friend-1", "minji-run-1", "running", 1, 31, 6, "새벽 한강 5K", {
+      distanceKm: 5.24,
+      calories: 372,
+      paceSeconds: 355,
+      elevationGainM: 18,
+    }),
+    demoMemberWorkout("demo-friend-1", "minji-run-2", "running", 5, 48, 7, "템포런 8K", {
+      distanceKm: 8.02,
+      calories: 564,
+      paceSeconds: 359,
+      elevationGainM: 31,
+    }),
+    demoMemberWorkout("demo-friend-1", "minji-run-3", "running", 12, 66, 7, "주말 롱런", {
+      distanceKm: 10.4,
+      calories: 728,
+      paceSeconds: 381,
+      elevationGainM: 47,
+    }),
+  ],
+  "demo-friend-2": [
+    demoMemberWorkout("demo-friend-2", "jun-cycle-1", "cycling", 2, 94, 7, "한강 리버 라이드", {
+      distanceKm: 31.48,
+      calories: 826,
+      averageSpeedKmh: 20.1,
+      elevationGainM: 82,
+    }),
+    demoMemberWorkout("demo-friend-2", "jun-run-1", "running", 7, 27, 8, "5K 페이스 테스트", {
+      distanceKm: 5,
+      calories: 354,
+      paceSeconds: 324,
+      elevationGainM: 14,
+    }),
+  ],
+  "demo-friend-3": [
+    demoMemberWorkout("demo-friend-3", "doyun-hike-1", "hiking", 3, 126, 7, "북한산 능선", {
+      distanceKm: 6.42,
+      calories: 684,
+      elevationGainM: 498,
+    }),
+    demoMemberWorkout("demo-friend-3", "doyun-hike-2", "hiking", 10, 172, 8, "관악산 종주", {
+      distanceKm: 8.76,
+      calories: 912,
+      elevationGainM: 731,
+    }),
+  ],
+  "demo-friend-4": [
+    demoMemberWorkout("demo-friend-4", "yuna-strength-1", "strength", 1, 58, 8, "하체 볼륨 루틴", {
+      calories: 428,
+      exerciseCount: 5,
+      sets: 18,
+      volumeKg: 5980,
+    }),
+    demoMemberWorkout("demo-friend-4", "yuna-swim-1", "swimming", 4, 44, 6, "자유형 1,700m", {
+      distanceKm: 1.7,
+      distanceM: 1700,
+      calories: 418,
+      laps: 68,
+    }),
+    demoMemberWorkout("demo-friend-4", "yuna-strength-2", "strength", 8, 51, 7, "등과 어깨", {
+      calories: 376,
+      exerciseCount: 5,
+      sets: 16,
+      volumeKg: 4420,
+    }),
+  ],
+  "demo-friend-private": [],
+  "demo-friend-6": [
+    demoMemberWorkout("demo-friend-6", "taeo-hike-1", "hiking", 2, 119, 7, "일몰 전 정상", {
+      distanceKm: 6.08,
+      calories: 632,
+      elevationGainM: 612,
+    }),
+    demoMemberWorkout("demo-friend-6", "taeo-dive-1", "diving", 9, 54, 7, "다이나믹 풀 세션", {
+      calories: 238,
+      maxDepthM: 16,
+      dynamicDistanceM: 42,
+    }),
+  ],
+};
 
 const routines = readStored<Routine[]>("moveall-demo-routines-v2", defaultRoutines);
 const workouts = initializeDemoWorkouts();
@@ -486,6 +660,25 @@ export const demoApi = {
       posts: userPosts,
     };
   },
+  memberProfile: async (_token: string, userId: string): Promise<PublicMemberProfile> => {
+    const seed = demoMemberDirectory[userId] ?? {
+      displayName: "GROOV 멤버",
+      isPrivate: false,
+      followersCount: 0,
+      followingCount: 0,
+    };
+    const memberWorkouts = demoMemberWorkouts[userId] ?? [];
+    const isPrivate = seed.isPrivate;
+    return {
+      user: { id: userId, displayName: seed.displayName },
+      isPrivate,
+      followersCount: seed.followersCount,
+      followingCount: seed.followingCount,
+      posts: isPrivate ? [] : posts.filter((post) => post.userId === userId),
+      workouts: isPrivate ? [] : memberWorkouts,
+      medals: isPrivate ? [] : medalsForWorkouts(memberWorkouts),
+    };
+  },
   socialSummary: async (_token: string): Promise<SocialSummary> => ({
     followersCount: 0,
     followingCount: followingIds.size,
@@ -494,21 +687,7 @@ export const demoApi = {
       .filter((post) => followingIds.has(post.userId))
       .map((post) => ({ id: post.userId, displayName: post.authorDisplayName })),
   }),
-  medals: async (_token: string): Promise<Medal[]> =>
-    sportValues.flatMap((sport) => {
-      const count = workouts.filter((workout) => workout.sport === sport).length;
-      return ([1, 10, 30, 100, 250] as const).map((target, index) => ({
-        id: `${sport}-${target}`,
-        sport,
-        title: `${sportLabels[sport]} ${target}회`,
-        description: `${sportLabels[sport]} ${target}회 기록`,
-        tier: (["newbie", "intermediate", "advanced", "athlete", "instructor"] as const)[index]!,
-        earned: count >= target,
-        progress: Math.min(count, target),
-        target,
-        physicalRewardEligible: index >= 3,
-      }));
-    }),
+  medals: async (_token: string): Promise<Medal[]> => medalsForWorkouts(workouts),
   followStatus: async (_token: string, userId: string) => ({
     following: followingIds.has(userId),
     followersCount: 0,
@@ -607,6 +786,39 @@ function demoWorkout(
     source: "manual",
     createdAt: endedAt.toISOString(),
   };
+}
+
+function demoMemberWorkout(
+  userId: string,
+  id: string,
+  sport: SportType,
+  daysAgo: number,
+  durationMinutes: number,
+  perceivedExertion: number,
+  notes: string,
+  metrics: Record<string, number>,
+): WorkoutSession {
+  return {
+    ...demoWorkout(id, sport, daysAgo, durationMinutes, perceivedExertion, notes, metrics),
+    userId,
+  };
+}
+
+function medalsForWorkouts(source: WorkoutSession[]): Medal[] {
+  return sportValues.flatMap((sport) => {
+    const count = source.filter((workout) => workout.sport === sport).length;
+    return ([1, 10, 30, 100, 250] as const).map((target, index) => ({
+      id: `${sport}-${target}`,
+      sport,
+      title: `${sportLabels[sport]} ${target}회`,
+      description: `${sportLabels[sport]} ${target}회 기록`,
+      tier: (["newbie", "intermediate", "advanced", "athlete", "instructor"] as const)[index]!,
+      earned: count >= target,
+      progress: Math.min(count, target),
+      target,
+      physicalRewardEligible: index >= 3,
+    }));
+  });
 }
 
 function ensureWorkoutCoverage(

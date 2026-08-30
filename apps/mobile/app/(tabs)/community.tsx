@@ -64,6 +64,7 @@ type DemoStory = {
 
 type StoryOwner = {
   id: string;
+  profileUserId?: string;
   name: string;
   icon: string;
   stories: DemoStory[];
@@ -189,6 +190,7 @@ const storyOwners: StoryOwner[] = [
   },
   {
     id: "minji",
+    profileUserId: "demo-friend-1",
     name: "민지",
     icon: "R",
     stories: [
@@ -204,6 +206,7 @@ const storyOwners: StoryOwner[] = [
   },
   {
     id: "doyun",
+    profileUserId: "demo-friend-3",
     name: "도윤",
     icon: "H",
     stories: [
@@ -218,6 +221,7 @@ const storyOwners: StoryOwner[] = [
   },
   {
     id: "yuna",
+    profileUserId: "demo-friend-4",
     name: "유나",
     icon: "S",
     stories: [
@@ -239,6 +243,7 @@ const storyOwners: StoryOwner[] = [
   },
   {
     id: "jun",
+    profileUserId: "demo-friend-2",
     name: "준",
     icon: "C",
     stories: [
@@ -253,6 +258,7 @@ const storyOwners: StoryOwner[] = [
   },
   {
     id: "harin",
+    profileUserId: "demo-friend-private",
     name: "하린",
     icon: "W",
     stories: [
@@ -273,6 +279,7 @@ const storyOwners: StoryOwner[] = [
   },
   {
     id: "taeo",
+    profileUserId: "demo-friend-6",
     name: "태오",
     icon: "T",
     stories: [
@@ -377,6 +384,15 @@ export default function CommunityScreen() {
   function closeStory() {
     setSelectedStoryOwnerId(null);
     setStoryIndex(0);
+  }
+
+  function openMemberProfile(userId?: string) {
+    closeStory();
+    if (!userId || userId === session?.user.id) {
+      router.push("/profile");
+      return;
+    }
+    router.push({ pathname: "/profile/member", params: { userId } });
   }
 
   function showPreviousStory() {
@@ -576,7 +592,13 @@ export default function CommunityScreen() {
               </View>
 
               <View style={styles.storyViewerHeader}>
-                <View style={styles.storyViewerIdentity}>
+                <Pressable
+                  accessibilityHint="작성자의 공개 프로필을 엽니다"
+                  accessibilityLabel={`${selectedStoryOwner.name} 프로필 보기`}
+                  accessibilityRole="button"
+                  onPress={() => openMemberProfile(selectedStoryOwner.profileUserId)}
+                  style={styles.storyViewerIdentity}
+                >
                   <View style={styles.storyViewerAvatar}>
                     <Text style={styles.storyViewerAvatarText}>{selectedStoryOwner.icon}</Text>
                   </View>
@@ -586,7 +608,8 @@ export default function CommunityScreen() {
                       방금 전 · {storyIndex + 1}/{selectedStoryOwner.stories.length}
                     </Text>
                   </View>
-                </View>
+                  <Text style={styles.storyViewerProfileHint}>프로필 ›</Text>
+                </Pressable>
                 <Pressable
                   accessibilityLabel="스토리 닫기"
                   accessibilityRole="button"
@@ -840,12 +863,17 @@ export default function CommunityScreen() {
         return (
           <View key={post.id} style={styles.post}>
             <View style={styles.postHeader}>
-              <View style={styles.authorRow}>
+              <Pressable
+                accessibilityLabel={`${post.authorDisplayName} 프로필 보기`}
+                accessibilityRole="button"
+                onPress={() => openMemberProfile(post.userId)}
+                style={styles.authorRow}
+              >
                 <View style={styles.authorAvatar}>
                   <Text style={styles.authorInitial}>{post.authorDisplayName.slice(0, 1)}</Text>
                 </View>
                 <Text style={styles.author}>{post.authorDisplayName}</Text>
-              </View>
+              </Pressable>
               <View style={styles.postHeaderMeta}>
                 {session?.user.id !== post.userId ? (
                   <Pressable
@@ -1131,6 +1159,12 @@ function createStyles(colors: ThemeColors) {
       fontSize: 8,
       fontFamily: fonts.medium,
       marginTop: 2,
+    },
+    storyViewerProfileHint: {
+      color: "rgba(255,255,255,0.72)",
+      fontSize: 8,
+      fontFamily: fonts.semibold,
+      marginLeft: 2,
     },
     storyViewerClose: {
       width: 36,

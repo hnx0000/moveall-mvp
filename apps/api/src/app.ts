@@ -563,6 +563,32 @@ export async function createApp(dependencies: AppDependencies) {
     });
   });
 
+  app.get("/v1/users/:userId/profile", async (request) => {
+    await currentUser(request);
+    const parameters = z.object({ userId: z.string().uuid() }).parse(request.params);
+    const profile = await dependencies.store.findUserById(parameters.userId);
+    if (!profile) throw new AppError(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.");
+    const [posts, workouts, followers, following] = await Promise.all([
+      dependencies.store.listPostsByUser(profile.id),
+      dependencies.store.listWorkoutSessions(profile.id),
+      dependencies.store.listFollowers(profile.id),
+      dependencies.store.listFollowing(profile.id),
+    ]);
+    return success({
+      user: {
+        id: profile.id,
+        displayName: profile.displayName,
+        ...(profile.avatarDataUri ? { avatarDataUri: profile.avatarDataUri } : {}),
+      },
+      isPrivate: false,
+      followersCount: followers.length,
+      followingCount: following.length,
+      posts,
+      workouts,
+      medals: medalsFor(workouts),
+    });
+  });
+
   app.get("/v1/social/me", async (request) => {
     const user = await currentUser(request);
     const [followers, following] = await Promise.all([

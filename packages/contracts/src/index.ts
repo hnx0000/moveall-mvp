@@ -277,6 +277,16 @@ export type Medal = {
   earnedAt?: string;
 };
 
+export type PublicMemberProfile = {
+  user: PublicUser;
+  isPrivate: boolean;
+  followersCount: number;
+  followingCount: number;
+  posts: FeedPost[];
+  workouts: WorkoutSession[];
+  medals: Medal[];
+};
+
 export type FeedPost = PostCreateInput & {
   id: string;
   userId: string;
