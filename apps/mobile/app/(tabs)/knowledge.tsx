@@ -11,7 +11,7 @@ import {
   Trophy,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { Card, Screen, StatePanel } from "../../src/components/ui";
@@ -52,6 +52,67 @@ const leagueSports: Record<SportType, { short: string; mark: string }> = {
   swimming: { short: "수영", mark: "W" },
   diving: { short: "다이빙", mark: "D" },
 };
+
+const titleOptions = [
+  "새벽을 깨우는",
+  "끝까지 가는",
+  "한계를 넘는",
+  "페이스를 지키는",
+  "동네를 달구는",
+  "기록을 깨는",
+  "매일 강해지는",
+  "숨을 다스리는",
+  "고도를 정복한",
+  "물살을 가르는",
+  "철을 드는",
+  "바람을 타는",
+  "정상을 밟는",
+  "깊이를 여는",
+  "루틴을 지키는",
+  "오늘도 움직이는",
+  "끈기로 증명한",
+  "리듬을 만드는",
+  "마지막까지 버틴",
+  "가볍게 빠른",
+  "조용히 강한",
+  "땀으로 말하는",
+  "기록에 진심인",
+  "동네 대표",
+  "주말을 지배한",
+  "평일을 깨운",
+  "포기 없는",
+  "꾸준함의",
+  "PB를 노리는",
+  "회복까지 챙기는",
+  "함께 성장하는",
+  "안전하게 강한",
+  "시즌을 달리는",
+  "호흡을 믿는",
+  "폼이 살아있는",
+  "다음 기록을 향한",
+];
+
+const neighborhoodLeagueNames = [
+  "동네 왕복 리그",
+  "우리동네 루프",
+  "홈그라운드 서킷",
+  "동네 한바퀴",
+  "백투홈 챌린지",
+  "로컬 리턴런",
+  "우리길 기록전",
+  "홈베이스 매치",
+  "동네 귀환전",
+  "로컬 라운드",
+];
+
+function seasonForDate(date = new Date()) {
+  const month = date.getMonth() + 1;
+  if (month === 12 || month <= 2)
+    return { code: "WINTER", name: "프로스트 무브", range: "12월–2월" };
+  if (month <= 5) return { code: "SPRING", name: "블룸 업", range: "3월–5월" };
+  if (month <= 8) return { code: "SUMMER", name: "히트웨이브", range: "6월–8월" };
+  return { code: "AUTUMN", name: "어텀 페이스", range: "9월–11월" };
+}
 
 function contest(
   epithet: string,
@@ -193,6 +254,10 @@ export default function KnowledgeScreen() {
   const [knowledgeFilter, setKnowledgeFilter] = useState<KnowledgeFilter>("all");
   const [expandedArticle, setExpandedArticle] = useState<string | null>(null);
   const [bookmarkedArticles, setBookmarkedArticles] = useState<string[]>([]);
+  const [customTitle, setCustomTitle] = useState(titleOptions[0]!);
+  const [titleDraft, setTitleDraft] = useState(titleOptions[0]!);
+  const [titleError, setTitleError] = useState<string | null>(null);
+  const currentSeason = useMemo(() => seasonForDate(), []);
 
   const knowledgeLoader = useCallback(async () => {
     if (knowledgeFilter !== "all") return api.knowledge(knowledgeFilter);
@@ -267,6 +332,22 @@ export default function KnowledgeScreen() {
     );
   }
 
+  function saveTitle() {
+    const next = titleDraft.trim();
+    const blockedWords = ["바보", "멍청", "선거", "정당", "대통령", "혐오"];
+    if (!/^[0-9A-Za-z가-힣 ]{2,18}$/.test(next)) {
+      setTitleError("한글·영문·숫자·띄어쓰기만 사용해 2–18자로 입력해 주세요.");
+      return;
+    }
+    if (blockedWords.some((word) => next.includes(word))) {
+      setTitleError("비속어·혐오·정치적 표현은 타이틀에 사용할 수 없습니다.");
+      return;
+    }
+    setCustomTitle(next);
+    setTitleError(null);
+    setNotice(`${neighborhood} ${next} 타이틀로 변경했습니다.`);
+  }
+
   const filters: Array<{ id: KnowledgeFilter; label: string }> = [
     { id: "all", label: "전체" },
     ...leagueSportOrder.map((sport) => ({ id: sport, label: leagueSports[sport].short })),
@@ -280,7 +361,7 @@ export default function KnowledgeScreen() {
           <Text style={styles.pageTitle}>동네 리그</Text>
         </View>
         <View style={styles.seasonBadge}>
-          <Text style={styles.seasonText}>SEASON 01</Text>
+          <Text style={styles.seasonText}>{currentSeason.code}</Text>
         </View>
       </View>
 
@@ -301,7 +382,10 @@ export default function KnowledgeScreen() {
             </View>
           ) : null}
         </View>
-        <Text style={styles.heroCopy}>같은 동네의 기록을 깨고, 이번 시즌의 이름을 가져가세요.</Text>
+        <Text style={styles.heroCopy}>
+          {currentSeason.range} · {currentSeason.name}. 같은 동네의 기록을 깨고 시즌의 이름을
+          가져가세요.
+        </Text>
         <View style={styles.verificationRow}>
           <Text style={styles.verificationMessage}>{verificationMessage}</Text>
           <Pressable
@@ -314,6 +398,59 @@ export default function KnowledgeScreen() {
           </Pressable>
         </View>
       </View>
+
+      <Card style={styles.titleEditorCard}>
+        <View style={styles.titleEditorHeading}>
+          <View>
+            <Text style={styles.sectionEyebrow}>MY TITLE</Text>
+            <Text style={styles.titleEditorTitle}>
+              {neighborhood} {customTitle}
+            </Text>
+          </View>
+          <Text style={styles.lockedPrefix}>동네명 고정</Text>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.titleOptionRow}>
+            {titleOptions.map((title) => (
+              <Pressable
+                key={title}
+                onPress={() => {
+                  setTitleDraft(title);
+                  setCustomTitle(title);
+                  setTitleError(null);
+                }}
+                style={[styles.titleOption, customTitle === title && styles.titleOptionActive]}
+              >
+                <Text
+                  style={[
+                    styles.titleOptionText,
+                    customTitle === title && styles.titleOptionTextActive,
+                  ]}
+                >
+                  {title}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
+        <View style={styles.titleInputRow}>
+          <View style={styles.prefixBox}>
+            <Text style={styles.prefixText}>{neighborhood}</Text>
+          </View>
+          <TextInput
+            maxLength={18}
+            onChangeText={setTitleDraft}
+            placeholder="직접 타이틀 입력"
+            placeholderTextColor={colors.muted}
+            style={styles.titleInput}
+            value={titleDraft}
+          />
+          <Pressable onPress={saveTitle} style={styles.titleSaveButton}>
+            <Text style={styles.titleSaveText}>변경</Text>
+          </Pressable>
+        </View>
+        {titleError ? <Text style={styles.titleError}>{titleError}</Text> : null}
+      </Card>
 
       <View style={styles.sectionHeader}>
         <View>
@@ -416,10 +553,18 @@ export default function KnowledgeScreen() {
           <View style={styles.checkList}>
             <Text style={styles.checkItem}>✓ 최근 30일 이내 기록</Text>
             <Text style={styles.checkItem}>✓ GPS·기기 데이터 연결됨</Text>
-            <Text style={styles.checkItem}>✓ {neighborhood} 인증 범위 충족</Text>
+            <Text style={styles.checkItem}>✓ 현장 사진의 촬영 시각·위치 메타데이터</Text>
+            <Text style={styles.checkItem}>✓ 기록 측정 화면을 현장 사진과 함께 제출</Text>
+            <Text style={styles.checkItem}>
+              ✓{" "}
+              {selectedSport === "swimming" || selectedSport === "diving"
+                ? `${neighborhood} 거주 인증`
+                : `${neighborhood} 출발·귀환 왕복 경로`}
+            </Text>
           </View>
           <Text style={styles.ticketNote}>
-            부정 기록은 자동 제외되며, 같은 기록이면 먼저 등록한 사용자가 우선입니다.
+            기록 화면만 제출하거나 현장 사진·현장 기록이 함께 확인되지 않으면 조작 가능성 때문에
+            리그 기록으로 인정되지 않을 수 있습니다.
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -488,9 +633,46 @@ export default function KnowledgeScreen() {
           <ShieldCheck color={colors.primary} size={21} strokeWidth={2.4} />
           <Text style={styles.ruleNumber}>02</Text>
           <Text style={styles.ruleTitle}>검증 기록만</Text>
-          <Text style={styles.ruleCopy}>GPS·센서·장소 인증을 통과한 기록만 경쟁합니다.</Text>
+          <Text style={styles.ruleCopy}>
+            현장 사진·촬영 메타데이터·측정 화면을 함께 검증합니다.
+          </Text>
         </View>
       </View>
+      <Card style={styles.ruleDetailCard}>
+        <Text style={styles.ruleDetailTitle}>시즌·동네 인증·왕복 규정</Text>
+        <Text style={styles.ruleDetailCopy}>
+          • 시즌은 겨울 12–2월, 봄 3–5월, 여름 6–8월, 가을 9–11월로 운영됩니다.
+        </Text>
+        <Text style={styles.ruleDetailCopy}>• 위치 인증은 시즌과 별개로 30일마다 갱신합니다.</Text>
+        <Text style={styles.ruleDetailCopy}>
+          • 러닝·등산·사이클·근력 기록은 인증 동네에서 출발해 같은 동네로 돌아오는 왕복만
+          인정합니다.
+        </Text>
+        <Text style={styles.ruleDetailCopy}>
+          • 수영·다이빙은 시설 편차를 반영해 인증 동네 거주자라면 다른 지역 시설 기록도 제출할 수
+          있습니다.
+        </Text>
+        <Text style={styles.ruleWarning}>
+          현장 사진과 현장 기록을 함께 기재하지 않으면 기록이 인정되지 않을 수 있습니다.
+        </Text>
+      </Card>
+
+      <View style={styles.sectionHeader}>
+        <View>
+          <Text style={styles.sectionEyebrow}>LEAGUE NAME LAB</Text>
+          <Text style={styles.sectionTitle}>동네리그 이름 후보 10</Text>
+        </View>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={styles.leagueNameRow}>
+          {neighborhoodLeagueNames.map((name, index) => (
+            <View key={name} style={styles.leagueNameCard}>
+              <Text style={styles.leagueNameNumber}>{String(index + 1).padStart(2, "0")}</Text>
+              <Text style={styles.leagueName}>{name}</Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
 
       <View style={styles.vault}>
         <View style={styles.vaultHeading}>
@@ -950,6 +1132,77 @@ function createStyles(colors: ThemeColors) {
       marginTop: 17,
       textAlign: "center",
     },
+    titleEditorCard: { padding: 16, gap: 12 },
+    titleEditorHeading: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      justifyContent: "space-between",
+    },
+    titleEditorTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 17, marginTop: 3 },
+    lockedPrefix: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 8 },
+    titleOptionRow: { flexDirection: "row", gap: 6, paddingRight: 18 },
+    titleOption: {
+      borderRadius: radius.full,
+      backgroundColor: colors.surfaceMuted,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    titleOptionActive: { backgroundColor: colors.primary },
+    titleOptionText: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 8 },
+    titleOptionTextActive: { color: "#FFFFFF" },
+    titleInputRow: { flexDirection: "row", gap: 6 },
+    prefixBox: {
+      justifyContent: "center",
+      borderRadius: radius.sm,
+      backgroundColor: colors.surfaceMuted,
+      paddingHorizontal: 9,
+    },
+    prefixText: { color: colors.ink, fontFamily: fonts.bold, fontSize: 9 },
+    titleInput: {
+      flex: 1,
+      minHeight: 40,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.sm,
+      color: colors.ink,
+      paddingHorizontal: 10,
+      fontFamily: fonts.medium,
+      fontSize: 10,
+    },
+    titleSaveButton: {
+      minWidth: 52,
+      borderRadius: radius.sm,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    titleSaveText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 9 },
+    titleError: { color: colors.danger, fontFamily: fonts.medium, fontSize: 8 },
+    ruleDetailCard: { padding: 16, gap: 7 },
+    ruleDetailTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 14, marginBottom: 3 },
+    ruleDetailCopy: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9, lineHeight: 15 },
+    ruleWarning: {
+      color: colors.danger,
+      backgroundColor: colors.primarySoft,
+      borderRadius: radius.sm,
+      padding: 10,
+      fontFamily: fonts.semibold,
+      fontSize: 9,
+      lineHeight: 15,
+      marginTop: 3,
+    },
+    leagueNameRow: { flexDirection: "row", gap: 8, paddingRight: 20 },
+    leagueNameCard: {
+      width: 132,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      padding: 12,
+      gap: 13,
+    },
+    leagueNameNumber: { color: colors.primary, fontFamily: fonts.displayExtra, fontSize: 9 },
+    leagueName: { color: colors.ink, fontFamily: fonts.bold, fontSize: 12 },
     labDivider: { height: 1, backgroundColor: colors.border, marginVertical: 11 },
     labHeader: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
     labTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 23, marginTop: 3 },

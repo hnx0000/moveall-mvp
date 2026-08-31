@@ -24,6 +24,7 @@ import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { LiveWorkoutRecorder } from "../../src/components/live-workout-recorder";
 import { BellButton, Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
+import { markRecordGoalAchieved, readRecordGoals } from "../../src/goals";
 import { useAsyncData } from "../../src/hooks/use-async-data";
 import { fonts, radius, shadows, space, typography, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
@@ -89,7 +90,7 @@ export default function HomeScreen() {
   const styles = createStyles(colors);
   const loader = useCallback(() => api.sports(), []);
   const { data: sports, error, loading, reload } = useAsyncData(loader);
-  const [routineStarted, setRoutineStarted] = useState(false);
+  const [activeRoutineId, setActiveRoutineId] = useState<string | null>(null);
   const [completed, setCompleted] = useState<number[]>([]);
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
@@ -122,6 +123,17 @@ export default function HomeScreen() {
       setRoutines(nextRoutines);
       setWorkouts(nextWorkouts);
       setMedals(nextMedals);
+      readRecordGoals()
+        .filter(
+          (goal) =>
+            !goal.achieved &&
+            nextWorkouts.some(
+              (workout) =>
+                workout.sport === goal.sport &&
+                Date.parse(workout.endedAt) >= Date.parse(goal.createdAt),
+            ),
+        )
+        .forEach((goal) => markRecordGoalAchieved(goal.id));
     } catch {
       setDashboardError("홈 기록을 불러오지 못했습니다.");
     } finally {
@@ -139,22 +151,22 @@ export default function HomeScreen() {
     () => workouts.filter((workout) => isSameLocalDay(new Date(workout.endedAt), new Date())),
     [workouts],
   );
-  const todayRoutine = useMemo(
+  const todayRoutines = useMemo(() => {
+    const scheduled = routines.filter((routine) =>
+      routine.daysOfWeek.includes(new Date().getDay()),
+    );
+    return scheduled.length ? scheduled : routines;
+  }, [routines]);
+  const completedTodayRoutineIds = useMemo(
     () =>
-      routines.find((routine) => routine.daysOfWeek.includes(new Date().getDay())) ?? routines[0],
-    [routines],
-  );
-  const todayRoutineItems = useMemo(
-    () => [...(todayRoutine?.items ?? [])].sort((left, right) => left.order - right.order),
-    [todayRoutine],
-  );
-  const routineCompletionCount = useMemo(
-    () =>
-      todayRoutine
-        ? workouts.filter((workout) => workout.notes?.includes(`[routine:${todayRoutine.id}]`))
-            .length
-        : 0,
-    [todayRoutine, workouts],
+      new Set(
+        todayWorkouts.flatMap((workout) =>
+          todayRoutines
+            .filter((routine) => workout.notes?.includes(`[routine:${routine.id}]`))
+            .map((routine) => routine.id),
+        ),
+      ),
+    [todayRoutines, todayWorkouts],
   );
   const selectedSportWorkouts = useMemo(
     () => todayWorkouts.filter((workout) => workout.sport === selectedSport),
@@ -173,42 +185,42 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
-    setRoutineStarted(false);
     setCompleted([]);
     setCompletionMessage(null);
-  }, [todayRoutine?.id]);
+  }, [activeRoutineId]);
 
   function toggleStep(index: number) {
-    if (!routineStarted) return;
+    if (!activeRoutineId) return;
     setCompleted((current) =>
       current.includes(index) ? current.filter((item) => item !== index) : [...current, index],
     );
   }
 
-  async function completeRoutine() {
-    if (!session || !todayRoutine || completed.length !== todayRoutineItems.length) return;
+  async function completeRoutine(routine: Routine) {
+    const routineItems = [...routine.items].sort((left, right) => left.order - right.order);
+    if (!session || completed.length !== routineItems.length) return;
     setSavingCompletion(true);
     setDashboardError(null);
     try {
       const endedAt = new Date();
-      const durationMinutes = Math.max(10, todayRoutineItems.length * 10);
+      const durationMinutes = Math.max(10, routineItems.length * 10);
       const previouslyEarned = new Set(
         medals.filter((medal) => medal.earned).map((medal) => medal.id),
       );
       await api.createWorkoutSession(session.accessToken, {
-        sport: todayRoutine.sport,
+        sport: routine.sport,
         startedAt: new Date(endedAt.getTime() - durationMinutes * 60_000).toISOString(),
         endedAt: endedAt.toISOString(),
         perceivedExertion: 6,
-        notes: `[routine:${todayRoutine.id}] ${todayRoutine.title} 완료`,
+        notes: `[routine:${routine.id}] ${routine.title} 완료`,
         metrics: {
           routineCompletion: 1,
-          calories: todayRoutineItems.length * 70,
-          ...(todayRoutine.sport === "strength"
+          calories: routineItems.length * 70,
+          ...(routine.sport === "strength"
             ? {
-                exerciseCount: todayRoutineItems.length,
-                cycles: todayRoutineItems.length,
-                sets: todayRoutineItems.length,
+                exerciseCount: routineItems.length,
+                cycles: routineItems.length,
+                sets: routineItems.length,
               }
             : {}),
         },
@@ -221,12 +233,15 @@ export default function HomeScreen() {
       const newMedal = nextMedals.find((medal) => medal.earned && !previouslyEarned.has(medal.id));
       setWorkouts(nextWorkouts);
       setMedals(nextMedals);
+      const completionCount = nextWorkouts.filter((workout) =>
+        workout.notes?.includes(`[routine:${routine.id}]`),
+      ).length;
       setCompletionMessage(
         newMedal
-          ? `${todayRoutine.title} ${routineCompletionCount + 1}회 완료 · ${newMedal.title} 메달을 획득했습니다!`
-          : `${todayRoutine.title} ${routineCompletionCount + 1}회 완료 · 다음 메달까지 계속 이어가세요.`,
+          ? `${routine.title} ${completionCount}회 완료 · ${newMedal.title} 메달을 획득했습니다!`
+          : `${routine.title} ${completionCount}회 완료 · 다음 메달까지 계속 이어가세요.`,
       );
-      setRoutineStarted(false);
+      setActiveRoutineId(null);
       setCompleted([]);
     } catch {
       setDashboardError("루틴 완료 기록을 저장하지 못했습니다.");
@@ -481,66 +496,93 @@ export default function HomeScreen() {
       <View style={styles.sectionHeading}>
         <Text style={styles.sectionTitle}>오늘의 루틴</Text>
       </View>
-      {todayRoutine ? (
-        <Card style={styles.routineCard}>
-          <View style={styles.sectionHeading}>
-            <Text style={styles.routineType}>{sportLabels[todayRoutine.sport].toUpperCase()}</Text>
-            <View style={styles.counter}>
-              <Text style={styles.counterText}>
-                {routineStarted
-                  ? `${completed.length}/${todayRoutineItems.length}`
-                  : `${routineCompletionCount}회`}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.routineTitle}>{todayRoutine.title}</Text>
-          <Text style={styles.routineGuide}>
-            내 정보에서 저장한 첫 번째 루틴 · 완료할 때마다 기록과 메달에 반영됩니다.
-          </Text>
-          <View style={styles.routineList}>
-            {todayRoutineItems.map((item, index) => {
-              const isDone = completed.includes(index);
-              return (
-                <Pressable
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: isDone, disabled: !routineStarted }}
-                  disabled={!routineStarted}
-                  key={`${item.order}-${item.name}`}
-                  onPress={() => toggleStep(index)}
-                  style={({ pressed }) => [styles.routineItem, pressed && styles.pressed]}
-                >
-                  <View style={[styles.stepNumber, isDone && styles.stepNumberDone]}>
-                    <Text style={[styles.stepNumberText, isDone && styles.stepNumberTextDone]}>
-                      {isDone ? "✓" : index + 1}
+      {todayRoutines.length ? (
+        <View style={styles.todayRoutineStack}>
+          {todayRoutines.map((routine) => {
+            const routineItems = [...routine.items].sort((left, right) => left.order - right.order);
+            const active = activeRoutineId === routine.id;
+            const completedToday = completedTodayRoutineIds.has(routine.id);
+            const completionCount = workouts.filter((workout) =>
+              workout.notes?.includes(`[routine:${routine.id}]`),
+            ).length;
+            return (
+              <Card
+                key={routine.id}
+                style={[styles.routineCard, completedToday && styles.routineCardCompleted]}
+              >
+                <View style={styles.sectionHeading}>
+                  <Text style={styles.routineType}>{sportLabels[routine.sport].toUpperCase()}</Text>
+                  <View style={styles.counter}>
+                    <Text style={styles.counterText}>
+                      {completedToday
+                        ? "오늘 완료"
+                        : active
+                          ? `${completed.length}/${routineItems.length}`
+                          : `${completionCount}회`}
                     </Text>
                   </View>
-                  <View style={styles.routineItemCopy}>
-                    <Text style={[styles.routineText, isDone && styles.routineTextDone]}>
-                      {item.name}
-                    </Text>
-                    <Text style={styles.routineTarget}>{item.target}</Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-          <PrimaryButton
-            disabled={
-              savingCompletion || (routineStarted && completed.length !== todayRoutineItems.length)
-            }
-            label={
-              savingCompletion
-                ? "완료 저장 중"
-                : !routineStarted
-                  ? "루틴 시작"
-                  : completed.length === todayRoutineItems.length
-                    ? "루틴 완료 기록하기"
-                    : `${completed.length}/${todayRoutineItems.length} 진행 중`
-            }
-            onPress={() => (routineStarted ? void completeRoutine() : setRoutineStarted(true))}
-            style={styles.routineButton}
-          />
-        </Card>
+                </View>
+                <Text style={styles.routineTitle}>{routine.title}</Text>
+                <Text style={styles.routineGuide}>
+                  {completedToday
+                    ? "오늘 루틴을 완료했습니다. 내일 다시 실행할 수 있습니다."
+                    : "내 정보에서 저장한 루틴 · 완료할 때마다 기록과 메달에 반영됩니다."}
+                </Text>
+                <View style={styles.routineList}>
+                  {routineItems.map((item, index) => {
+                    const isDone = completedToday || (active && completed.includes(index));
+                    return (
+                      <Pressable
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: isDone, disabled: !active }}
+                        disabled={!active || completedToday}
+                        key={`${item.order}-${item.name}`}
+                        onPress={() => toggleStep(index)}
+                        style={({ pressed }) => [styles.routineItem, pressed && styles.pressed]}
+                      >
+                        <View style={[styles.stepNumber, isDone && styles.stepNumberDone]}>
+                          <Text
+                            style={[styles.stepNumberText, isDone && styles.stepNumberTextDone]}
+                          >
+                            {isDone ? "✓" : index + 1}
+                          </Text>
+                        </View>
+                        <View style={styles.routineItemCopy}>
+                          <Text style={[styles.routineText, isDone && styles.routineTextDone]}>
+                            {item.name}
+                          </Text>
+                          <Text style={styles.routineTarget}>{item.target}</Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <PrimaryButton
+                  disabled={
+                    completedToday ||
+                    savingCompletion ||
+                    (active && completed.length !== routineItems.length)
+                  }
+                  label={
+                    completedToday
+                      ? "오늘 완료됨"
+                      : savingCompletion && active
+                        ? "완료 저장 중"
+                        : !active
+                          ? "루틴 시작"
+                          : completed.length === routineItems.length
+                            ? "루틴 완료 기록하기"
+                            : `${completed.length}/${routineItems.length} 진행 중`
+                  }
+                  onPress={() =>
+                    active ? void completeRoutine(routine) : setActiveRoutineId(routine.id)
+                  }
+                  style={styles.routineButton}
+                />
+              </Card>
+            );
+          })}
+        </View>
       ) : (
         <Card style={styles.noRoutineCard}>
           <Text style={styles.noRoutineEyebrow}>NO ROUTINE YET</Text>
@@ -1299,7 +1341,9 @@ function createStyles(colors: ThemeColors) {
       paddingVertical: 5,
     },
     counterText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 11 },
+    todayRoutineStack: { gap: space[3] },
     routineCard: { padding: space[5], gap: space[3] },
+    routineCardCompleted: { opacity: 0.52 },
     routineType: {
       color: colors.primary,
       fontFamily: fonts.bold,

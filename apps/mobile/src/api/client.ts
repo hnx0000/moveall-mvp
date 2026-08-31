@@ -2,6 +2,7 @@ import type {
   ApiFailure,
   ApiSuccess,
   AuthSession,
+  CommentCreateInput,
   DirectMessage,
   DirectMessageCreateInput,
   FeedPost,
@@ -138,6 +139,12 @@ const liveApi = {
     }),
   createPost: (token: string, input: PostCreateInput) =>
     request<FeedPost>("/v1/posts", {
+      token,
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  createComment: (token: string, postId: string, input: CommentCreateInput) =>
+    request<FeedPost["comments"][number]>(`/v1/posts/${postId}/comments`, {
       token,
       method: "POST",
       body: JSON.stringify(input),

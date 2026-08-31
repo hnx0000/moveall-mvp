@@ -1,4 +1,11 @@
-import { sportLabels, sportValues, type SportType } from "@moveall/contracts";
+import {
+  sportLabels,
+  sportValues,
+  type FeedPost,
+  type SportType,
+  type WorkoutSession,
+} from "@moveall/contracts";
+import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -42,6 +49,7 @@ import {
   type StoryVisibility,
 } from "../../src/components/story-canvas";
 import { type MapPoint } from "../../src/components/workout-map.types";
+import { saveRecordGoal } from "../../src/goals";
 import { useAsyncData } from "../../src/hooks/use-async-data";
 import { fonts, gradients, radius, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
@@ -351,10 +359,22 @@ export default function CommunityScreen() {
   const [cheeredPosts, setCheeredPosts] = useState<string[]>([]);
   const [openComments, setOpenComments] = useState<string[]>([]);
   const [bookmarkedPosts, setBookmarkedPosts] = useState<string[]>([]);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [commentBusyIds, setCommentBusyIds] = useState<string[]>([]);
+  const [sharedCounts, setSharedCounts] = useState<Record<string, number>>({});
+  const [feedNotice, setFeedNotice] = useState<string | null>(null);
+  const [hashtagSearch, setHashtagSearch] = useState("");
+  const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
+  const [goalPost, setGoalPost] = useState<FeedPost | null>(null);
+  const [goalPrivate, setGoalPrivate] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [followingIds, setFollowingIds] = useState<string[]>([]);
   const [followBusyIds, setFollowBusyIds] = useState<string[]>([]);
   const [draftPhoto, setDraftPhoto] = useState<string | null>(null);
+  const [todayWorkoutOptions, setTodayWorkoutOptions] = useState<WorkoutSession[]>([]);
+  const [workoutPickerOpen, setWorkoutPickerOpen] = useState(false);
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const [storyBackground, setStoryBackground] = useState<StoryBackground>("photo");
   const [storyLayers, setStoryLayers] = useState<StoryLayer[]>(["record", "route", "points"]);
   const [storyText, setStoryText] = useState("");
@@ -492,17 +512,94 @@ export default function CommunityScreen() {
       .catch(() => setFollowingIds([]));
   }, [session]);
 
+  useEffect(() => {
+    if (!session) return;
+    void api
+      .workouts(session.accessToken)
+      .then((items) =>
+        setTodayWorkoutOptions(
+          items.filter((workout) => isSameLocalDay(new Date(workout.endedAt), new Date())),
+        ),
+      )
+      .catch(() => setTodayWorkoutOptions([]));
+  }, [session]);
+
+  async function pickComposerMedia(source: "camera" | "library") {
+    setMediaBusy(true);
+    setPostError(null);
+    try {
+      const permission =
+        source === "camera"
+          ? await ImagePicker.requestCameraPermissionsAsync()
+          : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setPostError(
+          source === "camera"
+            ? "사진 촬영을 위해 카메라 권한을 허용해 주세요."
+            : "갤러리를 열기 위해 사진 권한을 허용해 주세요.",
+        );
+        return;
+      }
+      const result =
+        source === "camera"
+          ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.9 })
+          : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+      if (!result.canceled && result.assets[0]?.uri) {
+        setDraftPhoto(result.assets[0].uri);
+        setStoryBackground("photo");
+        setStoryLayers((current) =>
+          current.includes("record") ? current : (["record", ...current] as StoryLayer[]),
+        );
+        setComposerOpen(true);
+      }
+    } catch (caught) {
+      setPostError(caught instanceof Error ? caught.message : "사진을 불러오지 못했습니다.");
+    } finally {
+      setMediaBusy(false);
+    }
+  }
+
+  function applyWorkoutToComposer(workout: WorkoutSession) {
+    const durationSeconds = Math.max(
+      1,
+      Math.round((Date.parse(workout.endedAt) - Date.parse(workout.startedAt)) / 1000),
+    );
+    const distanceKm = Number(workout.metrics.distanceKm ?? 0);
+    const distanceM = Number(workout.metrics.distanceM ?? distanceKm * 1000);
+    const paceSeconds = Number(workout.metrics.paceSeconds ?? workout.metrics.swimPaceSeconds ?? 0);
+    setSport(workout.sport);
+    setSelectedWorkoutId(workout.id);
+    setStoryDistance(
+      workout.sport === "swimming" || workout.sport === "diving"
+        ? String(Math.round(distanceM || Number(workout.metrics.dynamicDistanceM ?? 0)))
+        : distanceKm.toFixed(2),
+    );
+    setStoryDuration(formatElapsed(durationSeconds));
+    setStoryPace(
+      workout.sport === "cycling"
+        ? `${Number(workout.metrics.averageSpeedKmh ?? 0).toFixed(1)} KM/H`
+        : formatPace(paceSeconds),
+    );
+    setStoryPoints(Math.round(Number(workout.metrics.calories ?? 0)));
+    setStoryBackground(draftPhoto ? "photo" : "ink");
+    setStoryLayers(["record", "points"]);
+    setWorkoutPickerOpen(false);
+    setComposerOpen(true);
+  }
+
   async function submitPost() {
     if (!session || !content.trim()) return;
     setPosting(true);
     setPostError(null);
     try {
-      const visibleStats = [
-        storyVisibility.distance ? `${storyDistance}km` : null,
-        storyVisibility.duration ? storyDuration : null,
-        storyVisibility.pace ? storyPace : null,
-        storyVisibility.points ? `${storyPoints}P` : null,
-      ].filter(Boolean);
+      const visibleStats = hasStoryDraft
+        ? [
+            storyVisibility.distance ? storyDistance : null,
+            storyVisibility.duration ? storyDuration : null,
+            storyVisibility.pace ? storyPace : null,
+            storyVisibility.points ? `${storyPoints}P` : null,
+          ].filter(Boolean)
+        : [];
       const publicContent = visibleStats.length
         ? `${content.trim()}\n${visibleStats.join(" · ")}`
         : content.trim();
@@ -515,6 +612,8 @@ export default function CommunityScreen() {
       });
       setContent("");
       setDraftPhoto(null);
+      setSelectedWorkoutId(null);
+      setWorkoutPickerOpen(false);
       setStoryRoute([]);
       setStoryText("");
       setComposerOpen(false);
@@ -553,8 +652,58 @@ export default function CommunityScreen() {
     }
   }
 
+  async function submitComment(postId: string) {
+    if (!session || commentBusyIds.includes(postId)) return;
+    const content = commentDrafts[postId]?.trim();
+    if (!content) return;
+    setCommentBusyIds((current) => [...current, postId]);
+    setFeedNotice(null);
+    try {
+      await api.createComment(session.accessToken, postId, { content });
+      setCommentDrafts((current) => ({ ...current, [postId]: "" }));
+      await reload();
+    } catch (caught) {
+      setFeedNotice(caught instanceof Error ? caught.message : "댓글을 등록하지 못했습니다.");
+    } finally {
+      setCommentBusyIds((current) => current.filter((id) => id !== postId));
+    }
+  }
+
+  function shareWithFollowing(postId: string) {
+    setSharedCounts((current) => ({ ...current, [postId]: (current[postId] ?? 0) + 1 }));
+    setFeedNotice("팔로잉 중인 친구들의 공유함에 보냈습니다.");
+  }
+
+  function createGoal() {
+    if (!goalPost) return;
+    saveRecordGoal({
+      postId: goalPost.id,
+      authorName: goalPost.authorDisplayName,
+      sport: goalPost.sport,
+      content: goalPost.content,
+      private: goalPrivate,
+    });
+    setBookmarkedPosts((current) =>
+      current.includes(goalPost.id) ? current : [...current, goalPost.id],
+    );
+    setFeedNotice(
+      goalPrivate
+        ? "비공개 목표로 저장했습니다. 상대방에게 알림이 가지 않습니다."
+        : "기록을 존중하는 공개 목표로 저장했습니다.",
+    );
+    setGoalPost(null);
+    setGoalPrivate(false);
+  }
+
   const hasStoryDraft =
-    draftPhoto !== null || storyRoute.length > 1 || typeof params.background === "string";
+    draftPhoto !== null ||
+    selectedWorkoutId !== null ||
+    storyRoute.length > 1 ||
+    typeof params.background === "string";
+  const normalizedHashtag = (activeHashtag ?? hashtagSearch.trim()).replace(/^#/, "").toLowerCase();
+  const visiblePosts = posts?.filter(
+    (post) => !normalizedHashtag || extractHashtags(post.content).includes(normalizedHashtag),
+  );
 
   return (
     <Screen
@@ -568,6 +717,48 @@ export default function CommunityScreen() {
     >
       <Text style={styles.pageTitle}>함께 움직이는 중</Text>
       {notificationOpen ? <Text style={styles.notice}>새로운 피드 알림이 없습니다.</Text> : null}
+      {feedNotice ? <Text style={styles.feedNotice}>{feedNotice}</Text> : null}
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setGoalPost(null)}
+        transparent
+        visible={goalPost !== null}
+      >
+        <View style={styles.goalModalBackdrop}>
+          <View style={styles.goalModalCard}>
+            <Text style={styles.goalModalEyebrow}>RESPECT & CHALLENGE</Text>
+            <Text style={styles.goalModalTitle}>이 기록을 목표로 삼을까요?</Text>
+            <Text style={styles.goalModalCopy} numberOfLines={3}>
+              {goalPost?.content}
+            </Text>
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: goalPrivate }}
+              onPress={() => setGoalPrivate((current) => !current)}
+              style={styles.goalPrivacyRow}
+            >
+              <View style={[styles.goalCheck, goalPrivate && styles.goalCheckActive]}>
+                {goalPrivate ? <Text style={styles.goalCheckText}>✓</Text> : null}
+              </View>
+              <View style={styles.goalPrivacyCopy}>
+                <Text style={styles.goalPrivacyTitle}>비공개로 도전하기</Text>
+                <Text style={styles.goalPrivacyMeta}>
+                  체크하면 원작자에게 목표 설정이 공유되지 않아요.
+                </Text>
+              </View>
+            </Pressable>
+            <View style={styles.goalModalActions}>
+              <Pressable onPress={() => setGoalPost(null)} style={styles.goalModalCancel}>
+                <Text style={styles.goalModalCancelText}>취소</Text>
+              </Pressable>
+              <Pressable onPress={createGoal} style={styles.goalModalSave}>
+                <Text style={styles.goalModalSaveText}>목표로 저장</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         animationType="fade"
@@ -735,20 +926,70 @@ export default function CommunityScreen() {
           </Text>
         </Pressable>
         <View style={styles.composerActions}>
-          {[ImageIcon, BarChart3, Camera].map((ComposerIcon, index) => (
-            <Pressable
-              accessibilityLabel={["사진 추가", "운동 기록 추가", "카메라 열기"][index]}
-              accessibilityRole="button"
-              key={index}
-              onPress={() => setComposerOpen(true)}
-              style={styles.composerAction}
-            >
-              <ComposerIcon color={colors.muted} size={20} strokeWidth={2} />
-            </Pressable>
-          ))}
+          <Pressable
+            accessibilityLabel="사진 촬영"
+            accessibilityRole="button"
+            disabled={mediaBusy}
+            onPress={() => void pickComposerMedia("camera")}
+            style={styles.composerAction}
+          >
+            <Camera color={colors.muted} size={20} strokeWidth={2} />
+            <Text style={styles.composerActionLabel}>사진</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="갤러리에서 사진 선택"
+            accessibilityRole="button"
+            disabled={mediaBusy}
+            onPress={() => void pickComposerMedia("library")}
+            style={styles.composerAction}
+          >
+            <ImageIcon color={colors.muted} size={20} strokeWidth={2} />
+            <Text style={styles.composerActionLabel}>갤러리</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="오늘의 운동 기록 가져오기"
+            accessibilityRole="button"
+            onPress={() => {
+              setComposerOpen(true);
+              setWorkoutPickerOpen((current) => !current);
+            }}
+            style={styles.composerAction}
+          >
+            <BarChart3 color={colors.muted} size={20} strokeWidth={2} />
+            <Text style={styles.composerActionLabel}>기록</Text>
+          </Pressable>
         </View>
         {composerOpen && session ? (
           <View style={styles.composerForm}>
+            {workoutPickerOpen ? (
+              <View style={styles.workoutPickerPanel}>
+                <Text style={styles.workoutPickerTitle}>오늘의 활동 기록</Text>
+                {todayWorkoutOptions.length ? (
+                  <View style={styles.workoutPickerList}>
+                    {todayWorkoutOptions.map((workout) => (
+                      <Pressable
+                        accessibilityRole="button"
+                        key={workout.id}
+                        onPress={() => applyWorkoutToComposer(workout)}
+                        style={styles.workoutPickerItem}
+                      >
+                        <View>
+                          <Text style={styles.workoutPickerSport}>
+                            {sportLabels[workout.sport]}
+                          </Text>
+                          <Text numberOfLines={1} style={styles.workoutPickerNote}>
+                            {workout.notes ?? "오늘의 운동"}
+                          </Text>
+                        </View>
+                        <Text style={styles.workoutPickerMetric}>{workoutListMetric(workout)}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.workoutPickerEmpty}>아직 오늘의 기록이 없습니다.</Text>
+                )}
+              </View>
+            ) : null}
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={styles.sportPicker}>
                 {sportValues.map((item) => (
@@ -797,6 +1038,15 @@ export default function CommunityScreen() {
               style={styles.input}
               value={content}
             />
+            {extractHashtags(content).length ? (
+              <View style={styles.composerHashtags}>
+                {extractHashtags(content).map((tag) => (
+                  <Text key={tag} style={styles.composerHashtag}>
+                    #{tag}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
             {hasStoryDraft ? (
               <View style={styles.sharePrivacy}>
                 <View style={styles.sharePrivacyHeading}>
@@ -853,10 +1103,42 @@ export default function CommunityScreen() {
       </Card>
 
       <Text style={styles.sectionTitle}>최신 피드</Text>
+      <View style={styles.hashtagSearchRow}>
+        <TextInput
+          accessibilityLabel="해시태그 검색"
+          autoCapitalize="none"
+          onChangeText={(value) => {
+            setHashtagSearch(value);
+            if (!value.trim()) setActiveHashtag(null);
+          }}
+          onSubmitEditing={() =>
+            setActiveHashtag(hashtagSearch.trim().replace(/^#/, "").toLowerCase() || null)
+          }
+          placeholder="#해시태그 검색"
+          placeholderTextColor={colors.muted}
+          returnKeyType="search"
+          style={styles.hashtagSearchInput}
+          value={hashtagSearch}
+        />
+        {normalizedHashtag ? (
+          <Pressable
+            onPress={() => {
+              setActiveHashtag(null);
+              setHashtagSearch("");
+            }}
+            style={styles.hashtagClear}
+          >
+            <Text style={styles.hashtagClearText}>전체</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      {normalizedHashtag ? (
+        <Text style={styles.hashtagResult}>#{normalizedHashtag} 피드만 보기</Text>
+      ) : null}
       {loading ? <StatePanel state="loading" message="피드를 불러오는 중이에요." /> : null}
       {error ? <StatePanel state="error" message={error} onRetry={() => void reload()} /> : null}
       {posts?.length === 0 ? <StatePanel state="empty" message="첫 기록을 공유해 보세요." /> : null}
-      {posts?.map((post) => {
+      {visiblePosts?.map((post) => {
         const cheered = cheeredPosts.includes(post.id);
         const commentsOpen = openComments.includes(post.id);
         const bookmarked = bookmarkedPosts.includes(post.id);
@@ -898,7 +1180,7 @@ export default function CommunityScreen() {
                     </Text>
                   </Pressable>
                 ) : null}
-                <Text style={styles.time}>2시간 전</Text>
+                <Text style={styles.time}>{relativeTime(post.createdAt)}</Text>
               </View>
             </View>
             <ImageBackground
@@ -917,8 +1199,25 @@ export default function CommunityScreen() {
               <Text style={styles.feedArtworkSport}>{sportLabels[post.sport]}</Text>
               <Text style={styles.feedArtworkMeta}>SHARED TODAY</Text>
             </ImageBackground>
-            <Text style={styles.postCopy}>{post.content}</Text>
-            <Text style={styles.tags}>#아침러닝 #이지런 #완주</Text>
+            <Text style={styles.postCopy}>
+              {post.content.split(/(\s+)/).map((part, index) =>
+                part.startsWith("#") && part.length > 1 ? (
+                  <Text
+                    key={`${post.id}-tag-${index}`}
+                    onPress={() => {
+                      const tag = part.replace(/^#/, "").replace(/[^0-9A-Za-zㄱ-힝_].*$/, "");
+                      setActiveHashtag(tag.toLowerCase());
+                      setHashtagSearch(`#${tag}`);
+                    }}
+                    style={styles.inlineHashtag}
+                  >
+                    {part}
+                  </Text>
+                ) : (
+                  part
+                ),
+              )}
+            </Text>
             <View style={styles.postActions}>
               <Pressable
                 accessibilityRole="button"
@@ -945,14 +1244,21 @@ export default function CommunityScreen() {
               </Pressable>
               <Pressable
                 accessibilityRole="button"
-                onPress={() => setComposerOpen(true)}
+                onPress={() => shareWithFollowing(post.id)}
                 style={styles.action}
               >
                 <Send color={colors.ink} size={20} strokeWidth={2} />
+                <Text style={styles.actionCount}>
+                  {(post.shareCount ?? 0) + (sharedCounts[post.id] ?? 0)}
+                </Text>
               </Pressable>
               <Pressable
+                accessibilityLabel="이 기록을 존중하고 목표로 설정"
                 accessibilityRole="button"
-                onPress={() => toggle(post.id, bookmarkedPosts, setBookmarkedPosts)}
+                onPress={() => {
+                  setGoalPrivate(false);
+                  setGoalPost(post);
+                }}
                 style={styles.bookmark}
               >
                 <Bookmark
@@ -975,6 +1281,30 @@ export default function CommunityScreen() {
                 ) : (
                   <Text style={styles.emptyComment}>아직 댓글이 없습니다.</Text>
                 )}
+                <View style={styles.commentComposer}>
+                  <TextInput
+                    accessibilityLabel="댓글 입력"
+                    maxLength={500}
+                    onChangeText={(value) =>
+                      setCommentDrafts((current) => ({ ...current, [post.id]: value }))
+                    }
+                    onSubmitEditing={() => void submitComment(post.id)}
+                    placeholder="응원과 정보를 나눠보세요"
+                    placeholderTextColor={colors.muted}
+                    returnKeyType="send"
+                    style={styles.commentInput}
+                    value={commentDrafts[post.id] ?? ""}
+                  />
+                  <Pressable
+                    disabled={!commentDrafts[post.id]?.trim() || commentBusyIds.includes(post.id)}
+                    onPress={() => void submitComment(post.id)}
+                    style={styles.commentSubmit}
+                  >
+                    <Text style={styles.commentSubmitText}>
+                      {commentBusyIds.includes(post.id) ? "…" : "등록"}
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
             ) : null}
           </View>
@@ -1073,10 +1403,132 @@ function parseVisibility(value: string): StoryVisibility {
   }
 }
 
+function isSameLocalDay(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function formatElapsed(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatPace(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "--'--\"";
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.round(value % 60);
+  return `${minutes}'${String(seconds).padStart(2, "0")}"`;
+}
+
+function workoutListMetric(workout: WorkoutSession) {
+  if (workout.sport === "strength") {
+    return `${Math.round(Number(workout.metrics.exerciseCount ?? 0))}종목`;
+  }
+  if (workout.sport === "diving") {
+    return `${Number(workout.metrics.maxDepthM ?? 0).toFixed(1)}m`;
+  }
+  if (workout.sport === "swimming") {
+    return `${Math.round(Number(workout.metrics.distanceM ?? 0))}m`;
+  }
+  return `${Number(workout.metrics.distanceKm ?? 0).toFixed(2)}km`;
+}
+
+function extractHashtags(value: string) {
+  const matches = value.match(/#[0-9A-Za-zㄱ-힝_]+/g) ?? [];
+  return [...new Set(matches.map((tag) => tag.slice(1).toLowerCase()))];
+}
+
+function relativeTime(value: string) {
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1000));
+  if (elapsedSeconds < 60) return "방금";
+  if (elapsedSeconds < 3600) return `${Math.floor(elapsedSeconds / 60)}분 전`;
+  if (elapsedSeconds < 86_400) return `${Math.floor(elapsedSeconds / 3600)}시간 전`;
+  return `${Math.floor(elapsedSeconds / 86_400)}일 전`;
+}
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     pageTitle: { color: colors.ink, fontSize: 20, fontFamily: fonts.bold },
     notice: { color: colors.primary, fontSize: 11, fontFamily: fonts.medium, marginTop: -9 },
+    feedNotice: {
+      color: colors.ink,
+      fontSize: 10,
+      lineHeight: 16,
+      fontFamily: fonts.semibold,
+      backgroundColor: colors.primarySoft,
+      borderRadius: radius.md,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+    },
+    goalModalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.72)",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 20,
+    },
+    goalModalCard: {
+      width: "100%",
+      maxWidth: 420,
+      borderRadius: radius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      padding: 20,
+      gap: 12,
+    },
+    goalModalEyebrow: { color: colors.primary, fontSize: 8, fontFamily: fonts.bold },
+    goalModalTitle: { color: colors.ink, fontSize: 20, fontFamily: fonts.displayExtra },
+    goalModalCopy: { color: colors.muted, fontSize: 11, lineHeight: 18 },
+    goalPrivacyRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceMuted,
+      padding: 12,
+    },
+    goalCheck: {
+      width: 22,
+      height: 22,
+      borderRadius: 7,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    goalCheckActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    goalCheckText: { color: "#FFFFFF", fontSize: 12, fontFamily: fonts.bold },
+    goalPrivacyCopy: { flex: 1 },
+    goalPrivacyTitle: { color: colors.ink, fontSize: 11, fontFamily: fonts.bold },
+    goalPrivacyMeta: { color: colors.muted, fontSize: 8, lineHeight: 13, marginTop: 2 },
+    goalModalActions: { flexDirection: "row", gap: 8 },
+    goalModalCancel: {
+      minWidth: 74,
+      minHeight: 44,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    goalModalCancelText: { color: colors.muted, fontSize: 10, fontFamily: fonts.bold },
+    goalModalSave: {
+      flex: 1,
+      minHeight: 44,
+      borderRadius: radius.md,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    goalModalSaveText: { color: "#FFFFFF", fontSize: 10, fontFamily: fonts.bold },
     storyScroller: { width: "100%" },
     stories: { gap: space[4], paddingVertical: 3, paddingRight: space[4] },
     story: { width: 56, alignItems: "center", gap: space[2] },
@@ -1216,8 +1668,53 @@ function createStyles(colors: ThemeColors) {
     miniAvatarText: { color: colors.ink, fontSize: 10, fontFamily: fonts.bold },
     composerPromptText: { color: colors.muted, fontSize: 12, fontFamily: fonts.regular },
     composerActions: { flexDirection: "row", borderTopWidth: 1, borderTopColor: colors.border },
-    composerAction: { flex: 1, minHeight: 46, alignItems: "center", justifyContent: "center" },
+    composerAction: {
+      flex: 1,
+      minHeight: 54,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 3,
+    },
+    composerActionLabel: { color: colors.muted, fontSize: 7, fontFamily: fonts.semibold },
     composerForm: { padding: space[4], borderTopWidth: 1, borderTopColor: colors.border },
+    workoutPickerPanel: {
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      padding: 12,
+      gap: 9,
+      marginBottom: 10,
+    },
+    workoutPickerTitle: { color: colors.ink, fontSize: 11, fontFamily: fonts.bold },
+    workoutPickerList: { gap: 7 },
+    workoutPickerItem: {
+      minHeight: 48,
+      borderRadius: radius.sm,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 11,
+      paddingVertical: 9,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+    },
+    workoutPickerSport: { color: colors.primary, fontSize: 8, fontFamily: fonts.bold },
+    workoutPickerNote: {
+      color: colors.ink,
+      fontSize: 9,
+      fontFamily: fonts.medium,
+      marginTop: 2,
+      maxWidth: 235,
+    },
+    workoutPickerMetric: { color: colors.ink, fontSize: 13, fontFamily: fonts.displayExtra },
+    workoutPickerEmpty: {
+      color: colors.muted,
+      fontSize: 10,
+      fontFamily: fonts.medium,
+      paddingVertical: 12,
+      textAlign: "center",
+    },
     sportPicker: { flexDirection: "row", gap: 6, paddingBottom: 9 },
     sportChip: {
       borderRadius: radius.full,
@@ -1274,8 +1771,31 @@ function createStyles(colors: ThemeColors) {
       textAlignVertical: "top",
       marginBottom: 9,
     },
+    composerHashtags: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
+    composerHashtag: { color: colors.primary, fontSize: 11, fontFamily: fonts.bold },
     error: { color: colors.danger, fontSize: 10, marginBottom: 8 },
     sectionTitle: { color: colors.ink, fontSize: 17, fontFamily: fonts.bold },
+    hashtagSearchRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+    hashtagSearchInput: {
+      flex: 1,
+      minHeight: 42,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      color: colors.ink,
+      paddingHorizontal: 12,
+      fontSize: 11,
+    },
+    hashtagClear: {
+      minHeight: 42,
+      paddingHorizontal: 13,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    hashtagClearText: { color: colors.ink, fontSize: 10, fontFamily: fonts.bold },
+    hashtagResult: { color: colors.primary, fontSize: 10, fontFamily: fonts.bold },
     post: { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: space[5] },
     postHeader: {
       flexDirection: "row",
@@ -1340,15 +1860,35 @@ function createStyles(colors: ThemeColors) {
       lineHeight: 21,
       marginTop: 12,
     },
-    tags: { color: colors.primary, fontSize: 12, fontFamily: fonts.semibold, marginTop: 6 },
+    inlineHashtag: { color: colors.primary, fontFamily: fonts.semibold },
     postActions: { flexDirection: "row", alignItems: "center", gap: 18, marginTop: 12 },
     action: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 6 },
     actionCount: { color: colors.ink, fontSize: 12, fontFamily: fonts.medium },
     activeAction: { color: colors.primary },
     bookmark: { minHeight: 30, justifyContent: "center", marginLeft: "auto" },
-    comments: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, gap: 5 },
+    comments: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, gap: 7 },
     comment: { color: colors.ink, fontSize: 11, lineHeight: 17 },
     commentAuthor: { fontWeight: "900" },
     emptyComment: { color: colors.muted, fontSize: 10 },
+    commentComposer: { flexDirection: "row", gap: 7, marginTop: 4 },
+    commentInput: {
+      flex: 1,
+      minHeight: 40,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      color: colors.ink,
+      paddingHorizontal: 11,
+      fontSize: 10,
+    },
+    commentSubmit: {
+      minWidth: 56,
+      minHeight: 40,
+      borderRadius: radius.md,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    commentSubmitText: { color: "#FFFFFF", fontSize: 10, fontFamily: fonts.bold },
   });
 }

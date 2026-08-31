@@ -2,6 +2,7 @@ import {
   sportLabels,
   sportValues,
   type AuthSession,
+  type CommentCreateInput,
   type DirectMessage,
   type DirectMessageCreateInput,
   type FeedPost,
@@ -592,6 +593,19 @@ export const demoApi = {
     };
     posts.unshift(item);
     return item;
+  },
+  createComment: async (_token: string, postId: string, input: CommentCreateInput) => {
+    const post = posts.find((item) => item.id === postId);
+    if (!post) throw new Error("게시물을 찾을 수 없습니다.");
+    const comment: FeedPost["comments"][number] = {
+      id: makeId("comment"),
+      userId: activeSession.user.id,
+      authorDisplayName: activeSession.user.displayName,
+      content: input.content,
+      createdAt: new Date().toISOString(),
+    };
+    post.comments.push(comment);
+    return comment;
   },
   workouts: async (_token: string) => workouts,
   createWorkoutSession: async (_token: string, input: WorkoutSessionCreateInput) => {

@@ -293,6 +293,7 @@ export type FeedPost = PostCreateInput & {
   authorDisplayName: string;
   contentType: "post" | "story";
   likeCount: number;
+  shareCount?: number;
   createdAt: string;
   archivedAt?: string;
   comments: Array<{

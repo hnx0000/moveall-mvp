@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, Vibration, View } from "react-native";
 import { api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import { fonts, radius, space, type ThemeColors } from "../theme";
@@ -71,9 +71,12 @@ export function LiveWorkoutRecorder({
   const [maxDepth, setMaxDepth] = useState("");
   const [dynamicDistance, setDynamicDistance] = useState("");
   const [devicePrepared, setDevicePrepared] = useState(false);
+  const [targetAlert, setTargetAlert] = useState<string | null>(null);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
   const startedAtRef = useRef<string | null>(null);
   const autoStartedRef = useRef(false);
+  const savingRef = useRef(false);
+  const targetAlertKeysRef = useRef<string[]>([]);
 
   const sportRoutines = useMemo(
     () => routines.filter((routine) => routine.sport === sport),
@@ -111,6 +114,22 @@ export function LiveWorkoutRecorder({
     const timer = setInterval(() => setElapsedSeconds((current) => current + 1), 1000);
     return () => clearInterval(timer);
   }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "recording" || selectedRoutineItems.length === 0) return;
+    selectedRoutineItems.forEach((item, index) => {
+      const target = parseRoutineTarget(item.target);
+      if (!target) return;
+      const key = `${selectedRoutine?.id ?? "free"}-${index}-${target.kind}`;
+      if (targetAlertKeysRef.current.includes(key)) return;
+      const reached =
+        target.kind === "time" ? elapsedSeconds >= target.value : distanceKm * 1000 >= target.value;
+      if (!reached) return;
+      targetAlertKeysRef.current.push(key);
+      setTargetAlert(`그루비! ${item.name} ${item.target} 목표에 도달했어요.`);
+      Vibration.vibrate([0, 220, 100, 220]);
+    });
+  }, [distanceKm, elapsedSeconds, phase, selectedRoutine, selectedRoutineItems]);
 
   useEffect(() => () => stopGps(), [stopGps]);
 
@@ -176,6 +195,8 @@ export function LiveWorkoutRecorder({
     setError(null);
     setElapsedSeconds(0);
     setCompletedRoutineItems([]);
+    setTargetAlert(null);
+    targetAlertKeysRef.current = [];
     startedAtRef.current = new Date().toISOString();
     if (sport === "swimming") {
       if (!Number.isFinite(Number(poolLength)) || Number(poolLength) < 10) {
@@ -208,17 +229,21 @@ export function LiveWorkoutRecorder({
     );
   }
 
-  function finishWorkout() {
+  async function finishWorkout() {
     stopGps();
     if (sport === "diving") {
       setPhase("review");
       return;
     }
-    void persistWorkout();
+    await persistWorkout();
   }
 
   async function persistWorkout() {
-    if (!session || phase === "saving") return;
+    if (savingRef.current) return;
+    if (!session) {
+      setError("기록을 저장할 로그인 세션을 확인하지 못했습니다.");
+      return;
+    }
     if (sport === "diving") {
       const depthValue = Number(maxDepth);
       const dynamicValue = Number(dynamicDistance);
@@ -230,6 +255,7 @@ export function LiveWorkoutRecorder({
         return;
       }
     }
+    savingRef.current = true;
     setPhase("saving");
     setError(null);
     const endedAt = new Date();
@@ -309,6 +335,8 @@ export function LiveWorkoutRecorder({
     } catch (caught) {
       setPhase(sport === "diving" ? "review" : "paused");
       setError(caught instanceof Error ? caught.message : "운동 기록을 저장하지 못했습니다.");
+    } finally {
+      savingRef.current = false;
     }
   }
 
@@ -320,9 +348,12 @@ export function LiveWorkoutRecorder({
     setMaxDepth("");
     setDynamicDistance("");
     setError(null);
+    setTargetAlert(null);
+    targetAlertKeysRef.current = [];
     setGpsStatus("GPS 준비 중");
     startedAtRef.current = null;
     autoStartedRef.current = false;
+    savingRef.current = false;
     setPhase(setupSports.includes(sport) ? "setup" : "starting");
     if (!setupSports.includes(sport)) {
       setTimeout(() => {
@@ -487,6 +518,13 @@ export function LiveWorkoutRecorder({
             </View>
           ) : null}
 
+          {targetAlert ? (
+            <Pressable onPress={() => setTargetAlert(null)} style={styles.targetAlert}>
+              <Text style={styles.targetAlertTitle}>목표 알림</Text>
+              <Text style={styles.targetAlertText}>{targetAlert}</Text>
+            </Pressable>
+          ) : null}
+
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <View style={styles.controls}>
             <Pressable
@@ -505,7 +543,7 @@ export function LiveWorkoutRecorder({
             <Pressable
               accessibilityRole="button"
               disabled={phase === "starting" || phase === "saving"}
-              onPress={finishWorkout}
+              onPress={() => void finishWorkout()}
               style={styles.stopButton}
             >
               {phase === "saving" ? (
@@ -1010,6 +1048,24 @@ function deviceCode(deviceName: string) {
   return [...deviceName].reduce((total, character) => total + character.charCodeAt(0), 0) % 100000;
 }
 
+function parseRoutineTarget(value: string) {
+  const timeMatch = value.match(/(\d+(?:\.\d+)?)\s*(분|시간)/);
+  if (timeMatch) {
+    const amount = Number(timeMatch[1]);
+    return { kind: "time" as const, value: amount * (timeMatch[2] === "시간" ? 3600 : 60) };
+  }
+  const distanceMatch = value.match(/(\d+(?:\.\d+)?)\s*(km|킬로|m|미터)/i);
+  if (distanceMatch) {
+    const amount = Number(distanceMatch[1]);
+    const unit = distanceMatch[2]?.toLowerCase();
+    return {
+      kind: "distance" as const,
+      value: amount * (unit === "km" || unit === "킬로" ? 1000 : 1),
+    };
+  }
+  return null;
+}
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     shell: {
@@ -1261,6 +1317,21 @@ function createStyles(colors: ThemeColors) {
       fontSize: 8,
       lineHeight: 14,
       marginTop: 2,
+    },
+    targetAlert: {
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: colors.primarySoft,
+      padding: 12,
+    },
+    targetAlertTitle: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
+    targetAlertText: {
+      color: colors.ink,
+      fontFamily: fonts.semibold,
+      fontSize: 10,
+      lineHeight: 16,
+      marginTop: 3,
     },
     controls: { flexDirection: "row", gap: space[2] },
     secondaryButton: {

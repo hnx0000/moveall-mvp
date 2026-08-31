@@ -421,6 +421,17 @@ export default function ProfileScreen() {
           />
         </View>
 
+        <Pressable
+          onPress={() => router.push("/profile/goals" as never)}
+          style={styles.goalsShortcut}
+        >
+          <View>
+            <Text style={styles.goalsShortcutEyebrow}>MY PRIVATE GOALS</Text>
+            <Text style={styles.goalsShortcutTitle}>존중에서 시작한 목표</Text>
+          </View>
+          <Text style={styles.goalsShortcutArrow}>→</Text>
+        </Pressable>
+
         <SectionHeader eyebrow="MY RECORDS" title="운동별 기록" styles={styles} />
         <ScrollView
           horizontal
@@ -442,6 +453,7 @@ export default function ProfileScreen() {
               active={false}
               count={workouts.filter((workout) => workout.sport === sport).length}
               label={shortSportLabel(sport)}
+              sport={sport}
               onPress={() => {
                 router.push({ pathname: "/profile/sport", params: { sport } });
               }}
@@ -795,18 +807,23 @@ function RecordOrb({
   active,
   count,
   label,
+  sport,
   onPress,
   styles,
 }: {
   active: boolean;
   count: number;
   label: string;
+  sport?: SportType;
   onPress(): void;
   styles: ReturnType<typeof createStyles>;
 }) {
   return (
     <Pressable onPress={onPress} style={styles.orbItem}>
       <View style={[styles.recordOrb, active && styles.recordOrbActive]}>
+        <Text style={[styles.orbSportGlyph, active && styles.orbSportGlyphActive]}>
+          {sport ? sportGlyph(sport) : "·"}
+        </Text>
         <Text style={[styles.orbCount, active && styles.orbCountActive]}>{count}</Text>
       </View>
       <Text style={[styles.orbLabel, active && styles.orbLabelActive]}>{label}</Text>
@@ -1005,6 +1022,25 @@ function createStyles(colors: ThemeColors) {
     stat: { flex: 1, alignItems: "center", gap: 3 },
     statValue: { ...typography.numeric(17), color: colors.ink },
     statLabel: { color: colors.muted, fontSize: 9, fontFamily: fonts.medium },
+    goalsShortcut: {
+      minHeight: 62,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      paddingHorizontal: 14,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    goalsShortcutEyebrow: {
+      color: colors.primary,
+      fontSize: 7,
+      fontFamily: fonts.bold,
+      letterSpacing: 0.8,
+    },
+    goalsShortcutTitle: { color: colors.ink, fontSize: 12, fontFamily: fonts.bold, marginTop: 4 },
+    goalsShortcutArrow: { color: colors.primary, fontSize: 20, fontFamily: fonts.regular },
     sectionEyebrow: {
       color: colors.primary,
       fontSize: 8,
@@ -1023,13 +1059,22 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.surface,
       alignItems: "center",
       justifyContent: "center",
+      overflow: "hidden",
     },
     recordOrbActive: {
       borderWidth: 2,
       borderColor: colors.primary,
       backgroundColor: colors.primary,
     },
-    orbCount: { ...typography.numeric(15), color: colors.muted },
+    orbSportGlyph: {
+      position: "absolute",
+      color: colors.border,
+      fontSize: 27,
+      opacity: 0.32,
+      fontFamily: fonts.displayItalic,
+    },
+    orbSportGlyphActive: { color: "#FFFFFF", opacity: 0.2 },
+    orbCount: { ...typography.numeric(15), color: colors.muted, zIndex: 1 },
     orbCountActive: { color: "#FFFFFF" },
     orbLabel: { color: colors.muted, fontSize: 8, fontWeight: "800" },
     orbLabelActive: { color: colors.primary },

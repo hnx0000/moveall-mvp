@@ -28,7 +28,7 @@ async function readMode(): Promise<ColorMode> {
     Platform.OS === "web"
       ? globalThis.localStorage?.getItem(storageKey)
       : await SecureStore.getItemAsync(storageKey);
-  return value === "dark" ? "dark" : "light";
+  return value === "light" ? "light" : "dark";
 }
 
 async function persistMode(mode: ColorMode): Promise<void> {
@@ -40,7 +40,7 @@ async function persistMode(mode: ColorMode): Promise<void> {
 }
 
 export function ThemeProvider({ children }: PropsWithChildren) {
-  const [mode, updateMode] = useState<ColorMode>("light");
+  const [mode, updateMode] = useState<ColorMode>("dark");
 
   useEffect(() => {
     void readMode().then(updateMode);
