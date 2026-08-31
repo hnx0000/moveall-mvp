@@ -424,6 +424,49 @@ describe("GROOV API", () => {
     await app.close();
   });
 
+  it("reflects a changed profile photo on existing feed posts and comments", async () => {
+    const app = await createApp({ config, store });
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "avatar@example.com",
+        password: "very-secure-1234",
+        displayName: "사진러너",
+      },
+    });
+    const headers = {
+      authorization: `Bearer ${registration.json().data.accessToken as string}`,
+    };
+    const post = await app.inject({
+      method: "POST",
+      url: "/v1/posts",
+      headers,
+      payload: { sport: "running", content: "프로필 사진 연동 테스트" },
+    });
+    const postId = post.json().data.id as string;
+    await app.inject({
+      method: "POST",
+      url: `/v1/posts/${postId}/comments`,
+      headers,
+      payload: { content: "작성자 사진이 댓글에도 보여야 해요." },
+    });
+    const avatarDataUri = "data:image/png;base64,aGVsbG8=";
+    await app.inject({
+      method: "PATCH",
+      url: "/v1/users/me/profile",
+      headers,
+      payload: { avatarDataUri },
+    });
+
+    const feed = await app.inject({ method: "GET", url: "/v1/feed" });
+    expect(feed.json().data[0]).toMatchObject({
+      authorAvatarDataUri: avatarDataUri,
+      comments: [{ authorAvatarDataUri: avatarDataUri }],
+    });
+    await app.close();
+  });
+
   it("rejects a post linked to an unknown workout session", async () => {
     const app = await createApp({ config, store });
     const registration = await app.inject({

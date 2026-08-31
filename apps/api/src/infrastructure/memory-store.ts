@@ -246,7 +246,7 @@ export class MemoryStore implements AppStore {
       comments: [],
     };
     this.posts.unshift(post);
-    return post;
+    return this.clonePost(post);
   }
 
   async listFeed(): Promise<FeedPost[]> {
@@ -386,7 +386,7 @@ export class MemoryStore implements AppStore {
       createdAt: new Date().toISOString(),
     };
     post.comments.push(comment);
-    return comment;
+    return this.clonePost(post).comments.find((item) => item.id === comment.id) ?? null;
   }
 
   async sharePost(userId: string, postId: string): Promise<PostShareResult | null> {
@@ -552,9 +552,23 @@ export class MemoryStore implements AppStore {
   }
 
   private clonePost(post: FeedPost): FeedPost {
+    const {
+      authorAvatarDataUri: _storedAuthorAvatar,
+      comments: storedComments,
+      ...postWithoutAvatar
+    } = post;
+    const authorAvatar = this.users.get(post.userId)?.avatarDataUri;
     return {
-      ...post,
-      comments: post.comments.map((comment) => ({ ...comment })),
+      ...postWithoutAvatar,
+      ...(authorAvatar ? { authorAvatarDataUri: authorAvatar } : {}),
+      comments: storedComments.map((comment) => {
+        const { authorAvatarDataUri: _storedCommentAvatar, ...commentWithoutAvatar } = comment;
+        const commentAvatar = this.users.get(comment.userId)?.avatarDataUri;
+        return {
+          ...commentWithoutAvatar,
+          ...(commentAvatar ? { authorAvatarDataUri: commentAvatar } : {}),
+        };
+      }),
     };
   }
 }

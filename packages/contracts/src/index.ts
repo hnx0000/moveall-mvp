@@ -291,6 +291,7 @@ export type FeedPost = PostCreateInput & {
   id: string;
   userId: string;
   authorDisplayName: string;
+  authorAvatarDataUri?: string;
   contentType: "post" | "story";
   likeCount: number;
   shareCount?: number;
@@ -300,6 +301,7 @@ export type FeedPost = PostCreateInput & {
     id: string;
     userId: string;
     authorDisplayName: string;
+    authorAvatarDataUri?: string;
     content: string;
     createdAt: string;
   }>;

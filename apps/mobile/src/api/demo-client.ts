@@ -488,7 +488,7 @@ const followingIds = new Set<string>();
 const postShareRecipients = new Map<string, Set<string>>();
 const archived: FeedPost[] = [];
 const messages: DirectMessage[] = [];
-let avatarDataUri: string | undefined;
+let avatarDataUri = readStored<string | undefined>("groov-demo-avatar-v1", undefined);
 
 let activeSession: AuthSession = sessionFor("mvp@groov.demo", "MVP 점검자");
 
@@ -516,7 +516,10 @@ export const demoApi = {
         user: { ...activeSession.user, displayName: input.displayName },
       };
     }
-    if (input.avatarDataUri !== undefined) avatarDataUri = input.avatarDataUri ?? undefined;
+    if (input.avatarDataUri !== undefined) {
+      avatarDataUri = input.avatarDataUri ?? undefined;
+      persistDemoAvatar();
+    }
     return {
       ...activeSession.user,
       ...(avatarDataUri ? { avatarDataUri } : {}),
@@ -541,7 +544,7 @@ export const demoApi = {
     articleSeeds.find((article) => article.id === articleId)?.feedback.push(item);
     return item;
   },
-  feed: async () => posts,
+  feed: async () => posts.map((post) => decorateDemoPost(post)),
   routines: async (_token: string) => routines,
   createRoutine: async (_token: string, input: RoutineCreateInput) => {
     routines.forEach((routine) => {
@@ -594,7 +597,7 @@ export const demoApi = {
       comments: [],
     };
     posts.unshift(item);
-    return item;
+    return decorateDemoPost(item);
   },
   createComment: async (_token: string, postId: string, input: CommentCreateInput) => {
     const post = posts.find((item) => item.id === postId);
@@ -607,7 +610,7 @@ export const demoApi = {
       createdAt: new Date().toISOString(),
     };
     post.comments.push(comment);
-    return comment;
+    return decorateDemoPost(post).comments.find((item) => item.id === comment.id)!;
   },
   sharePost: async (_token: string, postId: string): Promise<PostShareResult> => {
     const post = posts.find((candidate) => candidate.id === postId);
@@ -651,26 +654,29 @@ export const demoApi = {
     persistDemoState();
     return { deleted: true as const };
   },
-  myPosts: async (_token: string) => posts.filter((post) => post.userId === activeSession.user.id),
-  archivedPosts: async (_token: string) => archived,
+  myPosts: async (_token: string) =>
+    posts
+      .filter((post) => post.userId === activeSession.user.id)
+      .map((post) => decorateDemoPost(post)),
+  archivedPosts: async (_token: string) => archived.map((post) => decorateDemoPost(post)),
   updatePost: async (_token: string, postId: string, input: PostUpdateInput) => {
     const post = [...posts, ...archived].find((item) => item.id === postId)!;
     post.content = input.content;
-    return post;
+    return decorateDemoPost(post);
   },
   archivePost: async (_token: string, postId: string) => {
     const index = posts.findIndex((item) => item.id === postId);
     const post = posts.splice(index, 1)[0]!;
     post.archivedAt = new Date().toISOString();
     archived.unshift(post);
-    return post;
+    return decorateDemoPost(post);
   },
   restorePost: async (_token: string, postId: string) => {
     const index = archived.findIndex((item) => item.id === postId);
     const post = archived.splice(index, 1)[0]!;
     delete post.archivedAt;
     posts.unshift(post);
-    return post;
+    return decorateDemoPost(post);
   },
   deletePost: async (_token: string, postId: string) => {
     const source = posts.some((item) => item.id === postId) ? posts : archived;
@@ -682,7 +688,7 @@ export const demoApi = {
     const userPosts = posts.filter((post) => post.userId === userId);
     return {
       user: { id: userId, displayName: userPosts[0]?.authorDisplayName ?? "MOVE 멤버" },
-      posts: userPosts,
+      posts: userPosts.map((post) => decorateDemoPost(post)),
     };
   },
   memberProfile: async (_token: string, userId: string): Promise<PublicMemberProfile> => {
@@ -699,7 +705,9 @@ export const demoApi = {
       isPrivate,
       followersCount: seed.followersCount,
       followingCount: seed.followingCount,
-      posts: isPrivate ? [] : posts.filter((post) => post.userId === userId),
+      posts: isPrivate
+        ? []
+        : posts.filter((post) => post.userId === userId).map((post) => decorateDemoPost(post)),
       workouts: isPrivate ? [] : memberWorkouts,
       medals: isPrivate ? [] : medalsForWorkouts(memberWorkouts),
     };
@@ -904,4 +912,33 @@ function persistDemoState() {
   } catch {
     // 저장소를 사용할 수 없는 환경에서는 현재 세션의 메모리 상태를 유지합니다.
   }
+}
+
+function persistDemoAvatar() {
+  try {
+    if (!("localStorage" in globalThis)) return;
+    if (avatarDataUri) globalThis.localStorage.setItem("groov-demo-avatar-v1", avatarDataUri);
+    else globalThis.localStorage.removeItem("groov-demo-avatar-v1");
+  } catch {
+    // 저장소를 사용할 수 없는 환경에서는 현재 세션의 프로필 사진을 유지합니다.
+  }
+}
+
+function decorateDemoPost(post: FeedPost): FeedPost {
+  const { authorAvatarDataUri: storedAuthorAvatar, comments, ...postWithoutAvatar } = post;
+  const resolvedAuthorAvatar =
+    post.userId === activeSession.user.id ? avatarDataUri : storedAuthorAvatar;
+  return {
+    ...postWithoutAvatar,
+    ...(resolvedAuthorAvatar ? { authorAvatarDataUri: resolvedAuthorAvatar } : {}),
+    comments: comments.map((comment) => {
+      const { authorAvatarDataUri: storedCommentAvatar, ...commentWithoutAvatar } = comment;
+      const resolvedCommentAvatar =
+        comment.userId === activeSession.user.id ? avatarDataUri : storedCommentAvatar;
+      return {
+        ...commentWithoutAvatar,
+        ...(resolvedCommentAvatar ? { authorAvatarDataUri: resolvedCommentAvatar } : {}),
+      };
+    }),
+  };
 }

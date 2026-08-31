@@ -56,6 +56,7 @@ type PostRow = QueryResultRow & {
   id: string;
   user_id: string;
   display_name: string;
+  avatar_data_uri: string | null;
   sport: SportType;
   content: string;
   workout_session_id: string | null;
@@ -78,6 +79,7 @@ type CommentRow = QueryResultRow & {
   id: string;
   user_id: string;
   display_name: string;
+  avatar_data_uri: string | null;
   post_id: string;
   content: string;
   created_at: Date;
@@ -343,7 +345,7 @@ export class PostgresStore implements AppStore {
     input: PostCreateInput,
   ): Promise<FeedPost | null> {
     const result = await this.pool.query<PostRow>(
-      "INSERT INTO posts (user_id, sport, content, workout_session_id, content_type) SELECT $1, $2, $3, $4, $5 WHERE $4::uuid IS NULL OR EXISTS (SELECT 1 FROM workout_sessions WHERE id = $4 AND user_id = $1) RETURNING id, user_id, $6::text AS display_name, sport, content, workout_session_id, content_type, like_count, archived_at, created_at",
+      "INSERT INTO posts (user_id, sport, content, workout_session_id, content_type) SELECT $1, $2, $3, $4, $5 WHERE $4::uuid IS NULL OR EXISTS (SELECT 1 FROM workout_sessions WHERE id = $4 AND user_id = $1) RETURNING id, user_id, $6::text AS display_name, (SELECT avatar_data_uri FROM users WHERE id = $1) AS avatar_data_uri, sport, content, workout_session_id, content_type, like_count, archived_at, created_at",
       [
         userId,
         input.sport,
@@ -359,12 +361,12 @@ export class PostgresStore implements AppStore {
 
   async listFeed(): Promise<FeedPost[]> {
     const posts = await this.pool.query<PostRow>(
-      "SELECT p.id, p.user_id, u.display_name, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.moderation_status = 'visible' AND p.archived_at IS NULL ORDER BY p.created_at DESC LIMIT 100",
+      "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.moderation_status = 'visible' AND p.archived_at IS NULL ORDER BY p.created_at DESC LIMIT 100",
     );
     if (posts.rows.length === 0) return [];
 
     const comments = await this.pool.query<CommentRow>(
-      "SELECT c.id, c.user_id, u.display_name, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) ORDER BY c.created_at ASC",
+      "SELECT c.id, c.user_id, u.display_name, u.avatar_data_uri, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) ORDER BY c.created_at ASC",
       [posts.rows.map((post) => post.id)],
     );
 
@@ -378,12 +380,12 @@ export class PostgresStore implements AppStore {
 
   async listPostsByUser(userId: string): Promise<FeedPost[]> {
     const posts = await this.pool.query<PostRow>(
-      "SELECT p.id, p.user_id, u.display_name, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = $1 AND p.moderation_status = 'visible' AND p.archived_at IS NULL ORDER BY p.created_at DESC LIMIT 100",
+      "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = $1 AND p.moderation_status = 'visible' AND p.archived_at IS NULL ORDER BY p.created_at DESC LIMIT 100",
       [userId],
     );
     if (posts.rows.length === 0) return [];
     const comments = await this.pool.query<CommentRow>(
-      "SELECT c.id, c.user_id, u.display_name, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) ORDER BY c.created_at ASC",
+      "SELECT c.id, c.user_id, u.display_name, u.avatar_data_uri, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) ORDER BY c.created_at ASC",
       [posts.rows.map((post) => post.id)],
     );
     return posts.rows.map((post) =>
@@ -396,12 +398,12 @@ export class PostgresStore implements AppStore {
 
   async listArchivedPostsByUser(userId: string): Promise<FeedPost[]> {
     const posts = await this.pool.query<PostRow>(
-      "SELECT p.id, p.user_id, u.display_name, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = $1 AND p.archived_at IS NOT NULL ORDER BY p.archived_at DESC LIMIT 100",
+      "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = $1 AND p.archived_at IS NOT NULL ORDER BY p.archived_at DESC LIMIT 100",
       [userId],
     );
     if (posts.rows.length === 0) return [];
     const comments = await this.pool.query<CommentRow>(
-      "SELECT c.id, c.user_id, u.display_name, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) ORDER BY c.created_at ASC",
+      "SELECT c.id, c.user_id, u.display_name, u.avatar_data_uri, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) ORDER BY c.created_at ASC",
       [posts.rows.map((post) => post.id)],
     );
     return posts.rows.map((post) =>
@@ -418,7 +420,7 @@ export class PostgresStore implements AppStore {
     input: PostUpdateInput,
   ): Promise<FeedPost | null> {
     const result = await this.pool.query<PostRow>(
-      "UPDATE posts p SET content = $3 FROM users u WHERE p.id = $2 AND p.user_id = $1 AND u.id = p.user_id RETURNING p.id, p.user_id, u.display_name, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, p.archived_at, p.created_at",
+      "UPDATE posts p SET content = $3 FROM users u WHERE p.id = $2 AND p.user_id = $1 AND u.id = p.user_id RETURNING p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, p.archived_at, p.created_at",
       [userId, postId, input.content],
     );
     return result.rows[0] ? this.mapPost(result.rows[0], []) : null;
@@ -430,7 +432,7 @@ export class PostgresStore implements AppStore {
     archived: boolean,
   ): Promise<FeedPost | null> {
     const result = await this.pool.query<PostRow>(
-      "UPDATE posts p SET archived_at = CASE WHEN $3::boolean THEN now() ELSE NULL END FROM users u WHERE p.id = $2 AND p.user_id = $1 AND u.id = p.user_id RETURNING p.id, p.user_id, u.display_name, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, p.archived_at, p.created_at",
+      "UPDATE posts p SET archived_at = CASE WHEN $3::boolean THEN now() ELSE NULL END FROM users u WHERE p.id = $2 AND p.user_id = $1 AND u.id = p.user_id RETURNING p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, p.archived_at, p.created_at",
       [userId, postId, archived],
     );
     return result.rows[0] ? this.mapPost(result.rows[0], []) : null;
@@ -541,7 +543,7 @@ export class PostgresStore implements AppStore {
     content: string,
   ): Promise<FeedPost["comments"][number] | null> {
     const result = await this.pool.query<CommentRow>(
-      "INSERT INTO comments (post_id, user_id, content) SELECT $1, $2, $3 WHERE EXISTS (SELECT 1 FROM posts WHERE id = $1) RETURNING id, user_id, $4::text AS display_name, post_id, content, created_at",
+      "INSERT INTO comments (post_id, user_id, content) SELECT $1, $2, $3 WHERE EXISTS (SELECT 1 FROM posts WHERE id = $1) RETURNING id, user_id, $4::text AS display_name, (SELECT avatar_data_uri FROM users WHERE id = $2) AS avatar_data_uri, post_id, content, created_at",
       [postId, userId, content, authorDisplayName],
     );
     const row = result.rows[0];
@@ -635,6 +637,7 @@ export class PostgresStore implements AppStore {
       id: row.id,
       userId: row.user_id,
       authorDisplayName: row.display_name,
+      ...(row.avatar_data_uri ? { authorAvatarDataUri: row.avatar_data_uri } : {}),
       sport: row.sport,
       content: row.content,
       contentType: row.content_type,
@@ -652,6 +655,7 @@ export class PostgresStore implements AppStore {
       id: row.id,
       userId: row.user_id,
       authorDisplayName: row.display_name,
+      ...(row.avatar_data_uri ? { authorAvatarDataUri: row.avatar_data_uri } : {}),
       content: row.content,
       createdAt: row.created_at.toISOString(),
     };

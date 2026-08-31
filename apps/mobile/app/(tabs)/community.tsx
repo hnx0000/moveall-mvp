@@ -7,7 +7,7 @@ import {
 } from "@moveall/contracts";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
   BarChart3,
   Bookmark,
@@ -19,6 +19,7 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Image,
   ImageBackground,
   Modal,
   PanResponder,
@@ -370,6 +371,7 @@ export default function CommunityScreen() {
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [followingIds, setFollowingIds] = useState<string[]>([]);
   const [followBusyIds, setFollowBusyIds] = useState<string[]>([]);
+  const [currentAvatarUri, setCurrentAvatarUri] = useState<string | null>(null);
   const [draftPhoto, setDraftPhoto] = useState<string | null>(null);
   const [todayWorkoutOptions, setTodayWorkoutOptions] = useState<WorkoutSession[]>([]);
   const [workoutPickerOpen, setWorkoutPickerOpen] = useState(false);
@@ -395,6 +397,23 @@ export default function CommunityScreen() {
     [selectedStoryOwnerId],
   );
   const activeDemoStory = selectedStoryOwner?.stories[storyIndex] ?? null;
+  const avatarByUserId = useMemo(() => {
+    const avatars = new Map<string, string>();
+    if (session?.user.id && currentAvatarUri) avatars.set(session.user.id, currentAvatarUri);
+    posts?.forEach((post) => {
+      if (post.authorAvatarDataUri) avatars.set(post.userId, post.authorAvatarDataUri);
+      post.comments.forEach((comment) => {
+        if (comment.authorAvatarDataUri) avatars.set(comment.userId, comment.authorAvatarDataUri);
+      });
+    });
+    return avatars;
+  }, [currentAvatarUri, posts, session?.user.id]);
+
+  const avatarForUser = useCallback(
+    (userId?: string) =>
+      userId ? (avatarByUserId.get(userId) ?? null) : (currentAvatarUri ?? null),
+    [avatarByUserId, currentAvatarUri],
+  );
 
   function openStory(ownerId: string) {
     setStoryIndex(0);
@@ -511,6 +530,28 @@ export default function CommunityScreen() {
       .then((summary) => setFollowingIds(summary.following.map((person) => person.id)))
       .catch(() => setFollowingIds([]));
   }, [session]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!session) {
+        setCurrentAvatarUri(null);
+        return undefined;
+      }
+      let active = true;
+      void api
+        .profile(session.accessToken)
+        .then((profile) => {
+          if (active) setCurrentAvatarUri(profile.avatarDataUri ?? null);
+        })
+        .catch(() => {
+          if (active) setCurrentAvatarUri(null);
+        });
+      void reload();
+      return () => {
+        active = false;
+      };
+    }, [reload, session]),
+  );
 
   useEffect(() => {
     if (!session) return;
@@ -802,7 +843,14 @@ export default function CommunityScreen() {
                   style={styles.storyViewerIdentity}
                 >
                   <View style={styles.storyViewerAvatar}>
-                    <Text style={styles.storyViewerAvatarText}>{selectedStoryOwner.icon}</Text>
+                    {avatarForUser(selectedStoryOwner.profileUserId) ? (
+                      <Image
+                        source={{ uri: avatarForUser(selectedStoryOwner.profileUserId)! }}
+                        style={styles.avatarImage}
+                      />
+                    ) : (
+                      <Text style={styles.storyViewerAvatarText}>{selectedStoryOwner.icon}</Text>
+                    )}
                   </View>
                   <View>
                     <Text style={styles.storyViewerName}>{selectedStoryOwner.name}</Text>
@@ -894,6 +942,7 @@ export default function CommunityScreen() {
       >
         {storyOwners.map((owner, index) => {
           const selected = selectedStoryOwnerId === owner.id;
+          const avatarUri = avatarForUser(owner.profileUserId);
           return (
             <Pressable
               accessibilityLabel={`${owner.name} 스토리 ${owner.stories.length}개 열기`}
@@ -905,9 +954,13 @@ export default function CommunityScreen() {
             >
               <View style={[styles.storyRing, selected && styles.storyRingSelected]}>
                 <View style={[styles.storyAvatar, index === 0 && styles.myStory]}>
-                  <Text style={[styles.storyInitial, index === 0 && styles.myStoryText]}>
-                    {owner.icon}
-                  </Text>
+                  {avatarUri ? (
+                    <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+                  ) : (
+                    <Text style={[styles.storyInitial, index === 0 && styles.myStoryText]}>
+                      {owner.icon}
+                    </Text>
+                  )}
                 </View>
                 <View style={styles.storyCountBadge}>
                   <Text style={styles.storyCountText}>{owner.stories.length}</Text>
@@ -928,9 +981,13 @@ export default function CommunityScreen() {
           style={styles.composerPrompt}
         >
           <View style={styles.miniAvatar}>
-            <Text style={styles.miniAvatarText}>
-              {session?.user.displayName.slice(0, 1) ?? "M"}
-            </Text>
+            {currentAvatarUri ? (
+              <Image source={{ uri: currentAvatarUri }} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.miniAvatarText}>
+                {session?.user.displayName.slice(0, 1) ?? "M"}
+              </Text>
+            )}
           </View>
           <Text style={styles.composerPromptText}>
             {session ? "오늘의 운동 스토리를 공유해보세요" : "로그인 후 운동을 공유하세요"}
@@ -1163,7 +1220,11 @@ export default function CommunityScreen() {
                 style={styles.authorRow}
               >
                 <View style={styles.authorAvatar}>
-                  <Text style={styles.authorInitial}>{post.authorDisplayName.slice(0, 1)}</Text>
+                  {post.authorAvatarDataUri ? (
+                    <Image source={{ uri: post.authorAvatarDataUri }} style={styles.avatarImage} />
+                  ) : (
+                    <Text style={styles.authorInitial}>{post.authorDisplayName.slice(0, 1)}</Text>
+                  )}
                 </View>
                 <Text style={styles.author}>{post.authorDisplayName}</Text>
               </Pressable>
@@ -1284,10 +1345,29 @@ export default function CommunityScreen() {
               <View style={styles.comments}>
                 {post.comments.length ? (
                   post.comments.map((comment) => (
-                    <Text key={comment.id} style={styles.comment}>
-                      <Text style={styles.commentAuthor}>{comment.authorDisplayName}</Text>{" "}
-                      {comment.content}
-                    </Text>
+                    <View key={comment.id} style={styles.commentRow}>
+                      <Pressable
+                        accessibilityLabel={`${comment.authorDisplayName} 프로필 보기`}
+                        accessibilityRole="button"
+                        onPress={() => openMemberProfile(comment.userId)}
+                        style={styles.commentIdentity}
+                      >
+                        <View style={styles.commentAvatar}>
+                          {comment.authorAvatarDataUri ? (
+                            <Image
+                              source={{ uri: comment.authorAvatarDataUri }}
+                              style={styles.avatarImage}
+                            />
+                          ) : (
+                            <Text style={styles.commentAvatarText}>
+                              {comment.authorDisplayName.slice(0, 1)}
+                            </Text>
+                          )}
+                        </View>
+                        <Text style={styles.commentAuthor}>{comment.authorDisplayName}</Text>
+                      </Pressable>
+                      <Text style={styles.comment}>{comment.content}</Text>
+                    </View>
                   ))
                 ) : (
                   <Text style={styles.emptyComment}>아직 댓글이 없습니다.</Text>
@@ -1564,6 +1644,7 @@ function createStyles(colors: ThemeColors) {
     },
     myStory: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
     storyInitial: { color: "#FFFFFF", fontSize: 15, fontFamily: fonts.bold },
+    avatarImage: { width: "100%", height: "100%", borderRadius: radius.full },
     myStoryText: { color: colors.primary, fontSize: 22, fontFamily: fonts.regular },
     storyName: { color: colors.ink, fontSize: 10, fontFamily: fonts.regular },
     storyCountBadge: {
@@ -1878,8 +1959,25 @@ function createStyles(colors: ThemeColors) {
     activeAction: { color: colors.primary },
     bookmark: { minHeight: 30, justifyContent: "center", marginLeft: "auto" },
     comments: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, gap: 7 },
-    comment: { color: colors.ink, fontSize: 11, lineHeight: 17 },
-    commentAuthor: { fontWeight: "900" },
+    commentRow: { gap: 5 },
+    commentIdentity: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
+      alignSelf: "flex-start",
+    },
+    commentAvatar: {
+      width: 25,
+      height: 25,
+      borderRadius: radius.full,
+      backgroundColor: colors.primarySoft,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+    },
+    commentAvatarText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
+    comment: { color: colors.ink, fontSize: 11, lineHeight: 17, paddingLeft: 32 },
+    commentAuthor: { color: colors.ink, fontFamily: fonts.bold, fontSize: 10 },
     emptyComment: { color: colors.muted, fontSize: 10 },
     commentComposer: { flexDirection: "row", gap: 7, marginTop: 4 },
     commentInput: {
