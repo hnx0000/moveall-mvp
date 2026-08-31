@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, Vibration, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, TextInput, Vibration, View } from "react-native";
 import { api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import { fonts, radius, space, type ThemeColors } from "../theme";
@@ -72,6 +72,7 @@ export function LiveWorkoutRecorder({
   const [dynamicDistance, setDynamicDistance] = useState("");
   const [devicePrepared, setDevicePrepared] = useState(false);
   const [targetAlert, setTargetAlert] = useState<string | null>(null);
+  const [finishConfirmationOpen, setFinishConfirmationOpen] = useState(false);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
   const startedAtRef = useRef<string | null>(null);
   const autoStartedRef = useRef(false);
@@ -365,6 +366,41 @@ export function LiveWorkoutRecorder({
 
   return (
     <View style={styles.shell}>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setFinishConfirmationOpen(false)}
+        transparent
+        visible={finishConfirmationOpen}
+      >
+        <View style={styles.confirmBackdrop}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmEyebrow}>FINISH WORKOUT</Text>
+            <Text style={styles.confirmTitle}>기록을 종료할까요?</Text>
+            <Text style={styles.confirmCopy}>
+              현재까지의 {sportLabels[sport]} 기록을 중지하고 오늘의 활동에 저장합니다.
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setFinishConfirmationOpen(false)}
+                style={styles.confirmCancel}
+              >
+                <Text style={styles.confirmCancelText}>계속 기록</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setFinishConfirmationOpen(false);
+                  void finishWorkout();
+                }}
+                style={styles.confirmFinish}
+              >
+                <Text style={styles.confirmFinishText}>종료 및 저장</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>LIVE WORKOUT</Text>
@@ -543,7 +579,7 @@ export function LiveWorkoutRecorder({
             <Pressable
               accessibilityRole="button"
               disabled={phase === "starting" || phase === "saving"}
-              onPress={() => void finishWorkout()}
+              onPress={() => setFinishConfirmationOpen(true)}
               style={styles.stopButton}
             >
               {phase === "saving" ? (
@@ -1074,6 +1110,51 @@ function createStyles(colors: ThemeColors) {
       borderTopColor: colors.border,
       paddingTop: space[4],
     },
+    confirmBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.72)",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 20,
+    },
+    confirmCard: {
+      width: "100%",
+      maxWidth: 400,
+      borderRadius: radius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      padding: 20,
+      gap: 11,
+    },
+    confirmEyebrow: {
+      color: colors.primary,
+      fontFamily: fonts.displayExtra,
+      fontSize: 8,
+      letterSpacing: 1,
+    },
+    confirmTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 20 },
+    confirmCopy: { color: colors.muted, fontFamily: fonts.regular, fontSize: 10, lineHeight: 17 },
+    confirmActions: { flexDirection: "row", gap: 8, marginTop: 4 },
+    confirmCancel: {
+      flex: 1,
+      minHeight: 44,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    confirmCancelText: { color: colors.ink, fontFamily: fonts.bold, fontSize: 10 },
+    confirmFinish: {
+      flex: 1.25,
+      minHeight: 44,
+      borderRadius: radius.md,
+      backgroundColor: colors.danger,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    confirmFinishText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
     header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     eyebrow: {
       color: colors.primary,
