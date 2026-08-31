@@ -680,6 +680,14 @@ export async function createApp(dependencies: AppDependencies) {
     return reply.status(201).send(success(comment));
   });
 
+  app.post("/v1/posts/:postId/share", async (request, reply) => {
+    const user = await currentUser(request);
+    const parameters = z.object({ postId: z.string().uuid() }).parse(request.params);
+    const result = await dependencies.store.sharePost(user.id, parameters.postId);
+    if (!result) throw new AppError(404, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다.");
+    return reply.status(201).send(success(result));
+  });
+
   app.addHook("onClose", async () => dependencies.store.close());
   return app;
 }

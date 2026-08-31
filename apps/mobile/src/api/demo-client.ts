@@ -13,6 +13,7 @@ import {
   type LoginInput,
   type Medal,
   type PostCreateInput,
+  type PostShareResult,
   type PostUpdateInput,
   type ProfileUpdateInput,
   type PublicMemberProfile,
@@ -484,6 +485,7 @@ const demoMemberWorkouts: Record<string, WorkoutSession[]> = {
 const routines = readStored<Routine[]>("moveall-demo-routines-v2", defaultRoutines);
 const workouts = initializeDemoWorkouts();
 const followingIds = new Set<string>();
+const postShareRecipients = new Map<string, Set<string>>();
 const archived: FeedPost[] = [];
 const messages: DirectMessage[] = [];
 let avatarDataUri: string | undefined;
@@ -606,6 +608,15 @@ export const demoApi = {
     };
     post.comments.push(comment);
     return comment;
+  },
+  sharePost: async (_token: string, postId: string): Promise<PostShareResult> => {
+    const post = posts.find((candidate) => candidate.id === postId);
+    if (!post) throw new Error("게시물을 찾을 수 없습니다.");
+    const recipients = postShareRecipients.get(postId) ?? new Set<string>();
+    followingIds.forEach((userId) => recipients.add(userId));
+    postShareRecipients.set(postId, recipients);
+    post.shareCount = Math.max(post.shareCount ?? 0, recipients.size > 0 ? 1 : 0);
+    return { shareCount: post.shareCount, recipientCount: recipients.size };
   },
   workouts: async (_token: string) => workouts,
   createWorkoutSession: async (_token: string, input: WorkoutSessionCreateInput) => {

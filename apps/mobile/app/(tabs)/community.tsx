@@ -669,9 +669,20 @@ export default function CommunityScreen() {
     }
   }
 
-  function shareWithFollowing(postId: string) {
-    setSharedCounts((current) => ({ ...current, [postId]: (current[postId] ?? 0) + 1 }));
-    setFeedNotice("팔로잉 중인 친구들의 공유함에 보냈습니다.");
+  async function shareWithFollowing(postId: string) {
+    if (!session) return;
+    setFeedNotice(null);
+    try {
+      const result = await api.sharePost(session.accessToken, postId);
+      setSharedCounts((current) => ({ ...current, [postId]: result.shareCount }));
+      setFeedNotice(
+        result.recipientCount > 0
+          ? `팔로잉 중인 친구 ${result.recipientCount}명의 공유함에 보냈습니다.`
+          : "먼저 친구를 팔로우하면 해당 친구에게 기록을 공유할 수 있어요.",
+      );
+    } catch (caught) {
+      setFeedNotice(caught instanceof Error ? caught.message : "공유하지 못했습니다.");
+    }
   }
 
   function createGoal() {
@@ -1244,12 +1255,12 @@ export default function CommunityScreen() {
               </Pressable>
               <Pressable
                 accessibilityRole="button"
-                onPress={() => shareWithFollowing(post.id)}
+                onPress={() => void shareWithFollowing(post.id)}
                 style={styles.action}
               >
                 <Send color={colors.ink} size={20} strokeWidth={2} />
                 <Text style={styles.actionCount}>
-                  {(post.shareCount ?? 0) + (sharedCounts[post.id] ?? 0)}
+                  {sharedCounts[post.id] ?? post.shareCount ?? 0}
                 </Text>
               </Pressable>
               <Pressable

@@ -14,6 +14,7 @@ import type {
   LoginInput,
   Medal,
   PostCreateInput,
+  PostShareResult,
   PostUpdateInput,
   ProfileUpdateInput,
   PublicMemberProfile,
@@ -149,6 +150,8 @@ const liveApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  sharePost: (token: string, postId: string) =>
+    request<PostShareResult>(`/v1/posts/${postId}/share`, { token, method: "POST" }),
   workouts: (token: string) => request<WorkoutSession[]>("/v1/workout-sessions/me", { token }),
   createWorkoutSession: (token: string, input: WorkoutSessionCreateInput) =>
     request<WorkoutSession>("/v1/workout-sessions", {

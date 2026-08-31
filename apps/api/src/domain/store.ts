@@ -4,6 +4,7 @@ import type {
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
   PostCreateInput,
+  PostShareResult,
   PostUpdateInput,
   ProfileUpdateInput,
   PublicUser,
@@ -83,6 +84,7 @@ export interface AppStore {
     postId: string,
     content: string,
   ): Promise<FeedPost["comments"][number] | null>;
+  sharePost(userId: string, postId: string): Promise<PostShareResult | null>;
   listKnowledgeFeedback(articleId: string): Promise<KnowledgeFeedback[]>;
   createKnowledgeFeedback(
     userId: string,

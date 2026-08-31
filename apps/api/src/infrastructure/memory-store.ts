@@ -5,6 +5,7 @@ import type {
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
   PostCreateInput,
+  PostShareResult,
   PostUpdateInput,
   ProfileUpdateInput,
   PublicUser,
@@ -27,6 +28,7 @@ export class MemoryStore implements AppStore {
   private readonly follows = new Set<string>();
   private readonly blocks = new Set<string>();
   private readonly messages: DirectMessage[] = [];
+  private readonly postShares = new Set<string>();
 
   constructor(options: { seedDemo?: boolean } = {}) {
     if (options.seedDemo) this.seedDemoFeed();
@@ -239,6 +241,7 @@ export class MemoryStore implements AppStore {
       ...input,
       contentType: input.contentType ?? "post",
       likeCount: 0,
+      shareCount: 0,
       createdAt: new Date().toISOString(),
       comments: [],
     };
@@ -384,6 +387,25 @@ export class MemoryStore implements AppStore {
     };
     post.comments.push(comment);
     return comment;
+  }
+
+  async sharePost(userId: string, postId: string): Promise<PostShareResult | null> {
+    if (!this.posts.some((post) => post.id === postId)) return null;
+    const recipientIds = [...this.follows]
+      .filter((key) => key.startsWith(`${userId}:`))
+      .map((key) => key.slice(userId.length + 1))
+      .filter((recipientId) => recipientId !== userId && this.users.has(recipientId));
+    recipientIds.forEach((recipientId) =>
+      this.postShares.add(`${postId}:${userId}:${recipientId}`),
+    );
+    const sharers = new Set(
+      [...this.postShares]
+        .filter((key) => key.startsWith(`${postId}:`))
+        .map((key) => key.slice(postId.length + 1).split(":")[0]),
+    );
+    const post = this.posts.find((candidate) => candidate.id === postId)!;
+    post.shareCount = sharers.size;
+    return { shareCount: sharers.size, recipientCount: recipientIds.length };
   }
 
   async listKnowledgeFeedback(articleId: string): Promise<KnowledgeFeedback[]> {

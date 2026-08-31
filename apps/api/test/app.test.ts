@@ -354,6 +354,27 @@ describe("GROOV API", () => {
       data: { followingCount: 1, following: [{ id: secondId, displayName: "둘째 러너" }] },
     });
 
+    const post = await app.inject({
+      method: "POST",
+      url: "/v1/posts",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sport: "running", content: "#5K 오늘의 러닝 기록" },
+    });
+    const postId = post.json().data.id as string;
+    const shared = await app.inject({
+      method: "POST",
+      url: `/v1/posts/${postId}/share`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(shared.statusCode).toBe(201);
+    expect(shared.json()).toMatchObject({
+      ok: true,
+      data: { shareCount: 1, recipientCount: 1 },
+    });
+    expect((await app.inject({ method: "GET", url: "/v1/feed" })).json().data).toContainEqual(
+      expect.objectContaining({ id: postId, shareCount: 1 }),
+    );
+
     const updatedWorkout = await app.inject({
       method: "PATCH",
       url: `/v1/workout-sessions/${workoutId}`,

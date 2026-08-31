@@ -305,6 +305,11 @@ export type FeedPost = PostCreateInput & {
   }>;
 };
 
+export type PostShareResult = {
+  shareCount: number;
+  recipientCount: number;
+};
+
 export type DirectMessage = {
   id: string;
   senderId: string;
