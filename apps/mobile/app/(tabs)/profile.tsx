@@ -37,6 +37,7 @@ import {
   type ThemeColors,
 } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
+import { sortWorkoutsForDisplay } from "../../src/workout-display";
 
 type ProfileTab = "records" | "posts" | "routines";
 type RecordFilter = "all" | SportType;
@@ -118,9 +119,11 @@ export default function ProfileScreen() {
 
   const visibleWorkouts = useMemo(
     () =>
-      recordFilter === "all"
-        ? workouts
-        : workouts.filter((workout) => workout.sport === recordFilter),
+      sortWorkoutsForDisplay(
+        recordFilter === "all"
+          ? workouts
+          : workouts.filter((workout) => workout.sport === recordFilter),
+      ),
     [recordFilter, workouts],
   );
   const earnedMedals = medals.filter((medal) => medal.earned);

@@ -20,6 +20,7 @@ import { ApiError, api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import { type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
+import { sortWorkoutsForDisplay } from "../workout-display";
 
 export function RecordsScreen({ sport }: { sport?: SportType }) {
   const router = useRouter();
@@ -37,7 +38,11 @@ export function RecordsScreen({ sport }: { sport?: SportType }) {
       setLoading(true);
       void Promise.all([api.workouts(session.accessToken), api.medals(session.accessToken)])
         .then(([nextWorkouts, nextMedals]) => {
-          setWorkouts(sport ? nextWorkouts.filter((item) => item.sport === sport) : nextWorkouts);
+          setWorkouts(
+            sortWorkoutsForDisplay(
+              sport ? nextWorkouts.filter((item) => item.sport === sport) : nextWorkouts,
+            ),
+          );
           setMedals(sport ? nextMedals.filter((item) => item.sport === sport) : nextMedals);
         })
         .catch((caught) =>

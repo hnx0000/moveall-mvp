@@ -28,6 +28,7 @@ import { markRecordGoalAchieved, readRecordGoals } from "../../src/goals";
 import { useAsyncData } from "../../src/hooks/use-async-data";
 import { fonts, radius, shadows, space, typography, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
+import { sortWorkoutsForDisplay } from "../../src/workout-display";
 
 const homeSportOrder: SportType[] = [
   "running",
@@ -177,10 +178,7 @@ export default function HomeScreen() {
     [selectedSport, selectedSportWorkouts],
   );
   const selectedSportHistory = useMemo(
-    () =>
-      workouts
-        .filter((workout) => workout.sport === selectedSport)
-        .sort((left, right) => Date.parse(right.endedAt) - Date.parse(left.endedAt)),
+    () => sortWorkoutsForDisplay(workouts.filter((workout) => workout.sport === selectedSport)),
     [selectedSport, workouts],
   );
 
