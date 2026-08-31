@@ -5,6 +5,7 @@ import {
   type SportType,
   type WorkoutSession,
 } from "@moveall/contracts";
+import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -14,8 +15,11 @@ import {
   Camera,
   Heart,
   Image as ImageIcon,
+  Link2,
   MessageCircle,
   Send,
+  Share2,
+  Users,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -25,6 +29,7 @@ import {
   PanResponder,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -363,6 +368,8 @@ export default function CommunityScreen() {
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [commentBusyIds, setCommentBusyIds] = useState<string[]>([]);
   const [sharedCounts, setSharedCounts] = useState<Record<string, number>>({});
+  const [shareTargetPost, setShareTargetPost] = useState<FeedPost | null>(null);
+  const [shareBusy, setShareBusy] = useState<"following" | "external" | "copy" | null>(null);
   const [feedNotice, setFeedNotice] = useState<string | null>(null);
   const [hashtagSearch, setHashtagSearch] = useState("");
   const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
@@ -711,7 +718,8 @@ export default function CommunityScreen() {
   }
 
   async function shareWithFollowing(postId: string) {
-    if (!session) return;
+    if (!session || shareBusy) return;
+    setShareBusy("following");
     setFeedNotice(null);
     try {
       const result = await api.sharePost(session.accessToken, postId);
@@ -721,8 +729,47 @@ export default function CommunityScreen() {
           ? `팔로잉 중인 친구 ${result.recipientCount}명의 공유함에 보냈습니다.`
           : "먼저 친구를 팔로우하면 해당 친구에게 기록을 공유할 수 있어요.",
       );
+      setShareTargetPost(null);
     } catch (caught) {
       setFeedNotice(caught instanceof Error ? caught.message : "공유하지 못했습니다.");
+    } finally {
+      setShareBusy(null);
+    }
+  }
+
+  async function shareExternally() {
+    if (!shareTargetPost || shareBusy) return;
+    setShareBusy("external");
+    setFeedNotice(null);
+    const post = shareTargetPost;
+    try {
+      const result = await Share.share({
+        title: `${post.authorDisplayName}님의 GROOV 기록`,
+        message: `${post.content}\n\n${publicPostUrl(post.id)}`,
+        url: publicPostUrl(post.id),
+      });
+      if (result.action === Share.dismissedAction) return;
+      setFeedNotice("외부 공유창에서 선택한 앱으로 기록을 공유했습니다.");
+      setShareTargetPost(null);
+    } catch (caught) {
+      setFeedNotice(caught instanceof Error ? caught.message : "외부 공유창을 열지 못했습니다.");
+    } finally {
+      setShareBusy(null);
+    }
+  }
+
+  async function copyShareLink() {
+    if (!shareTargetPost || shareBusy) return;
+    setShareBusy("copy");
+    setFeedNotice(null);
+    try {
+      await Clipboard.setStringAsync(publicPostUrl(shareTargetPost.id));
+      setFeedNotice("게시물 링크를 복사했습니다.");
+      setShareTargetPost(null);
+    } catch (caught) {
+      setFeedNotice(caught instanceof Error ? caught.message : "링크를 복사하지 못했습니다.");
+    } finally {
+      setShareBusy(null);
     }
   }
 
@@ -770,6 +817,97 @@ export default function CommunityScreen() {
       <Text style={styles.pageTitle}>함께 움직이는 중</Text>
       {notificationOpen ? <Text style={styles.notice}>새로운 피드 알림이 없습니다.</Text> : null}
       {feedNotice ? <Text style={styles.feedNotice}>{feedNotice}</Text> : null}
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => {
+          if (!shareBusy) setShareTargetPost(null);
+        }}
+        transparent
+        visible={shareTargetPost !== null}
+      >
+        <View style={styles.shareModalBackdrop}>
+          <View style={styles.shareModalCard}>
+            <Text style={styles.shareModalEyebrow}>SHARE RECORD</Text>
+            <Text style={styles.shareModalTitle}>어디로 공유할까요?</Text>
+            <Text numberOfLines={2} style={styles.shareModalPreview}>
+              {shareTargetPost
+                ? `${shareTargetPost.authorDisplayName} · ${sportLabels[shareTargetPost.sport]}  ${shareTargetPost.content}`
+                : ""}
+            </Text>
+
+            <View style={styles.shareOptionList}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={shareBusy !== null}
+                onPress={() => {
+                  if (shareTargetPost) void shareWithFollowing(shareTargetPost.id);
+                }}
+                style={({ pressed }) => [styles.shareOption, pressed && styles.shareOptionPressed]}
+              >
+                <View style={styles.shareOptionIcon}>
+                  <Users color={colors.primary} size={19} strokeWidth={2.1} />
+                </View>
+                <View style={styles.shareOptionCopy}>
+                  <Text style={styles.shareOptionTitle}>
+                    {shareBusy === "following" ? "보내는 중..." : "팔로잉 친구에게"}
+                  </Text>
+                  <Text style={styles.shareOptionMeta}>
+                    GROOV에서 팔로잉 중인 친구의 공유함으로 보냅니다.
+                  </Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                disabled={shareBusy !== null}
+                onPress={() => void shareExternally()}
+                style={({ pressed }) => [styles.shareOption, pressed && styles.shareOptionPressed]}
+              >
+                <View style={styles.shareOptionIcon}>
+                  <Share2 color={colors.primary} size={19} strokeWidth={2.1} />
+                </View>
+                <View style={styles.shareOptionCopy}>
+                  <Text style={styles.shareOptionTitle}>
+                    {shareBusy === "external" ? "공유창 여는 중..." : "카카오톡 · 외부 앱"}
+                  </Text>
+                  <Text style={styles.shareOptionMeta}>
+                    휴대폰 공유창에서 카카오톡 등 설치된 앱을 선택합니다.
+                  </Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                disabled={shareBusy !== null}
+                onPress={() => void copyShareLink()}
+                style={({ pressed }) => [styles.shareOption, pressed && styles.shareOptionPressed]}
+              >
+                <View style={styles.shareOptionIcon}>
+                  <Link2 color={colors.primary} size={19} strokeWidth={2.1} />
+                </View>
+                <View style={styles.shareOptionCopy}>
+                  <Text style={styles.shareOptionTitle}>
+                    {shareBusy === "copy" ? "복사 중..." : "링크 복사"}
+                  </Text>
+                  <Text style={styles.shareOptionMeta}>
+                    이 게시물로 연결되는 링크를 클립보드에 복사합니다.
+                  </Text>
+                </View>
+              </Pressable>
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              disabled={shareBusy !== null}
+              onPress={() => setShareTargetPost(null)}
+              style={styles.shareModalCancel}
+            >
+              <Text style={styles.shareModalCancelText}>취소</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         animationType="fade"
@@ -1315,8 +1453,12 @@ export default function CommunityScreen() {
                 <Text style={styles.actionCount}>{post.comments.length}</Text>
               </Pressable>
               <Pressable
+                accessibilityLabel="공유 방법 선택"
                 accessibilityRole="button"
-                onPress={() => void shareWithFollowing(post.id)}
+                onPress={() => {
+                  setFeedNotice(null);
+                  setShareTargetPost(post);
+                }}
                 style={styles.action}
               >
                 <Send color={colors.ink} size={20} strokeWidth={2} />
@@ -1544,6 +1686,10 @@ function relativeTime(value: string) {
   return `${Math.floor(elapsedSeconds / 86_400)}일 전`;
 }
 
+function publicPostUrl(postId: string) {
+  return `https://moveall-mvp.longrun0000.chatgpt.site/community?post=${encodeURIComponent(postId)}`;
+}
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     pageTitle: { color: colors.ink, fontSize: 20, fontFamily: fonts.bold },
@@ -1558,6 +1704,70 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: 12,
       paddingVertical: 9,
     },
+    shareModalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.76)",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 20,
+    },
+    shareModalCard: {
+      width: "100%",
+      maxWidth: 420,
+      borderRadius: radius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      padding: 20,
+      gap: 12,
+    },
+    shareModalEyebrow: { color: colors.primary, fontSize: 8, fontFamily: fonts.bold },
+    shareModalTitle: { color: colors.ink, fontSize: 20, fontFamily: fonts.displayExtra },
+    shareModalPreview: {
+      color: colors.muted,
+      fontSize: 10,
+      lineHeight: 17,
+      paddingBottom: 2,
+    },
+    shareOptionList: { gap: 8 },
+    shareOption: {
+      minHeight: 68,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    shareOptionPressed: { opacity: 0.68 },
+    shareOptionIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.primarySoft,
+    },
+    shareOptionCopy: { flex: 1 },
+    shareOptionTitle: { color: colors.ink, fontSize: 11, fontFamily: fonts.bold },
+    shareOptionMeta: {
+      color: colors.muted,
+      fontSize: 8,
+      lineHeight: 13,
+      marginTop: 3,
+    },
+    shareModalCancel: {
+      minHeight: 44,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    shareModalCancelText: { color: colors.muted, fontSize: 10, fontFamily: fonts.bold },
     goalModalBackdrop: {
       flex: 1,
       backgroundColor: "rgba(0,0,0,0.72)",
