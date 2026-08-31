@@ -31,7 +31,8 @@ export default function GoalsScreen() {
       </Pressable>
       <Text style={styles.heading}>존중에서 시작한 목표</Text>
       <Text style={styles.intro}>
-        다른 사람의 기록을 목표로 저장했습니다. 달성 기록이 생기면 직접 완료로 표시할 수 있어요.
+        다른 사람의 기록을 목표로 저장했습니다. 기준을 충족한 새 운동 기록이 생기면 자동으로 달성
+        처리됩니다.
       </Text>
       {goals.map((goal) => (
         <View key={goal.id} style={[styles.card, goal.achieved && styles.cardDone]}>
@@ -43,6 +44,7 @@ export default function GoalsScreen() {
             <Text style={styles.visibility}>{goal.private ? "비공개 도전" : "공개 도전"}</Text>
           </View>
           <Text style={styles.content}>{goal.content}</Text>
+          {goal.target ? <Text style={styles.target}>달성 기준 · {goal.target.label}</Text> : null}
           <View style={styles.actions}>
             <Pressable
               disabled={goal.achieved}
@@ -100,6 +102,7 @@ function createStyles(colors: ThemeColors) {
     author: { color: colors.ink, fontSize: 15, fontFamily: fonts.bold, marginTop: 3 },
     visibility: { color: colors.muted, fontSize: 8, fontFamily: fonts.semibold },
     content: { color: colors.ink, fontSize: 12, lineHeight: 19 },
+    target: { color: colors.primary, fontSize: 9, fontFamily: fonts.bold },
     actions: { flexDirection: "row", gap: 8 },
     primary: {
       flex: 1,

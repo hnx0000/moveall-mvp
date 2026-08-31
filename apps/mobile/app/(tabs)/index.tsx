@@ -9,6 +9,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Modal,
   PanResponder,
   Platform,
   Pressable,
@@ -24,7 +25,7 @@ import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { LiveWorkoutRecorder } from "../../src/components/live-workout-recorder";
 import { BellButton, Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
-import { markRecordGoalAchieved, readRecordGoals } from "../../src/goals";
+import { markRecordGoalAchieved, readRecordGoals, workoutMeetsRecordGoal } from "../../src/goals";
 import { useAsyncData } from "../../src/hooks/use-async-data";
 import { fonts, radius, shadows, space, typography, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
@@ -127,12 +128,7 @@ export default function HomeScreen() {
       readRecordGoals()
         .filter(
           (goal) =>
-            !goal.achieved &&
-            nextWorkouts.some(
-              (workout) =>
-                workout.sport === goal.sport &&
-                Date.parse(workout.endedAt) >= Date.parse(goal.createdAt),
-            ),
+            !goal.achieved && nextWorkouts.some((workout) => workoutMeetsRecordGoal(goal, workout)),
         )
         .forEach((goal) => markRecordGoalAchieved(goal.id));
     } catch {
@@ -763,38 +759,52 @@ export default function HomeScreen() {
           </Card>
         ) : null}
 
-        {pendingDeleteWorkout ? (
-          <Card style={styles.recordDeleteConfirm}>
-            <View style={styles.recordDeleteCopy}>
+        <Modal
+          animationType="fade"
+          onRequestClose={() => {
+            if (!savingRecordAction) setPendingDeleteWorkout(null);
+          }}
+          transparent
+          visible={pendingDeleteWorkout !== null}
+        >
+          <View style={styles.recordDeleteBackdrop}>
+            <View style={styles.recordDeleteConfirm}>
+              <Text style={styles.recordDeleteEyebrow}>DELETE RECORD</Text>
               <Text style={styles.recordDeleteTitle}>이 기록을 제거할까요?</Text>
-              <Text numberOfLines={1} style={styles.recordDeleteText}>
-                {pendingDeleteWorkout.notes ?? sportLabels[pendingDeleteWorkout.sport]}
+              <Text numberOfLines={2} style={styles.recordDeleteText}>
+                {pendingDeleteWorkout
+                  ? `${formatHistoryDate(pendingDeleteWorkout.endedAt)} · ${pendingDeleteWorkout.notes ?? sportLabels[pendingDeleteWorkout.sport]}`
+                  : ""}
               </Text>
+              <Text style={styles.recordDeleteWarning}>제거한 기록은 다시 복구할 수 없습니다.</Text>
+              {recordActionError ? (
+                <Text style={styles.recordActionError}>{recordActionError}</Text>
+              ) : null}
+              <View style={styles.recordDeleteActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={savingRecordAction}
+                  onPress={() => setPendingDeleteWorkout(null)}
+                  style={[styles.recordDeleteCancel, savingRecordAction && styles.actionDisabled]}
+                >
+                  <Text style={styles.recordDeleteCancelText}>취소</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={savingRecordAction}
+                  onPress={() => void deleteWorkout()}
+                  style={[styles.recordDeleteButton, savingRecordAction && styles.actionDisabled]}
+                >
+                  <Text style={styles.recordDeleteButtonText}>
+                    {savingRecordAction ? "제거 중" : "기록 제거"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
-            <View style={styles.recordDeleteActions}>
-              <Pressable
-                accessibilityRole="button"
-                disabled={savingRecordAction}
-                onPress={() => setPendingDeleteWorkout(null)}
-                style={styles.recordDeleteCancel}
-              >
-                <Text style={styles.recordDeleteCancelText}>취소</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                disabled={savingRecordAction}
-                onPress={() => void deleteWorkout()}
-                style={[styles.recordDeleteButton, savingRecordAction && styles.actionDisabled]}
-              >
-                <Text style={styles.recordDeleteButtonText}>
-                  {savingRecordAction ? "제거 중" : "제거 확정"}
-                </Text>
-              </Pressable>
-            </View>
-          </Card>
-        ) : null}
+          </View>
+        </Modal>
 
-        {recordActionError ? (
+        {recordActionError && !pendingDeleteWorkout ? (
           <Text style={styles.recordActionError}>{recordActionError}</Text>
         ) : null}
       </View>
@@ -1539,28 +1549,59 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.primary,
     },
     recordSaveButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
-    recordDeleteConfirm: {
-      padding: space[4],
-      flexDirection: "row",
+    recordDeleteBackdrop: {
+      flex: 1,
       alignItems: "center",
-      gap: space[3],
-      borderColor: colors.border,
+      justifyContent: "center",
+      padding: space[5],
+      backgroundColor: "rgba(0, 0, 0, 0.72)",
     },
-    recordDeleteCopy: { flex: 1, minWidth: 0 },
-    recordDeleteTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 12 },
-    recordDeleteText: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9, marginTop: 4 },
+    recordDeleteConfirm: {
+      width: "100%",
+      maxWidth: 390,
+      padding: space[5],
+      gap: space[3],
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.xl,
+      backgroundColor: colors.surface,
+      ...shadows.card,
+    },
+    recordDeleteEyebrow: {
+      color: colors.danger,
+      fontFamily: fonts.bold,
+      fontSize: 8,
+      letterSpacing: 1,
+    },
+    recordDeleteTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 19 },
+    recordDeleteText: {
+      color: colors.muted,
+      fontFamily: fonts.regular,
+      fontSize: 10,
+      lineHeight: 16,
+    },
+    recordDeleteWarning: { color: colors.danger, fontFamily: fonts.medium, fontSize: 9 },
     recordDeleteActions: { flexDirection: "row", alignItems: "center", gap: space[2] },
-    recordDeleteCancel: { paddingHorizontal: 6, paddingVertical: 10 },
-    recordDeleteCancelText: { color: colors.muted, fontFamily: fonts.bold, fontSize: 9 },
+    recordDeleteCancel: {
+      minHeight: 42,
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.full,
+      backgroundColor: colors.surfaceMuted,
+    },
+    recordDeleteCancelText: { color: colors.ink, fontFamily: fonts.bold, fontSize: 10 },
     recordDeleteButton: {
-      minHeight: 36,
-      paddingHorizontal: 12,
+      minHeight: 42,
+      flex: 1.4,
       alignItems: "center",
       justifyContent: "center",
       borderRadius: radius.full,
-      backgroundColor: colors.primary,
+      backgroundColor: colors.danger,
     },
-    recordDeleteButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 9 },
+    recordDeleteButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
     recordActionError: { color: colors.danger, fontFamily: fonts.medium, fontSize: 10 },
     actionDisabled: { opacity: 0.55 },
     pressed: { opacity: 0.72 },

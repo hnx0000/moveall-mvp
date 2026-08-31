@@ -16,6 +16,12 @@ import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { Card, Screen, StatePanel } from "../../src/components/ui";
 import { useAsyncData } from "../../src/hooks/use-async-data";
+import {
+  isNeighborhoodVerificationValid,
+  neighborhoodVerificationDaysRemaining,
+  readNeighborhoodPreferences,
+  saveNeighborhoodPreferences,
+} from "../../src/neighborhood-preferences";
 import { fonts, radius, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
@@ -259,6 +265,27 @@ export default function KnowledgeScreen() {
   const [titleError, setTitleError] = useState<string | null>(null);
   const currentSeason = useMemo(() => seasonForDate(), []);
 
+  useEffect(() => {
+    let active = true;
+    void readNeighborhoodPreferences().then((saved) => {
+      if (!active || !saved) return;
+      const valid = isNeighborhoodVerificationValid(saved.verifiedAt);
+      const daysRemaining = neighborhoodVerificationDaysRemaining(saved.verifiedAt);
+      setNeighborhood(saved.neighborhood);
+      setVerified(valid);
+      setCustomTitle(saved.title);
+      setTitleDraft(saved.title);
+      setVerificationMessage(
+        valid
+          ? `GPS 위치 인증 완료 · ${daysRemaining}일 남음`
+          : "위치 인증이 만료됐습니다. GPS로 다시 인증해 주세요.",
+      );
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const knowledgeLoader = useCallback(async () => {
     if (knowledgeFilter !== "all") return api.knowledge(knowledgeFilter);
     const groups = await Promise.all(sportValues.map((sport) => api.knowledge(sport)));
@@ -294,10 +321,16 @@ export default function KnowledgeScreen() {
       });
       const addresses = await Location.reverseGeocodeAsync(position.coords);
       const verifiedNeighborhood = neighborhoodFromAddress(addresses[0]);
+      const verifiedAt = new Date().toISOString();
       setNeighborhood(verifiedNeighborhood);
       setVerified(true);
       setVerificationMessage("GPS 위치 인증 완료 · 30일 남음");
       setNotice(`${verifiedNeighborhood} 리그에 입장했습니다.`);
+      await saveNeighborhoodPreferences({
+        neighborhood: verifiedNeighborhood,
+        title: customTitle,
+        verifiedAt,
+      });
     } catch {
       setVerified(false);
       setVerificationMessage("현재 위치를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
@@ -332,7 +365,7 @@ export default function KnowledgeScreen() {
     );
   }
 
-  function saveTitle() {
+  async function saveTitle() {
     const next = titleDraft.trim();
     const blockedWords = ["바보", "멍청", "선거", "정당", "대통령", "혐오"];
     if (!/^[0-9A-Za-z가-힣 ]{2,18}$/.test(next)) {
@@ -346,6 +379,24 @@ export default function KnowledgeScreen() {
     setCustomTitle(next);
     setTitleError(null);
     setNotice(`${neighborhood} ${next} 타이틀로 변경했습니다.`);
+    const saved = await readNeighborhoodPreferences();
+    await saveNeighborhoodPreferences({
+      neighborhood,
+      title: next,
+      verifiedAt: saved?.verifiedAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    });
+  }
+
+  async function chooseTitle(title: string) {
+    setTitleDraft(title);
+    setCustomTitle(title);
+    setTitleError(null);
+    const saved = await readNeighborhoodPreferences();
+    await saveNeighborhoodPreferences({
+      neighborhood,
+      title,
+      verifiedAt: saved?.verifiedAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    });
   }
 
   const filters: Array<{ id: KnowledgeFilter; label: string }> = [
@@ -414,11 +465,7 @@ export default function KnowledgeScreen() {
             {titleOptions.map((title) => (
               <Pressable
                 key={title}
-                onPress={() => {
-                  setTitleDraft(title);
-                  setCustomTitle(title);
-                  setTitleError(null);
-                }}
+                onPress={() => void chooseTitle(title)}
                 style={[styles.titleOption, customTitle === title && styles.titleOptionActive]}
               >
                 <Text
@@ -445,7 +492,7 @@ export default function KnowledgeScreen() {
             style={styles.titleInput}
             value={titleDraft}
           />
-          <Pressable onPress={saveTitle} style={styles.titleSaveButton}>
+          <Pressable onPress={() => void saveTitle()} style={styles.titleSaveButton}>
             <Text style={styles.titleSaveText}>변경</Text>
           </Pressable>
         </View>
