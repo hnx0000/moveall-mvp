@@ -1,5 +1,6 @@
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
+import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -148,10 +149,20 @@ export default function LoginScreen() {
               </Text>
             </View>
           ) : null}
-          <Text style={styles.legal}>
-            계속하면 GROOV의 이용 정책과 개인정보 처리 원칙에 동의하게 됩니다. Google 비밀번호는
-            GROOV 서버에 전달되거나 저장되지 않습니다.
-          </Text>
+          <View style={styles.legalBlock}>
+            <Text style={styles.legal}>
+              계속하면 필수 정책에 동의하게 됩니다. Google 비밀번호는 GROOV 서버에 전달되거나
+              저장되지 않습니다.
+            </Text>
+            <View style={styles.legalLinks}>
+              <Link href="/legal/terms" style={styles.legalLink}>
+                이용약관
+              </Link>
+              <Link href="/legal/privacy" style={styles.legalLink}>
+                개인정보 처리방침
+              </Link>
+            </View>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -275,6 +286,9 @@ function createStyles(colors: ThemeColors) {
     },
     configTitle: { color: colors.ink, fontSize: 10, fontWeight: "900" },
     configText: { color: colors.muted, fontSize: 9, lineHeight: 15 },
-    legal: { color: colors.muted, fontSize: 8, lineHeight: 14, marginTop: 2 },
+    legalBlock: { gap: 8, marginTop: 2 },
+    legal: { color: colors.muted, fontSize: 8, lineHeight: 14 },
+    legalLinks: { flexDirection: "row", gap: 14 },
+    legalLink: { color: colors.primary, fontSize: 9, fontWeight: "800" },
   });
 }

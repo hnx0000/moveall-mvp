@@ -2,15 +2,20 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import {
+  AccountDeletionInputSchema,
   CommentCreateInputSchema,
+  ConsentUpdateInputSchema,
   DirectMessageCreateInputSchema,
   GoogleLoginInputSchema,
   KnowledgeFeedbackCreateInputSchema,
   LoginInputSchema,
+  MediaUploadRequestInputSchema,
+  PasswordChangeInputSchema,
   PostCreateInputSchema,
   PostUpdateInputSchema,
   ProfileUpdateInputSchema,
   RegisterInputSchema,
+  RefreshSessionInputSchema,
   RoutineCreateInputSchema,
   RoutineReorderInputSchema,
   RoutineUpdateInputSchema,
@@ -25,6 +30,7 @@ import { z, ZodError } from "zod";
 import type { AppConfig } from "./config.js";
 import { AppError } from "./domain/errors.js";
 import type { AppStore, User } from "./domain/store.js";
+import { DisabledMediaStorage, type MediaStorage } from "./infrastructure/media-storage.js";
 import { knowledgeArticles, sports } from "./knowledge.js";
 import { medalsFor } from "./medals.js";
 import { verifyGoogleIdToken, type GoogleTokenVerifier } from "./security/google-identity.js";
@@ -36,6 +42,7 @@ type AppDependencies = {
   store: AppStore;
   logger?: boolean | Record<string, unknown>;
   googleTokenVerifier?: GoogleTokenVerifier;
+  mediaStorage?: MediaStorage;
 };
 
 function success<T>(data: T): ApiSuccess<T> {
@@ -49,6 +56,7 @@ export async function createApp(dependencies: AppDependencies) {
   });
   const tokenService = new TokenService(dependencies.config.authSecret);
   const googleTokenVerifier = dependencies.googleTokenVerifier ?? verifyGoogleIdToken;
+  const mediaStorage = dependencies.mediaStorage ?? new DisabledMediaStorage();
 
   await app.register(helmet);
   await app.register(cors, {
@@ -60,15 +68,46 @@ export async function createApp(dependencies: AppDependencies) {
     timeWindow: "1 minute",
   });
 
-  async function currentUser(request: FastifyRequest): Promise<User> {
+  async function currentIdentity(
+    request: FastifyRequest,
+  ): Promise<{ user: User; sessionId: string }> {
     const header = request.headers.authorization;
     if (!header?.startsWith("Bearer ")) {
       throw new AppError(401, "AUTH_REQUIRED", "로그인이 필요합니다.");
     }
-    const userId = await tokenService.verify(header.slice(7));
-    const userById = await dependencies.store.findUserById(userId);
+    const identity = await tokenService.verifyAccessToken(header.slice(7));
+    const session = await dependencies.store.findAuthSessionById(identity.sessionId);
+    if (
+      !session ||
+      session.userId !== identity.userId ||
+      session.revokedAt ||
+      Date.parse(session.expiresAt) <= Date.now()
+    ) {
+      throw new AppError(401, "AUTH_SESSION_EXPIRED", "로그인 세션이 만료되었습니다.");
+    }
+    const userById = await dependencies.store.findUserById(identity.userId);
     if (!userById) throw new AppError(401, "AUTH_INVALID", "사용자를 찾을 수 없습니다.");
-    return userById;
+    return { user: userById, sessionId: identity.sessionId };
+  }
+
+  async function currentUser(request: FastifyRequest): Promise<User> {
+    return (await currentIdentity(request)).user;
+  }
+
+  async function issueSession(user: User) {
+    const refreshToken = tokenService.createRefreshToken();
+    const expiresAt = new Date(Date.now() + 30 * 86_400_000).toISOString();
+    const authSession = await dependencies.store.createAuthSession({
+      userId: user.id,
+      refreshTokenHash: tokenService.hashRefreshToken(refreshToken),
+      expiresAt,
+    });
+    return {
+      accessToken: await tokenService.signAccessToken(user.id, authSession.id),
+      refreshToken,
+      accessTokenExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+      user: { id: user.id, email: user.email, displayName: user.displayName },
+    };
   }
 
   async function seedDevelopmentAccount(user: User): Promise<void> {
@@ -257,13 +296,7 @@ export async function createApp(dependencies: AppDependencies) {
         displayName: input.displayName,
         passwordHash: await hashPassword(input.password),
       });
-      const accessToken = await tokenService.sign(user.id);
-      return reply.status(201).send(
-        success({
-          accessToken,
-          user: { id: user.id, email: user.email, displayName: user.displayName },
-        }),
-      );
+      return reply.status(201).send(success(await issueSession(user)));
     },
   );
 
@@ -280,10 +313,7 @@ export async function createApp(dependencies: AppDependencies) {
         provider: "google",
         ...identity,
       });
-      return success({
-        accessToken: await tokenService.sign(user.id),
-        user: { id: user.id, email: user.email, displayName: user.displayName },
-      });
+      return success(await issueSession(user));
     },
   );
 
@@ -302,10 +332,7 @@ export async function createApp(dependencies: AppDependencies) {
           });
           await seedDevelopmentAccount(user);
         }
-        return success({
-          accessToken: await tokenService.sign(user.id),
-          user: { id: user.id, email: user.email, displayName: user.displayName },
-        });
+        return success(await issueSession(user));
       },
     );
   }
@@ -313,6 +340,42 @@ export async function createApp(dependencies: AppDependencies) {
   app.get("/v1/auth/me", async (request) => {
     const user = await currentUser(request);
     return success({ id: user.id, email: user.email, displayName: user.displayName });
+  });
+
+  app.post(
+    "/v1/auth/refresh",
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (request) => {
+      const input = RefreshSessionInputSchema.parse(request.body);
+      const current = await dependencies.store.findAuthSessionByRefreshTokenHash(
+        tokenService.hashRefreshToken(input.refreshToken),
+      );
+      if (!current || current.revokedAt || Date.parse(current.expiresAt) <= Date.now()) {
+        throw new AppError(401, "REFRESH_TOKEN_INVALID", "다시 로그인해 주세요.");
+      }
+      const user = await dependencies.store.findUserById(current.userId);
+      if (!user) throw new AppError(401, "AUTH_INVALID", "사용자를 찾을 수 없습니다.");
+      const refreshToken = tokenService.createRefreshToken();
+      const expiresAt = new Date(Date.now() + 30 * 86_400_000).toISOString();
+      const rotated = await dependencies.store.rotateAuthSession({
+        sessionId: current.id,
+        refreshTokenHash: tokenService.hashRefreshToken(refreshToken),
+        expiresAt,
+      });
+      if (!rotated) throw new AppError(401, "REFRESH_TOKEN_INVALID", "다시 로그인해 주세요.");
+      return success({
+        accessToken: await tokenService.signAccessToken(user.id, rotated.id),
+        refreshToken,
+        accessTokenExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+        user: { id: user.id, email: user.email, displayName: user.displayName },
+      });
+    },
+  );
+
+  app.post("/v1/auth/logout", async (request) => {
+    const identity = await currentIdentity(request);
+    await dependencies.store.revokeAuthSession(identity.sessionId);
+    return success({ loggedOut: true as const });
   });
 
   app.get("/v1/users/me/profile", async (request) => {
@@ -362,12 +425,107 @@ export async function createApp(dependencies: AppDependencies) {
         throw new AppError(401, "LOGIN_FAILED", "이메일 또는 비밀번호가 올바르지 않습니다.");
       }
 
-      return success({
-        accessToken: await tokenService.sign(user.id),
-        user: { id: user.id, email: user.email, displayName: user.displayName },
-      });
+      return success(await issueSession(user));
     },
   );
+
+  app.get("/v1/account/sessions", async (request) => {
+    const identity = await currentIdentity(request);
+    return success(
+      (await dependencies.store.listAuthSessions(identity.user.id)).map((session) => ({
+        id: session.id,
+        createdAt: session.createdAt,
+        lastSeenAt: session.lastSeenAt,
+        expiresAt: session.expiresAt,
+        current: session.id === identity.sessionId,
+      })),
+    );
+  });
+
+  app.delete("/v1/account/sessions/:sessionId", async (request) => {
+    const identity = await currentIdentity(request);
+    const parameters = z.object({ sessionId: z.uuid() }).parse(request.params);
+    const sessions = await dependencies.store.listAuthSessions(identity.user.id);
+    if (!sessions.some((session) => session.id === parameters.sessionId)) {
+      throw new AppError(404, "SESSION_NOT_FOUND", "로그인 세션을 찾을 수 없습니다.");
+    }
+    await dependencies.store.revokeAuthSession(parameters.sessionId);
+    return success({ revoked: true as const });
+  });
+
+  app.put("/v1/account/password", async (request) => {
+    const user = await currentUser(request);
+    const input = PasswordChangeInputSchema.parse(request.body);
+    if (!user.passwordHash) {
+      throw new AppError(400, "PASSWORD_NOT_SET", "Google 계정에는 별도 비밀번호가 없습니다.");
+    }
+    if (!(await verifyPassword(user.passwordHash, input.currentPassword))) {
+      throw new AppError(401, "PASSWORD_INVALID", "현재 비밀번호가 올바르지 않습니다.");
+    }
+    if (await verifyPassword(user.passwordHash, input.newPassword)) {
+      throw new AppError(400, "PASSWORD_REUSED", "기존과 다른 비밀번호를 사용해 주세요.");
+    }
+    await dependencies.store.updatePassword(user.id, await hashPassword(input.newPassword));
+    return success(await issueSession((await dependencies.store.findUserById(user.id))!));
+  });
+
+  app.delete("/v1/account", async (request) => {
+    const user = await currentUser(request);
+    const input = AccountDeletionInputSchema.parse(request.body);
+    if (user.passwordHash) {
+      if (
+        !input.currentPassword ||
+        !(await verifyPassword(user.passwordHash, input.currentPassword))
+      ) {
+        throw new AppError(401, "PASSWORD_INVALID", "현재 비밀번호를 확인해 주세요.");
+      }
+    }
+    const media = await dependencies.store.listMediaObjects(user.id);
+    for (const item of media) await mediaStorage.removeObject(item.objectPath);
+    if (!(await dependencies.store.deleteUserAccount(user.id))) {
+      throw new AppError(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.");
+    }
+    return success({ deleted: true as const });
+  });
+
+  app.get("/v1/consents/me", async (request) => {
+    const user = await currentUser(request);
+    return success(await dependencies.store.getConsent(user.id));
+  });
+
+  app.put("/v1/consents/me", async (request) => {
+    const user = await currentUser(request);
+    const input = ConsentUpdateInputSchema.parse(request.body);
+    return success(await dependencies.store.saveConsent(user.id, input));
+  });
+
+  app.post("/v1/media/upload-ticket", async (request, reply) => {
+    const user = await currentUser(request);
+    const input = MediaUploadRequestInputSchema.parse(request.body);
+    const ticket = await mediaStorage.createUploadTicket({
+      userId: user.id,
+      kind: input.kind,
+      contentType: input.contentType,
+    });
+    const media = await dependencies.store.createMediaObject({
+      userId: user.id,
+      provider: "supabase",
+      bucket: mediaStorage.bucket,
+      objectPath: ticket.objectPath,
+      kind: input.kind,
+      contentType: input.contentType,
+      byteSize: input.byteSize,
+    });
+    return reply.status(201).send(success({ ...ticket, mediaId: media.id }));
+  });
+
+  app.post("/v1/media/:mediaId/complete", async (request) => {
+    const user = await currentUser(request);
+    const parameters = z.object({ mediaId: z.uuid() }).parse(request.params);
+    const media = await dependencies.store.markMediaObjectAvailable(user.id, parameters.mediaId);
+    if (!media) throw new AppError(404, "MEDIA_NOT_FOUND", "업로드 항목을 찾을 수 없습니다.");
+    return success({ id: media.id, status: media.status, objectPath: media.objectPath });
+  });
 
   app.get("/v1/sports", async () => success(sports));
 

@@ -3,13 +3,17 @@ import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import type { AppStore } from "./domain/store.js";
 import { MemoryStore } from "./infrastructure/memory-store.js";
+import { DisabledMediaStorage, SupabaseMediaStorage } from "./infrastructure/media-storage.js";
 import { PostgresStore } from "./infrastructure/postgres-store.js";
 
 const config = loadConfig();
 
 function createStore(): AppStore {
   if (config.dataStore === "postgres") {
-    return new PostgresStore(config.databaseUrl!);
+    return new PostgresStore(config.databaseUrl!, {
+      maxConnections: config.databaseMaxConnections,
+      ssl: config.databaseSsl,
+    });
   }
   return new MemoryStore({ seedDemo: config.nodeEnv === "development" });
 }
@@ -17,6 +21,14 @@ function createStore(): AppStore {
 const app = await createApp({
   config,
   store: createStore(),
+  mediaStorage:
+    config.mediaStorage === "supabase"
+      ? new SupabaseMediaStorage(
+          config.supabaseUrl!,
+          config.supabaseServiceRoleKey!,
+          config.supabaseMediaBucket,
+        )
+      : new DisabledMediaStorage(),
   logger: {
     level: config.nodeEnv === "production" ? "info" : "debug",
     redact: {

@@ -8,9 +8,13 @@ const config: AppConfig = {
   host: "127.0.0.1",
   port: 3000,
   dataStore: "memory",
+  databaseMaxConnections: 5,
+  databaseSsl: false,
   authSecret: "test-secret-that-is-at-least-32-characters",
   googleClientIds: ["test-google-client.apps.googleusercontent.com"],
   devAuthBypass: false,
+  mediaStorage: "disabled",
+  supabaseMediaBucket: "groov-media",
   corsOrigins: ["http://localhost:8081"],
 };
 
@@ -557,6 +561,154 @@ describe("GROOV API", () => {
       ok: false,
       error: { code: "ARTICLE_NOT_FOUND" },
     });
+    await app.close();
+  });
+
+  it("rotates refresh tokens and revokes the active session on logout", async () => {
+    const app = await createApp({ config, store });
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "session@example.com",
+        password: "very-secure-1234",
+        displayName: "세션러너",
+      },
+    });
+    const original = registration.json().data as {
+      accessToken: string;
+      refreshToken: string;
+    };
+    const refreshed = await app.inject({
+      method: "POST",
+      url: "/v1/auth/refresh",
+      payload: { refreshToken: original.refreshToken },
+    });
+    expect(refreshed.statusCode).toBe(200);
+    expect(refreshed.json().data.refreshToken).not.toBe(original.refreshToken);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/v1/auth/refresh",
+          payload: { refreshToken: original.refreshToken },
+        })
+      ).statusCode,
+    ).toBe(401);
+
+    const accessToken = refreshed.json().data.accessToken as string;
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/v1/auth/logout",
+          headers: { authorization: `Bearer ${accessToken}` },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/v1/auth/me",
+          headers: { authorization: `Bearer ${accessToken}` },
+        })
+      ).statusCode,
+    ).toBe(401);
+    await app.close();
+  });
+
+  it("stores consent choices and permanently deletes the account", async () => {
+    const app = await createApp({ config, store });
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "privacy@example.com",
+        password: "very-secure-1234",
+        displayName: "개인정보러너",
+      },
+    });
+    const token = registration.json().data.accessToken as string;
+    const headers = { authorization: `Bearer ${token}` };
+    const consent = await app.inject({
+      method: "PUT",
+      url: "/v1/consents/me",
+      headers,
+      payload: {
+        termsVersion: "2026-09-02",
+        privacyVersion: "2026-09-02",
+        termsAccepted: true,
+        privacyAccepted: true,
+        healthDataAccepted: true,
+        locationAccepted: true,
+        mediaAccepted: false,
+        marketingAccepted: false,
+      },
+    });
+    expect(consent.json()).toMatchObject({
+      ok: true,
+      data: { healthDataAccepted: true, mediaAccepted: false },
+    });
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: "/v1/account",
+      headers,
+      payload: { confirmation: "GROOV 탈퇴", currentPassword: "very-secure-1234" },
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/v1/auth/me", headers })).statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("creates a server-scoped Supabase media upload ticket", async () => {
+    const app = await createApp({
+      config,
+      store,
+      mediaStorage: {
+        provider: "supabase",
+        bucket: "groov-media",
+        createUploadTicket: async ({ userId, kind }) => ({
+          objectPath: `${userId}/${kind}/photo.jpg`,
+          signedUploadUrl: "https://storage.example/upload?token=signed",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }),
+        removeObject: async () => undefined,
+      },
+    });
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "media@example.com",
+        password: "very-secure-1234",
+        displayName: "미디어러너",
+      },
+    });
+    const headers = {
+      authorization: `Bearer ${registration.json().data.accessToken as string}`,
+    };
+    const ticket = await app.inject({
+      method: "POST",
+      url: "/v1/media/upload-ticket",
+      headers,
+      payload: { kind: "story-image", contentType: "image/jpeg", byteSize: 2048 },
+    });
+    expect(ticket.statusCode).toBe(201);
+    expect(ticket.json()).toMatchObject({
+      ok: true,
+      data: {
+        objectPath: expect.stringContaining("/story-image/"),
+        signedUploadUrl: expect.stringContaining("token=signed"),
+      },
+    });
+    const completed = await app.inject({
+      method: "POST",
+      url: `/v1/media/${ticket.json().data.mediaId as string}/complete`,
+      headers,
+    });
+    expect(completed.json()).toMatchObject({ ok: true, data: { status: "available" } });
     await app.close();
   });
 });

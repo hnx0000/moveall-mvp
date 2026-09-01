@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GROOV 개발 · 출시 대시보드</title>
+<style>
+  :root{
+    --bg:#0b1016;
+    --panel:#111821;
+    --panel2:#151f2a;
+    --line:#273342;
+    --text:#f5f7fa;
+    --muted:#94a3b8;
+    --green:#42d392;
+    --amber:#f6b84a;
+    --red:#ff6b6b;
+    --blue:#6ea8fe;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family:Inter, Pretendard, "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background:
+      linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px),
+      var(--bg);
+    background-size:32px 32px;
+    color:var(--text);
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 18px 56px}
+  .top{
+    display:flex;align-items:flex-end;justify-content:space-between;gap:18px;
+    margin-bottom:18px;
+  }
+  h1{font-size:30px;margin:0 0 8px;letter-spacing:-.6px}
+  .sub{color:var(--muted);font-size:14px;line-height:1.6}
+  .badge{border:1px solid #2f5d49;background:#103327;color:#8ef0bd;padding:8px 12px;border-radius:999px;font-size:13px;white-space:nowrap}
+  .hero{
+    display:grid;grid-template-columns:1.2fr .8fr;gap:16px;margin:18px 0;
+  }
+  .card{
+    background:linear-gradient(180deg,rgba(255,255,255,.025),rgba(255,255,255,.012));
+    border:1px solid var(--line);border-radius:20px;padding:18px;
+    box-shadow:0 14px 40px rgba(0,0,0,.18);
+  }
+  .scorebox{display:flex;align-items:center;gap:18px}
+  .donut{
+    width:122px;height:122px;border-radius:50%;
+    background:conic-gradient(var(--green) 0 52%, #24303d 52% 100%);
+    display:grid;place-items:center;flex:0 0 auto;
+  }
+  .donut:after{
+    content:"52%";
+    width:90px;height:90px;border-radius:50%;background:var(--panel);
+    display:grid;place-items:center;font-size:24px;font-weight:800;
+  }
+  .scoretitle{font-size:21px;font-weight:800;margin-bottom:8px}
+  .scoredesc{color:var(--muted);line-height:1.65;font-size:14px}
+  .stack{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .pill{font-size:12px;padding:7px 9px;border-radius:10px;background:#18222e;border:1px solid #2a3747;color:#cbd5e1}
+  .section-title{font-size:17px;font-weight:800;margin:22px 0 12px}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .module{cursor:pointer;transition:.18s ease}
+  .module:hover{transform:translateY(-2px);border-color:#3a4b60}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .name{font-size:16px;font-weight:800;display:flex;align-items:center;gap:9px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .green{background:var(--green)} .amber{background:var(--amber)} .red{background:var(--red)} .blue{background:var(--blue)}
+  .pct{font-size:18px;font-weight:800}
+  .bar{height:8px;background:#202b38;border-radius:999px;overflow:hidden;margin:13px 0 10px}
+  .fill{height:100%;border-radius:999px}
+  .meta{display:flex;justify-content:space-between;color:var(--muted);font-size:12px}
+  .detail{display:none;padding-top:12px;margin-top:12px;border-top:1px solid #273342;color:#c7d2df;font-size:13px;line-height:1.65}
+  .module.open .detail{display:block}
+  .kanban{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+  .kcol{padding:14px;border-radius:16px;border:1px solid var(--line);background:#101720}
+  .khead{font-weight:800;margin-bottom:10px}
+  .task{padding:10px 11px;border:1px solid #283545;border-radius:12px;background:#141d27;margin-top:8px;font-size:13px;line-height:1.45}
+  .task small{display:block;color:var(--muted);margin-top:5px}
+  .status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+  .status{padding:14px;border:1px solid var(--line);border-radius:14px;background:#101720}
+  .status b{display:block;font-size:21px;margin:5px 0 3px}
+  .status span{color:var(--muted);font-size:12px}
+  .footer{margin-top:26px;color:#77869a;font-size:12px;line-height:1.6}
+
+  .worklist{margin:18px 0 20px}
+  .worklist-head{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}
+  .worklist-title{font-size:18px;font-weight:800}
+  .worklist-toggle{font-size:12px;color:var(--muted);padding:7px 10px;border:1px solid var(--line);border-radius:10px}
+  .worklist-body{margin-top:14px}
+  .worklist.collapsed .worklist-body{display:none}
+  .tasktabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .tasktab{border:1px solid var(--line);background:#101720;color:#cbd5e1;border-radius:10px;padding:7px 10px;font-size:12px;cursor:pointer}
+  .tasktab.active{border-color:#5a6b7f;background:#18222e;color:#fff}
+  .todo-list{display:grid;gap:8px}
+  .todo-item{display:grid;grid-template-columns:auto 38px minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:11px 12px;border:1px solid #263342;border-radius:12px;background:#0f161f;transition:.15s ease}
+  .todo-item.done{opacity:.38;filter:saturate(.55)}
+  .todo-item.done .todo-title{text-decoration:line-through}
+  .drag{color:#5f6b7a;font-size:15px;user-select:none}
+  .order{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:#161f29;color:#f2a23a;font-weight:800;font-size:12px}
+  .todo-check{width:18px;height:18px;accent-color:#42d392;cursor:pointer}
+  .todo-title{font-size:13px;font-weight:700}
+  .todo-sub{display:block;color:var(--muted);font-size:11px;margin-top:3px;font-weight:500}
+  .todo-tag{font-size:11px;padding:6px 8px;border-radius:999px;background:#18222e;border:1px solid #263342;color:#c8d2dd;white-space:nowrap}
+  .todo-time{font-size:11px;color:#8e9aaa;white-space:nowrap}
+  .worklist-note{margin-top:10px;color:#748297;font-size:11px}
+  @media (max-width:720px){
+    .todo-item{grid-template-columns:auto 30px minmax(0,1fr);align-items:start}
+    .todo-tag,.todo-time{grid-column:3}
+  }
+
+  @media (max-width:820px){
+    .hero,.grid,.kanban,.status-grid{grid-template-columns:1fr}
+    .top{align-items:flex-start;flex-direction:column}
+    h1{font-size:25px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>GROOV 개발 · 출시 대시보드</h1>
+      <div class="sub">GitHub 저장소 <b>hnx0000/moveall-mvp</b> 기준 · 2026-09-01 진단 스냅샷</div>
+    </div>
+    <div class="badge">● Full-stack MVP</div>
+  </div>
+
+
+  <div class="card worklist" id="worklist">
+    <div class="worklist-head" onclick="toggleWorklist()">
+      <div>
+        <div class="worklist-title">지금 일처리를 해야 할 순서</div>
+        <div class="sub">우선순위 기준 · 체크하면 자동으로 흐리게 표시됩니다.</div>
+      </div>
+      <div class="worklist-toggle" id="worklistToggle">접기</div>
+    </div>
+    <div class="worklist-body">
+      <div class="tasktabs">
+        <button class="tasktab active" onclick="filterTodos('all', event)">전체</button>
+        <button class="tasktab" onclick="filterTodos('now', event)">지금</button>
+        <button class="tasktab" onclick="filterTodos('next', event)">다음</button>
+        <button class="tasktab" onclick="filterTodos('done', event)">완료</button>
+      </div>
+      <div class="todo-list" id="todoList">
+        <label class="todo-item" data-group="now">
+          <span class="drag">⋮⋮</span><span class="order">1</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">Supabase Free를 GROOV의 초기 PostgreSQL 운영 DB로 확정 · 연결</span><span class="todo-sub">MemoryStore → Supabase PostgreSQL 영속 DB 전환, DATABASE_URL/마이그레이션 적용</span></span>
+          <span class="todo-tag">백엔드·DB</span><span class="todo-time">최우선</span>
+        </label>
+        <label class="todo-item" data-group="now">
+          <span class="drag">⋮⋮</span><span class="order">2</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">회원가입·로그인·계정관리·보안 정리</span><span class="todo-sub">Google OAuth, 세션, 탈퇴/삭제, 비밀번호·계정 정책</span></span>
+          <span class="todo-tag">인증·보안</span><span class="todo-time">1~3일</span>
+        </label>
+        <label class="todo-item" data-group="now">
+          <span class="drag">⋮⋮</span><span class="order">3</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">환경변수와 운영 Secret 분리</span><span class="todo-sub">개발/테스트/운영 키 분리, GitHub 노출 방지</span></span>
+          <span class="todo-tag">환경설정</span><span class="todo-time">1일</span>
+        </label>
+        <label class="todo-item" data-group="now">
+          <span class="drag">⋮⋮</span><span class="order">4</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">개인정보처리방침·이용약관·동의 구조 초안</span><span class="todo-sub">회원정보, 운동/건강정보, 위치, 사진/영상, 삭제정책 포함</span></span>
+          <span class="todo-tag">법률·정책</span><span class="todo-time">3~5일</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">5</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">Health Connect / HealthKit 연동 어댑터 구현</span><span class="todo-sub">Android는 Health Connect, iOS는 HealthKit을 1차 허브로 사용</span></span>
+          <span class="todo-tag">웨어러블</span><span class="todo-time">1~2주</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">6</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">사진·영상 저장소 연결</span><span class="todo-sub">초기 Supabase Storage, 성장 시 Cloudflare R2로 미디어 분리</span></span>
+          <span class="todo-tag">미디어</span><span class="todo-time">약 1주</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">7</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">알림·신고·차단·관리자 기본 기능</span><span class="todo-sub">서비스 운영에 필요한 최소한의 안전/관리 기능</span></span>
+          <span class="todo-tag">운영기능</span><span class="todo-time">2~3주</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">8</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">앱 신분증 확정 및 인증서/서명 준비</span><span class="todo-sub">Bundle ID, Android Package, 앱명, 도메인, 개발자 계정</span></span>
+          <span class="todo-tag">출시준비</span><span class="todo-time">1~2주</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">9</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">Development Build 및 실기기 테스트</span><span class="todo-sub">GPS, 카메라, 로그인, 권한, 백그라운드, 웨어러블 데이터 검증</span></span>
+          <span class="todo-tag">QA</span><span class="todo-time">2~3주</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">10</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">스토어 개인정보 공개·테스트·심사 제출</span><span class="todo-sub">정책/권한 고지, 테스트 요건 재확인, 심사 메타데이터 작성</span></span>
+          <span class="todo-tag">심사·출시</span><span class="todo-time">마지막 단계</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">11</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">Sign in with Apple 및 iOS 로그인 정책 대응</span><span class="todo-sub">Google 등 제3자 로그인을 사용하는 iOS 앱의 Apple 로그인 요건 최종 확인</span></span>
+          <span class="todo-tag">iOS·인증</span><span class="todo-time">심사 전</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">12</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">Health 앱 정책·권한 선언</span><span class="todo-sub">Google Health apps declaration, Health Connect 최소권한, Apple HealthKit 수집 항목 고지</span></span>
+          <span class="todo-tag">건강데이터</span><span class="todo-time">심사 전</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">13</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">데이터 보존·삭제·국외이전 정책 확정</span><span class="todo-sub">탈퇴 시 DB/사진/건강데이터 처리, Supabase/R2 리전 및 개인정보 이전 고지 검토</span></span>
+          <span class="todo-tag">개인정보</span><span class="todo-time">베타 전</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">14</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">UGC 운영·미디어 보안 완성</span><span class="todo-sub">신고/차단/필터링/연락처, 업로드 형식·용량 검증, EXIF·삭제·캐시 정책</span></span>
+          <span class="todo-tag">운영·보안</span><span class="todo-time">베타 전</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">15</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">백업·복구·장애 모니터링 검증</span><span class="todo-sub">DB 백업/복원 테스트, Crash/API 오류 추적, 운영 로그 및 장애 대응</span></span>
+          <span class="todo-tag">운영인프라</span><span class="todo-time">출시 전</span>
+        </label>
+        <label class="todo-item" data-group="next">
+          <span class="drag">⋮⋮</span><span class="order">16</span>
+          <span><input class="todo-check" type="checkbox"> <span class="todo-title">스토어 등록자료 및 최종 출시 체크</span><span class="todo-sub">아이콘/스크린샷/설명/연령등급/지원 URL/정책 URL + Google 개인계정 해당 시 12명·14일 closed test</span></span>
+          <span class="todo-tag">출시</span><span class="todo-time">최종</span>
+        </label>
+      </div>
+      <div class="worklist-note">체크 상태는 이 브라우저에 자동 저장됩니다. 완료한 항목은 흐리게 처리되며 ‘완료’ 탭에서만 따로 볼 수 있습니다.</div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="card">
+      <div class="scorebox">
+        <div class="donut"></div>
+        <div>
+          <div class="scoretitle">서비스 출시 준비도 52% · 출시 로드맵 통합</div>
+          <div class="scoredesc">
+            모바일·API·DB 설계는 이미 갖춰졌고 핵심 기능도 MVP 수준까지 구현되어 있습니다.
+            현재 병목은 운영 인프라, 실제 인증, 사진 저장, 실기기 검증, 스토어 출시 준비입니다.
+          </div>
+          <div class="stack">
+            <span class="pill">TypeScript</span><span class="pill">Expo 57</span><span class="pill">React Native 0.86</span>
+            <span class="pill">Fastify</span><span class="pill">PostgreSQL</span><span class="pill">Zod</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-title" style="margin-top:0">현재 핵심 판단</div>
+      <div class="status-grid" style="grid-template-columns:1fr 1fr">
+        <div class="status"><span>앱 구조</span><b>85%</b><span>정식 서비스까지 유지 가능</span></div>
+        <div class="status"><span>API 서버</span><b>80%</b><span>모듈형 모놀리식</span></div>
+        <div class="status"><span>DB 설계</span><b>78%</b><span>PostgreSQL 전환 준비</span></div>
+        <div class="status"><span>출시 준비</span><b>18%</b><span>운영 설정 다수 미완료</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">기술 영역별 진행도 <span style="color:#7f8da0;font-weight:500;font-size:13px">· 카드를 누르면 세부 내용 표시</span></div>
+  <div class="grid">
+    <div class="card module">
+      <div class="row"><div class="name"><span class="dot green"></span>모바일 앱</div><div class="pct">85%</div></div>
+      <div class="bar"><div class="fill green" style="width:85%"></div></div>
+      <div class="meta"><span>Expo + React Native</span><span>구현</span></div>
+      <div class="detail">Android·iOS·웹 공용 구조, 5개 기본 탭, 테마, 지도·위치·카메라·보안 저장소 의존성까지 포함되어 있습니다.</div>
+    </div>
+
+    <div class="card module">
+      <div class="row"><div class="name"><span class="dot green"></span>API 서버</div><div class="pct">80%</div></div>
+      <div class="bar"><div class="fill green" style="width:80%"></div></div>
+      <div class="meta"><span>Node.js + Fastify</span><span>구현</span></div>
+      <div class="detail">인증, 루틴, 운동 세션, 피드, 게시물, 댓글, 팔로우, DM 관련 API 구조가 존재합니다. 보안 헤더·속도 제한·검증도 포함됩니다.</div>
+    </div>
+
+    <div class="card module">
+      <div class="row"><div class="name"><span class="dot amber"></span>DB / 데이터 영속성</div><div class="pct">78%</div></div>
+      <div class="bar"><div class="fill amber" style="width:78%"></div></div>
+      <div class="meta"><span>PostgreSQL + MemoryStore</span><span>운영 연결 필요</span></div>
+      <div class="detail">스키마·마이그레이션·시드 구조는 있으나 기본 개발환경은 메모리 저장소라 서버 재시작 시 기록이 사라질 수 있습니다. 운영 PostgreSQL 연결이 필요합니다.</div>
+    </div>
+
+    <div class="card module">
+      <div class="row"><div class="name"><span class="dot amber"></span>인증</div><div class="pct">70%</div></div>
+      <div class="bar"><div class="fill amber" style="width:70%"></div></div>
+      <div class="meta"><span>Google OIDC + 토큰</span><span>운영 OAuth 필요</span></div>
+      <div class="detail">Google 로그인 및 자동 세션 복원 구조는 구현되어 있으나 실제 운영 OAuth 클라이언트·리디렉션 URI·앱 식별자 설정이 남아 있습니다.</div>
+    </div>
+
+    <div class="card module">
+      <div class="row"><div class="name"><span class="dot green"></span>운동 핵심 기능</div><div class="pct">82%</div></div>
+      <div class="bar"><div class="fill green" style="width:82%"></div></div>
+      <div class="meta"><span>루틴·기록·피드·메달</span><span>MVP 구현</span></div>
+      <div class="detail">루틴 생성/조회, 오늘의 루틴, 운동 세션 저장, 지도 기록, 인증샷 흐름, 피드/댓글/팔로우, 메달 프로필까지 MVP 범위에 포함됩니다.</div>
+    </div>
+
+    <div class="card module">
+      <div class="row"><div class="name"><span class="dot amber"></span>GPS / 카메라 실기기</div><div class="pct">38%</div></div>
+      <div class="bar"><div class="fill amber" style="width:38%"></div></div>
+      <div class="meta"><span>권한·UI 연결</span><span>실기기 검증 필요</span></div>
+      <div class="detail">위치·지도·이미지 선택 라이브러리는 연결되어 있지만 백그라운드 GPS, 장시간 기록 안정성, 사진 원본 처리 등은 실기기 검증이 더 필요합니다.</div>
+    </div>
+
+    <div class="card module">
+      <div class="row"><div class="name"><span class="dot red"></span>사진/미디어 저장</div><div class="pct">10%</div></div>
+      <div class="bar"><div class="fill red" style="width:10%"></div></div>
+      <div class="meta"><span>Object Storage</span><span>미연결</span></div>
+      <div class="detail">인증샷·프로필 이미지를 실제 서비스에서 지속 보관할 오브젝트 스토리지가 아직 연결되지 않았습니다.</div>
+    </div>
+
+    <div class="card module">
+      <div class="row"><div class="name"><span class="dot red"></span>스토어 / 운영 배포</div><div class="pct">18%</div></div>
+      <div class="bar"><div class="fill red" style="width:18%"></div></div>
+      <div class="meta"><span>App Store / Play Store</span><span>초기 단계</span></div>
+      <div class="detail">현재 bundle/package 식별자가 com.example.moveall입니다. 실제 앱 ID, 서명, 심사 메타데이터, 개인정보 처리, 운영 도메인/서버가 필요합니다.</div>
+    </div>
+
+    <div class="card module">
+      <div class="row"><div class="name"><span class="dot red"></span>웨어러블</div><div class="pct">5%</div></div>
+      <div class="bar"><div class="fill red" style="width:5%"></div></div>
+      <div class="meta"><span>Health / Garmin 등</span><span>설계 지점만 존재</span></div>
+      <div class="detail">WearableAdapter 확장 지점은 있으나 Apple Health, Health Connect, Garmin 등 실제 SDK 연결은 아직 구현되지 않았습니다.</div>
+    </div>
+
+    <div class="card module">
+      <div class="row"><div class="name"><span class="dot red"></span>운영 인프라</div><div class="pct">20%</div></div>
+      <div class="bar"><div class="fill red" style="width:20%"></div></div>
+      <div class="meta"><span>배포·모니터링·백업·Push</span><span>초기 단계</span></div>
+      <div class="detail">실제 API 배포, DB 운영, 로그/모니터링, 백업, 장애대응, Push 알림 등이 정식 서비스 이전 핵심 과제입니다.</div>
+    </div>
+  </div>
+
+  <div class="section-title">지금부터의 우선순위</div>
+  <div class="kanban">
+    <div class="kcol">
+      <div class="khead" style="color:#8ef0bd">① 먼저 할 것</div>
+      <div class="task">운영 PostgreSQL 연결<small>메모리 저장소에서 실제 영속 DB로 전환</small></div>
+      <div class="task">실제 Google OAuth 설정<small>Android / iOS / Web 클라이언트 연결</small></div>
+      <div class="task">앱 식별자 확정<small>com.example.moveall → 실제 GROOV 패키지명</small></div>
+    </div>
+    <div class="kcol">
+      <div class="khead" style="color:#ffd17a">② 베타 전에</div>
+      <div class="task">오브젝트 스토리지 연결<small>프로필·인증샷 영구 저장</small></div>
+      <div class="task">실기기 GPS 안정성 테스트<small>장시간 기록·백그라운드·배터리</small></div>
+      <div class="task">운영 로그/모니터링<small>장애 시 원인 파악 가능하게</small></div>
+    </div>
+    <div class="kcol">
+      <div class="khead" style="color:#ff9b9b">③ 출시 직전</div>
+      <div class="task">스토어 서명·심사 준비<small>Play Console / App Store Connect</small></div>
+      <div class="task">개인정보·권한 정리<small>위치·사진·계정 관련 고지</small></div>
+      <div class="task">Push / 신고 / 운영도구<small>실서비스 기본 운영 체계</small></div>
+    </div>
+  </div>
+
+
+  <div class="section-title">출시 전 전체 로드맵</div>
+  <div class="kanban">
+    <div class="kcol">
+      <div class="khead" style="color:#8ef0bd">1. 서비스 기반 · 지금</div>
+      <div class="task">Supabase Free 연결<small>PostgreSQL DB · 개발환경 데이터 영속화</small></div>
+      <div class="task">로그인 · 보안 · 환경변수 정비<small>운영 Secret 분리 · OAuth · 세션/계정 보안</small></div>
+      <div class="task">계정관리 체계<small>가입 · 로그인 · 탈퇴 · 데이터 삭제 · 계정 복구</small></div>
+      <div class="task">법적 문서 준비<small>개인정보처리방침 · 이용약관 · 수집/이용 동의</small></div>
+      <div class="task">Apple/Google 개발자 계정 준비<small>출시 주체 및 사업자/계정 유형 요건 확인</small></div>
+    </div>
+    <div class="kcol">
+      <div class="khead" style="color:#ffd17a">2. 핵심 기능 · 베타</div>
+      <div class="task">회원/프로필/운동기록<small>GROOV 핵심 데이터 모델</small></div>
+      <div class="task">소셜 기능<small>게시물 · 댓글 · 좋아요 · 팔로우/팔로잉</small></div>
+      <div class="task">성취/커뮤니티<small>크루 · 챌린지 · 메달 · 포인트</small></div>
+      <div class="task">안전/운영 기능<small>알림 · 신고 · 차단 · 관리자 기능</small></div>
+      <div class="task">사진·영상 저장<small>초기 Storage → 트래픽 증가 시 Cloudflare R2 분리</small></div>
+    </div>
+    <div class="kcol">
+      <div class="khead" style="color:#ff9b9b">3. 실기기 · 심사 · 출시</div>
+      <div class="task">앱 신분증 확정<small>Bundle ID · Android Package · 앱명 · 도메인</small></div>
+      <div class="task">인증서/서명 및 Development Build<small>실제 Android/iPhone에서 GPS·카메라·로그인 테스트</small></div>
+      <div class="task">건강 데이터 연동<small>Android = Health Connect · iOS = HealthKit 허브 방식</small></div>
+      <div class="task">개인정보/건강정보 권한·스토어 고지<small>수집 항목 · 목적 · 보관/삭제 · 권한 설명 · 스토어 데이터 공개</small></div>
+      <div class="task">스토어 테스트·심사 제출<small>Google Play 테스트 요건은 계정 유형/정책 기준으로 제출 시 재확인</small></div>
+      <div class="task">출시<small>Supabase Pro 전환 → 모니터링 → 사용자 증가에 따라 인프라 확장</small></div>
+    </div>
+  </div>
+
+  <div class="section-title">GROOV 데이터 · 저장소 설계</div>
+  <div class="card">
+    <div class="status-grid">
+      <div class="status"><span>계정 데이터</span><b>DB</b><span>회원가입 · 프로필 · 계정상태</span></div>
+      <div class="status"><span>운동 데이터</span><b>DB</b><span>루틴 · 운동기록 · 메달 · 포인트</span></div>
+      <div class="status"><span>소셜 데이터</span><b>DB</b><span>게시물 · 댓글 · 좋아요 · 팔로우</span></div>
+      <div class="status"><span>운영 데이터</span><b>DB</b><span>알림 · 신고 · 차단 · 관리자</span></div>
+    </div>
+    <div style="margin-top:14px;padding:15px;border:1px solid #273342;border-radius:14px;background:#101720">
+      <b>사진·영상은 PostgreSQL DB에 원본을 넣지 않음</b>
+      <div class="sub" style="margin-top:6px">DB에는 파일 URL·소유자·게시물 연결·메타데이터만 저장하고, 실제 바이너리는 Object Storage에 저장합니다. GROOV에서는 이 영역이 장기적으로 가장 큰 저장/전송 비중이 될 가능성이 높습니다.</div>
+    </div>
+  </div>
+
+
+  <div class="section-title">확정 아키텍처 결정</div>
+  <div class="card">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="status">
+        <span>운영 DB</span>
+        <b>Supabase PostgreSQL</b>
+        <span>회원 · 프로필 · 운동기록 · 게시물 · 댓글 · 팔로우 · 크루 · 챌린지 · 메달 · 포인트 · 신고/차단/관리 데이터</span>
+      </div>
+      <div class="status">
+        <span>미디어 저장소</span>
+        <b>Supabase Storage → Cloudflare R2</b>
+        <span>초기에는 단순하게 시작하고 사진·영상 트래픽이 커지면 R2로 분리</span>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding:15px;border:1px solid #273342;border-radius:14px;background:#101720">
+      <b>설계 원칙</b>
+      <div class="sub" style="margin-top:7px">
+        GROOV 백엔드는 Fastify API → PostgreSQL 구조를 유지합니다. Supabase는 현재의 PostgreSQL 운영 제공자로 사용하고,
+        애플리케이션 코드가 Supabase 전용 SDK에 과도하게 종속되지 않도록 DB 접근은 기존 PostgresStore 계층을 중심으로 유지합니다.
+        향후 필요하면 Neon, AWS RDS 등 다른 PostgreSQL로 이전 가능하게 설계합니다.
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">인프라 확장 계획</div>
+  <div class="card">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;font-weight:800">
+      <span class="pill">개발 · Supabase Free (PostgreSQL)</span><span>→</span>
+      <span class="pill">출시 · Supabase Pro (동일 DB)</span><span>→</span>
+      <span class="pill">성장 · PostgreSQL 유지 + 미디어만 Cloudflare R2</span>
+    </div>
+    <div class="sub" style="margin-top:14px;text-align:center">R2는 DB 교체가 아니라 사진·영상용 Object Storage 확장입니다. 회원·운동·소셜 데이터는 PostgreSQL 계열에 유지하는 방향.</div>
+  </div>
+
+  <div class="section-title">웨어러블 / 건강 데이터 전략</div>
+  <div class="card">
+    <div class="scoredesc">
+      기기 제조사 SDK를 하나씩 직접 연결하기보다 운영체제의 건강 데이터 허브를 1차 통합 계층으로 사용합니다.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+      <div class="status"><span>Android</span><b>Health Connect</b><span>지원 웨어러블/건강 앱 데이터 → GROOV</span></div>
+      <div class="status"><span>iOS</span><b>HealthKit</b><span>Apple Watch / Apple Health → GROOV</span></div>
+    </div>
+    <div class="sub" style="margin-top:12px">Expo/React Native는 유지하고 건강 데이터 부분만 네이티브 어댑터로 분리. 이 단계부터 Expo Go가 아니라 Development Build 기반 실기기 검증을 사용합니다.</div>
+  </div>
+
+  <div class="section-title">출시 비용 · 계정 체크</div>
+  <div class="card">
+    <div class="status-grid">
+      <div class="status"><span>Supabase</span><b>Free → Pro</b><span>출시 시점 요금/환율 재확인</span></div>
+      <div class="status"><span>Apple</span><b>연간 등록</b><span>Developer Program 비용/사업자 요건 제출 직전 확인</span></div>
+      <div class="status"><span>Google Play</span><b>등록비</b><span>계정 유형별 테스트 정책 포함 재확인</span></div>
+      <div class="status"><span>미디어</span><b>R2</b><span>사용량 증가 시 단계적 도입</span></div>
+    </div>
+    <div class="sub" style="margin-top:13px">메모해둔 ‘Apple 13.5 / Google 3.4 / 12명 14일’ 같은 금액·심사 조건은 정책과 환율이 바뀔 수 있으므로 고정값으로 박지 않고 실제 제출 직전에 최신 공식 기준으로 확정하도록 체크포인트화했습니다.</div>
+  </div>
+
+
+  <div class="section-title">최종 역체크 · 출시 게이트</div>
+  <div class="card">
+    <div class="status-grid">
+      <div class="status"><span>기술</span><b>DB · Auth · Storage</b><span>운영 환경에서 실제 데이터 영속성 검증</span></div>
+      <div class="status"><span>개인정보</span><b>삭제 · 동의 · 공개</b><span>건강/위치/미디어 포함 데이터 생명주기 확정</span></div>
+      <div class="status"><span>커뮤니티</span><b>신고 · 차단 · 필터</b><span>UGC 악용 대응 및 공개 연락처 준비</span></div>
+      <div class="status"><span>운영</span><b>백업 · 장애대응</b><span>복원 테스트와 오류 모니터링 통과</span></div>
+    </div>
+    <div style="margin-top:14px;padding:15px;border:1px solid #273342;border-radius:14px;background:#101720">
+      <b>출시 GO 조건</b>
+      <div class="sub" style="margin-top:7px">위 업무 리스트 1~16 중 출시 필수 항목 완료 → Android/iOS 실기기 테스트 → 건강·개인정보·UGC 정책 선언 → 스토어 테스트 요건 충족 → 심사 제출 순으로 진행합니다.</div>
+    </div>
+  </div>
+
+
+  <div class="card" style="border-color:#34495e">
+    <b>현재 기술 결정 · 확정</b>
+    <div class="sub" style="margin-top:7px">
+      DB는 Supabase PostgreSQL로 진행합니다. 출시 초기에는 Supabase Pro로 전환하고,
+      사용자 증가 시 DB를 R2로 바꾸는 것이 아니라 사진·영상 Object Storage만 Cloudflare R2로 확장합니다.
+      PostgreSQL 중심 구조는 유지해 향후 인프라 이전 여지를 남깁니다.
+    </div>
+  </div>
+
+  <div class="section-title">한 줄 결론</div>
+  <div class="card">
+    <div style="font-size:18px;font-weight:800;margin-bottom:8px">“프로토타입”은 이미 지났고, 지금은 “운영 가능한 베타”로 넘어가는 구간입니다.</div>
+    <div class="sub">언어를 새로 고르는 단계가 아니라, 현재 TypeScript + Expo/React Native + Fastify + PostgreSQL 구조를 살리면서 운영 인프라를 붙이는 단계입니다.</div>
+  </div>
+
+  <div class="footer">
+    본 대시보드는 2026-09-01 GitHub 저장소 진단 + 출시 전 인프라·법적 준비·스토어·Health Connect/HealthKit 전략을 통합한 최신 스냅샷입니다.
+    자동 갱신 대시보드로 확장하려면 GitHub Actions 또는 별도 상태 JSON 생성 파이프라인을 붙이는 방식이 적합합니다.
+  </div>
+</div>
+<script>
+document.querySelectorAll('.module').forEach(el=>{
+  el.addEventListener('click',()=>el.classList.toggle('open'));
+});
+
+const TODO_KEY='groov-dashboard-todos-v1';
+function initTodos(){
+  const saved=JSON.parse(localStorage.getItem(TODO_KEY)||'{}');
+  document.querySelectorAll('.todo-item').forEach((item,idx)=>{
+    const cb=item.querySelector('.todo-check');
+    cb.checked=!!saved[idx];
+    item.classList.toggle('done',cb.checked);
+    cb.addEventListener('change',()=>{
+      item.classList.toggle('done',cb.checked);
+      const state={};
+      document.querySelectorAll('.todo-item').forEach((x,i)=>state[i]=x.querySelector('.todo-check').checked);
+      localStorage.setItem(TODO_KEY,JSON.stringify(state));
+    });
+  });
+}
+function toggleWorklist(){
+  const box=document.getElementById('worklist');
+  box.classList.toggle('collapsed');
+  document.getElementById('worklistToggle').textContent=box.classList.contains('collapsed')?'펼치기':'접기';
+}
+function filterTodos(type, ev){
+  document.querySelectorAll('.tasktab').forEach(x=>x.classList.remove('active'));
+  if(ev) ev.currentTarget.classList.add('active');
+  document.querySelectorAll('.todo-item').forEach(item=>{
+    const done=item.querySelector('.todo-check').checked;
+    let show=true;
+    if(type==='now') show=item.dataset.group==='now' && !done;
+    if(type==='next') show=item.dataset.group==='next' && !done;
+    if(type==='done') show=done;
+    item.style.display=show?'grid':'none';
+  });
+}
+initTodos();
+
+</script>
+</body>
+</html>
+
+

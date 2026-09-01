@@ -7,6 +7,8 @@ const EnvironmentSchema = z
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     DATA_STORE: z.enum(["memory", "postgres"]).default("memory"),
     DATABASE_URL: z.string().min(1).optional(),
+    DATABASE_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(20).default(5),
+    DATABASE_SSL: z.enum(["require", "disable"]).default("require"),
     AUTH_SECRET: z.string().min(32, "AUTH_SECRET은 32자 이상이어야 합니다."),
     GOOGLE_CLIENT_IDS: z
       .string()
@@ -21,6 +23,13 @@ const EnvironmentSchema = z
       .enum(["true", "false"])
       .optional()
       .transform((value) => value === "true"),
+    MEDIA_STORAGE: z.enum(["disabled", "supabase"]).default("disabled"),
+    SUPABASE_URL: z.url().optional(),
+    SUPABASE_SERVICE_ROLE_KEY: z.string().min(40).optional(),
+    SUPABASE_MEDIA_BUCKET: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]{1,98}[a-z0-9]$/)
+      .default("groov-media"),
     CORS_ORIGINS: z
       .string()
       .default(
@@ -72,6 +81,23 @@ const EnvironmentSchema = z
         message: "production 환경에서는 개발 인증 우회를 활성화할 수 없습니다.",
       });
     }
+    if (
+      value.MEDIA_STORAGE === "supabase" &&
+      (!value.SUPABASE_URL || !value.SUPABASE_SERVICE_ROLE_KEY)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["SUPABASE_SERVICE_ROLE_KEY"],
+        message: "MEDIA_STORAGE=supabase일 때 Supabase URL과 service-role 키가 필요합니다.",
+      });
+    }
+    if (value.NODE_ENV === "production" && value.MEDIA_STORAGE !== "supabase") {
+      context.addIssue({
+        code: "custom",
+        path: ["MEDIA_STORAGE"],
+        message: "production 환경에서는 Supabase 미디어 저장소가 필요합니다.",
+      });
+    }
   });
 
 export type AppConfig = {
@@ -80,9 +106,15 @@ export type AppConfig = {
   port: number;
   dataStore: "memory" | "postgres";
   databaseUrl?: string;
+  databaseMaxConnections: number;
+  databaseSsl: boolean;
   authSecret: string;
   googleClientIds: string[];
   devAuthBypass: boolean;
+  mediaStorage: "disabled" | "supabase";
+  supabaseUrl?: string;
+  supabaseServiceRoleKey?: string;
+  supabaseMediaBucket: string;
   corsOrigins: string[];
 };
 
@@ -99,11 +131,19 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     port: parsed.data.PORT,
     dataStore: parsed.data.DATA_STORE,
     ...(parsed.data.DATABASE_URL ? { databaseUrl: parsed.data.DATABASE_URL } : {}),
+    databaseMaxConnections: parsed.data.DATABASE_MAX_CONNECTIONS,
+    databaseSsl: parsed.data.DATABASE_SSL === "require",
     authSecret: parsed.data.AUTH_SECRET,
     googleClientIds: parsed.data.GOOGLE_CLIENT_IDS,
     devAuthBypass:
       parsed.data.NODE_ENV === "development" &&
       (environment.DEV_AUTH_BYPASS === undefined || parsed.data.DEV_AUTH_BYPASS),
+    mediaStorage: parsed.data.MEDIA_STORAGE,
+    ...(parsed.data.SUPABASE_URL ? { supabaseUrl: parsed.data.SUPABASE_URL } : {}),
+    ...(parsed.data.SUPABASE_SERVICE_ROLE_KEY
+      ? { supabaseServiceRoleKey: parsed.data.SUPABASE_SERVICE_ROLE_KEY }
+      : {}),
+    supabaseMediaBucket: parsed.data.SUPABASE_MEDIA_BUCKET,
     corsOrigins: parsed.data.CORS_ORIGINS,
   };
 }

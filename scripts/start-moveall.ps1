@@ -31,7 +31,17 @@ function Test-LocalPort {
   }
 }
 
-$env:AUTH_SECRET = "moveall-local-development-secret-2026"
+if (-not $env:AUTH_SECRET) {
+  $secretBytes = New-Object byte[] 48
+  $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try {
+    $random.GetBytes($secretBytes)
+    $env:AUTH_SECRET = [Convert]::ToBase64String($secretBytes)
+  }
+  finally {
+    $random.Dispose()
+  }
+}
 $env:Path = "$(Split-Path -Parent $nodePath);$env:Path"
 
 if (-not (Test-LocalPort -Port 3000)) {

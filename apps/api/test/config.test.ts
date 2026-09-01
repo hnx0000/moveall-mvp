@@ -21,6 +21,9 @@ describe("environment configuration", () => {
       DATABASE_URL: "postgresql://moveall:password@localhost:5432/moveall",
       AUTH_SECRET: secureSecret,
       GOOGLE_CLIENT_IDS: "web-client.apps.googleusercontent.com",
+      MEDIA_STORAGE: "supabase",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key-that-is-long-enough-for-validation",
     });
 
     expect(config.dataStore).toBe("postgres");
@@ -34,6 +37,9 @@ describe("environment configuration", () => {
         DATABASE_URL: "postgresql://moveall:password@localhost:5432/moveall",
         AUTH_SECRET: secureSecret,
         GOOGLE_CLIENT_IDS: "web-client.apps.googleusercontent.com",
+        MEDIA_STORAGE: "supabase",
+        SUPABASE_URL: "https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key-that-is-long-enough-for-validation",
         DEV_AUTH_BYPASS: "true",
       }),
     ).toThrow("production 환경에서는 개발 인증 우회를 활성화할 수 없습니다.");

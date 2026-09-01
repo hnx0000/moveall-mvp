@@ -7,7 +7,12 @@ import { Pool } from "pg";
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL이 필요합니다.");
 
-const pool = new Pool({ connectionString: databaseUrl });
+const pool = new Pool({
+  connectionString: databaseUrl,
+  ssl: process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: true },
+  max: 1,
+  application_name: "groov-migrations",
+});
 const migrationsDirectory = join(dirname(fileURLToPath(import.meta.url)), "../db/migrations");
 
 try {

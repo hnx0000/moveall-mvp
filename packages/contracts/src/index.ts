@@ -106,6 +106,8 @@ export type ProfileUpdateInput = z.infer<typeof ProfileUpdateInputSchema>;
 
 export const AuthSessionSchema = z.object({
   accessToken: z.string(),
+  refreshToken: z.string(),
+  accessTokenExpiresAt: z.iso.datetime({ offset: true }),
   user: z.object({
     id: z.string(),
     email: z.email(),
@@ -113,6 +115,75 @@ export const AuthSessionSchema = z.object({
   }),
 });
 export type AuthSession = z.infer<typeof AuthSessionSchema>;
+
+export const RefreshSessionInputSchema = z.object({
+  refreshToken: z.string().min(32).max(512),
+});
+export type RefreshSessionInput = z.infer<typeof RefreshSessionInputSchema>;
+
+export const PasswordChangeInputSchema = z.object({
+  currentPassword: z.string().min(1).max(128),
+  newPassword: z
+    .string()
+    .min(12, "비밀번호는 12자 이상이어야 합니다.")
+    .max(128)
+    .regex(/[a-zA-Z]/, "영문자를 포함해야 합니다.")
+    .regex(/[0-9]/, "숫자를 포함해야 합니다."),
+});
+export type PasswordChangeInput = z.infer<typeof PasswordChangeInputSchema>;
+
+export const AccountDeletionInputSchema = z.object({
+  confirmation: z.literal("GROOV 탈퇴"),
+  currentPassword: z.string().min(1).max(128).optional(),
+});
+export type AccountDeletionInput = z.infer<typeof AccountDeletionInputSchema>;
+
+export const ConsentUpdateInputSchema = z
+  .object({
+    termsVersion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    privacyVersion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    termsAccepted: z.literal(true),
+    privacyAccepted: z.literal(true),
+    healthDataAccepted: z.boolean(),
+    locationAccepted: z.boolean(),
+    mediaAccepted: z.boolean(),
+    marketingAccepted: z.boolean().default(false),
+  })
+  .strict();
+export type ConsentUpdateInput = z.infer<typeof ConsentUpdateInputSchema>;
+
+export type ConsentState = ConsentUpdateInput & {
+  acceptedAt: string;
+};
+
+export const MediaKindSchema = z.enum(["avatar", "post-image", "story-image", "story-video"]);
+export type MediaKind = z.infer<typeof MediaKindSchema>;
+
+export const MediaUploadRequestInputSchema = z.object({
+  kind: MediaKindSchema,
+  contentType: z.enum(["image/jpeg", "image/png", "image/webp", "video/mp4"]),
+  byteSize: z
+    .number()
+    .int()
+    .positive()
+    .max(50 * 1024 * 1024),
+});
+export type MediaUploadRequestInput = z.infer<typeof MediaUploadRequestInputSchema>;
+
+export type MediaUploadTicket = {
+  mediaId: string;
+  objectPath: string;
+  signedUploadUrl: string;
+  expiresAt: string;
+};
+
+export type AccountSession = {
+  id: string;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  current: boolean;
+};
 
 export const RoutineItemSchema = z.object({
   name: z.string().trim().min(1).max(80),

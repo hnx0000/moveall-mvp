@@ -26,6 +26,7 @@ type AuthContextValue = {
   login(input: LoginInput): Promise<void>;
   register(input: RegisterInput): Promise<void>;
   loginWithGoogle(idToken: string): Promise<void>;
+  replaceSession(session: AuthSession): Promise<void>;
   updateUser(user: AuthSession["user"]): Promise<void>;
   logout(): Promise<void>;
 };
@@ -59,14 +60,23 @@ async function writeSession(session: AuthSession | null): Promise<void> {
 export function AuthProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [restoring, setRestoring] = useState(true);
+  const persist = useCallback(async (nextSession: AuthSession | null) => {
+    setSession(nextSession);
+    await writeSession(nextSession);
+  }, []);
 
   useEffect(() => {
     void readSession()
       .then(async (storedSession) => {
         if (storedSession) {
           try {
-            const user = await api.me(storedSession.accessToken);
-            const verifiedSession = { ...storedSession, user };
+            const shouldRefresh =
+              Date.parse(storedSession.accessTokenExpiresAt) <= Date.now() + 60_000;
+            const refreshedSession = shouldRefresh
+              ? await api.refreshSession({ refreshToken: storedSession.refreshToken })
+              : storedSession;
+            const user = await api.me(refreshedSession.accessToken);
+            const verifiedSession = { ...refreshedSession, user };
             await writeSession(verifiedSession);
             return verifiedSession;
           } catch {
@@ -88,10 +98,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
       .finally(() => setRestoring(false));
   }, []);
 
-  const persist = useCallback(async (nextSession: AuthSession | null) => {
-    setSession(nextSession);
-    await writeSession(nextSession);
-  }, []);
+  useEffect(() => {
+    if (!session) return;
+    const refreshIn = Math.max(
+      5_000,
+      Date.parse(session.accessTokenExpiresAt) - Date.now() - 60_000,
+    );
+    const timer = setTimeout(() => {
+      void api
+        .refreshSession({ refreshToken: session.refreshToken })
+        .then((nextSession) => persist(nextSession))
+        .catch(() => persist(null));
+    }, refreshIn);
+    return () => clearTimeout(timer);
+  }, [persist, session]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -100,11 +120,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
       login: async (input) => persist(await api.login(input)),
       register: async (input) => persist(await api.register(input)),
       loginWithGoogle: async (idToken) => persist(await api.googleLogin({ idToken })),
+      replaceSession: async (nextSession) => persist(nextSession),
       updateUser: async (user) => {
         if (!session) return;
         await persist({ ...session, user });
       },
-      logout: async () => persist(null),
+      logout: async () => {
+        if (session) await api.logout(session.accessToken).catch(() => undefined);
+        await persist(null);
+      },
     }),
     [persist, restoring, session],
   );

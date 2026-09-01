@@ -8,10 +8,26 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.moveall"
+      "bundleIdentifier": "com.example.moveall",
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "GROOV가 사용자가 선택한 운동, 심박, 걸음, 거리와 칼로리 기록을 가져오기 위해 건강 데이터 접근이 필요합니다.",
+        "NSHealthUpdateUsageDescription": "GROOV에서 완료한 운동을 사용자가 허용한 경우 건강 앱에 저장하기 위해 접근이 필요합니다."
+      },
+      "entitlements": {
+        "com.apple.developer.healthkit": true
+      }
     },
     "android": {
       "package": "com.example.moveall",
+      "permissions": [
+        "android.permission.health.READ_EXERCISE",
+        "android.permission.health.READ_EXERCISE_ROUTES",
+        "android.permission.health.READ_HEART_RATE",
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_DISTANCE",
+        "android.permission.health.READ_TOTAL_CALORIES_BURNED",
+        "android.permission.health.READ_ELEVATION_GAINED"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#ECFDF5"
       }

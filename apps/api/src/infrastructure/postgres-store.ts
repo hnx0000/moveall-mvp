@@ -1,4 +1,6 @@
 import type {
+  ConsentState,
+  ConsentUpdateInput,
   DirectMessage,
   FeedPost,
   KnowledgeFeedback,
@@ -17,7 +19,7 @@ import type {
   WorkoutSessionUpdateInput,
 } from "@moveall/contracts";
 import { Pool, type QueryResultRow } from "pg";
-import type { AppStore, User } from "../domain/store.js";
+import type { AppStore, StoredAuthSession, StoredMediaObject, User } from "../domain/store.js";
 
 type UserRow = QueryResultRow & {
   id: string;
@@ -95,15 +97,56 @@ type KnowledgeFeedbackRow = QueryResultRow & {
   created_at: Date;
 };
 
+type AuthSessionRow = QueryResultRow & {
+  id: string;
+  user_id: string;
+  refresh_token_hash: string;
+  expires_at: Date;
+  last_seen_at: Date;
+  revoked_at: Date | null;
+  created_at: Date;
+};
+
+type ConsentRow = QueryResultRow & {
+  terms_version: string;
+  privacy_version: string;
+  terms_accepted: boolean;
+  privacy_accepted: boolean;
+  health_data_accepted: boolean;
+  location_accepted: boolean;
+  media_accepted: boolean;
+  marketing_accepted: boolean;
+  accepted_at: Date;
+};
+
+type MediaObjectRow = QueryResultRow & {
+  id: string;
+  user_id: string;
+  provider: "supabase" | "r2";
+  bucket: string;
+  object_path: string;
+  kind: StoredMediaObject["kind"];
+  content_type: string;
+  byte_size: string | number;
+  status: StoredMediaObject["status"];
+  created_at: Date;
+};
+
 export class PostgresStore implements AppStore {
   private readonly pool: Pool;
 
-  constructor(databaseUrl: string) {
+  constructor(
+    databaseUrl: string,
+    options: { maxConnections: number; ssl: boolean } = { maxConnections: 5, ssl: true },
+  ) {
     this.pool = new Pool({
       connectionString: databaseUrl,
-      max: 10,
+      max: options.maxConnections,
+      ssl: options.ssl ? { rejectUnauthorized: true } : false,
+      application_name: "groov-api",
       connectionTimeoutMillis: 5_000,
       idleTimeoutMillis: 30_000,
+      statement_timeout: 10_000,
     });
   }
 
@@ -199,6 +242,153 @@ export class PostgresStore implements AppStore {
     } finally {
       client.release();
     }
+  }
+
+  async updatePassword(userId: string, passwordHash: string): Promise<boolean> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        "UPDATE users SET password_hash = $2, password_changed_at = now() WHERE id = $1 RETURNING id",
+        [userId, passwordHash],
+      );
+      await client.query(
+        "UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+        [userId],
+      );
+      await client.query("COMMIT");
+      return result.rowCount === 1;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteUserAccount(userId: string): Promise<boolean> {
+    const result = await this.pool.query("DELETE FROM users WHERE id = $1 RETURNING id", [userId]);
+    return result.rowCount === 1;
+  }
+
+  async createAuthSession(input: {
+    userId: string;
+    refreshTokenHash: string;
+    expiresAt: string;
+  }): Promise<StoredAuthSession> {
+    const result = await this.pool.query<AuthSessionRow>(
+      "INSERT INTO auth_sessions (user_id, refresh_token_hash, expires_at) VALUES ($1, $2, $3) RETURNING *",
+      [input.userId, input.refreshTokenHash, input.expiresAt],
+    );
+    return this.mapAuthSession(result.rows[0]!);
+  }
+
+  async findAuthSessionById(sessionId: string): Promise<StoredAuthSession | null> {
+    const result = await this.pool.query<AuthSessionRow>(
+      "SELECT * FROM auth_sessions WHERE id = $1",
+      [sessionId],
+    );
+    return result.rows[0] ? this.mapAuthSession(result.rows[0]) : null;
+  }
+
+  async findAuthSessionByRefreshTokenHash(
+    refreshTokenHash: string,
+  ): Promise<StoredAuthSession | null> {
+    const result = await this.pool.query<AuthSessionRow>(
+      "SELECT * FROM auth_sessions WHERE refresh_token_hash = $1",
+      [refreshTokenHash],
+    );
+    return result.rows[0] ? this.mapAuthSession(result.rows[0]) : null;
+  }
+
+  async rotateAuthSession(input: {
+    sessionId: string;
+    refreshTokenHash: string;
+    expiresAt: string;
+  }): Promise<StoredAuthSession | null> {
+    const result = await this.pool.query<AuthSessionRow>(
+      "UPDATE auth_sessions SET refresh_token_hash = $2, expires_at = $3, last_seen_at = now() WHERE id = $1 AND revoked_at IS NULL AND expires_at > now() RETURNING *",
+      [input.sessionId, input.refreshTokenHash, input.expiresAt],
+    );
+    return result.rows[0] ? this.mapAuthSession(result.rows[0]) : null;
+  }
+
+  async revokeAuthSession(sessionId: string): Promise<void> {
+    await this.pool.query(
+      "UPDATE auth_sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
+      [sessionId],
+    );
+  }
+
+  async listAuthSessions(userId: string): Promise<StoredAuthSession[]> {
+    const result = await this.pool.query<AuthSessionRow>(
+      "SELECT * FROM auth_sessions WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now() ORDER BY last_seen_at DESC",
+      [userId],
+    );
+    return result.rows.map((row) => this.mapAuthSession(row));
+  }
+
+  async getConsent(userId: string): Promise<ConsentState | null> {
+    const result = await this.pool.query<ConsentRow>(
+      "SELECT terms_version, privacy_version, terms_accepted, privacy_accepted, health_data_accepted, location_accepted, media_accepted, marketing_accepted, accepted_at FROM user_consents WHERE user_id = $1",
+      [userId],
+    );
+    return result.rows[0] ? this.mapConsent(result.rows[0]) : null;
+  }
+
+  async saveConsent(userId: string, input: ConsentUpdateInput): Promise<ConsentState> {
+    const result = await this.pool.query<ConsentRow>(
+      "INSERT INTO user_consents (user_id, terms_version, privacy_version, terms_accepted, privacy_accepted, health_data_accepted, location_accepted, media_accepted, marketing_accepted) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (user_id) DO UPDATE SET terms_version = EXCLUDED.terms_version, privacy_version = EXCLUDED.privacy_version, terms_accepted = EXCLUDED.terms_accepted, privacy_accepted = EXCLUDED.privacy_accepted, health_data_accepted = EXCLUDED.health_data_accepted, location_accepted = EXCLUDED.location_accepted, media_accepted = EXCLUDED.media_accepted, marketing_accepted = EXCLUDED.marketing_accepted, accepted_at = now(), updated_at = now() RETURNING terms_version, privacy_version, terms_accepted, privacy_accepted, health_data_accepted, location_accepted, media_accepted, marketing_accepted, accepted_at",
+      [
+        userId,
+        input.termsVersion,
+        input.privacyVersion,
+        input.termsAccepted,
+        input.privacyAccepted,
+        input.healthDataAccepted,
+        input.locationAccepted,
+        input.mediaAccepted,
+        input.marketingAccepted,
+      ],
+    );
+    return this.mapConsent(result.rows[0]!);
+  }
+
+  async createMediaObject(
+    input: Omit<StoredMediaObject, "id" | "status" | "createdAt">,
+  ): Promise<StoredMediaObject> {
+    const result = await this.pool.query<MediaObjectRow>(
+      "INSERT INTO media_objects (user_id, provider, bucket, object_path, kind, content_type, byte_size) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+      [
+        input.userId,
+        input.provider,
+        input.bucket,
+        input.objectPath,
+        input.kind,
+        input.contentType,
+        input.byteSize,
+      ],
+    );
+    return this.mapMediaObject(result.rows[0]!);
+  }
+
+  async markMediaObjectAvailable(
+    userId: string,
+    mediaId: string,
+  ): Promise<StoredMediaObject | null> {
+    const result = await this.pool.query<MediaObjectRow>(
+      "UPDATE media_objects SET status = 'available', available_at = now() WHERE id = $2 AND user_id = $1 AND status = 'pending' RETURNING *",
+      [userId, mediaId],
+    );
+    return result.rows[0] ? this.mapMediaObject(result.rows[0]) : null;
+  }
+
+  async listMediaObjects(userId: string): Promise<StoredMediaObject[]> {
+    const result = await this.pool.query<MediaObjectRow>(
+      "SELECT * FROM media_objects WHERE user_id = $1 AND status <> 'deleted' ORDER BY created_at DESC",
+      [userId],
+    );
+    return result.rows.map((row) => this.mapMediaObject(row));
   }
 
   async createRoutine(userId: string, input: RoutineCreateInput): Promise<Routine> {
@@ -600,6 +790,47 @@ export class PostgresStore implements AppStore {
       displayName: row.display_name,
       avatarDataUri: row.avatar_data_uri,
       passwordHash: row.password_hash,
+      createdAt: row.created_at.toISOString(),
+    };
+  }
+
+  private mapAuthSession(row: AuthSessionRow): StoredAuthSession {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      refreshTokenHash: row.refresh_token_hash,
+      expiresAt: row.expires_at.toISOString(),
+      lastSeenAt: row.last_seen_at.toISOString(),
+      revokedAt: row.revoked_at?.toISOString() ?? null,
+      createdAt: row.created_at.toISOString(),
+    };
+  }
+
+  private mapConsent(row: ConsentRow): ConsentState {
+    return {
+      termsVersion: row.terms_version,
+      privacyVersion: row.privacy_version,
+      termsAccepted: row.terms_accepted as true,
+      privacyAccepted: row.privacy_accepted as true,
+      healthDataAccepted: row.health_data_accepted,
+      locationAccepted: row.location_accepted,
+      mediaAccepted: row.media_accepted,
+      marketingAccepted: row.marketing_accepted,
+      acceptedAt: row.accepted_at.toISOString(),
+    };
+  }
+
+  private mapMediaObject(row: MediaObjectRow): StoredMediaObject {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      provider: row.provider,
+      bucket: row.bucket,
+      objectPath: row.object_path,
+      kind: row.kind,
+      contentType: row.content_type,
+      byteSize: Number(row.byte_size),
+      status: row.status,
       createdAt: row.created_at.toISOString(),
     };
   }

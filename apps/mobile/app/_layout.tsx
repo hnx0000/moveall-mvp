@@ -55,12 +55,13 @@ function SessionGate() {
   const segments = useSegments();
   const navigationState = useRootNavigationState();
   const onLoginScreen = segments[0] === "login";
+  const onPublicLegalScreen = segments[0] === "legal";
 
   useEffect(() => {
     if (!navigationState?.key || restoring) return;
-    if (!session && !onLoginScreen) router.replace("/login");
+    if (!session && !onLoginScreen && !onPublicLegalScreen) router.replace("/login");
     if (session && onLoginScreen) router.replace("/");
-  }, [navigationState?.key, onLoginScreen, restoring, router, session]);
+  }, [navigationState?.key, onLoginScreen, onPublicLegalScreen, restoring, router, session]);
 
   if (restoring) {
     return (

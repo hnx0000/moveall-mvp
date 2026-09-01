@@ -416,9 +416,6 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.topBar}>
           <Text style={styles.brand}>GROOV</Text>
-          <Pressable accessibilityRole="button" onPress={() => router.push("/admin")}>
-            <Text style={styles.adminLink}>ADMIN ↗</Text>
-          </Pressable>
         </View>
 
         <View style={styles.identityRow}>
@@ -877,6 +874,9 @@ export default function ProfileScreen() {
             trackColor={{ false: colors.border, true: colors.primary }}
           />
         </View>
+        <Pressable onPress={() => router.push("/profile/account")} style={styles.accountButton}>
+          <Text style={styles.accountText}>계정 · 보안 · 개인정보</Text>
+        </Pressable>
         <Pressable onPress={() => void logout()} style={styles.logoutButton}>
           <Text style={styles.logoutText}>로그아웃</Text>
         </Pressable>
@@ -1102,7 +1102,6 @@ function createStyles(colors: ThemeColors) {
     },
     topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     brand: { ...typography.wordmark(18), color: colors.primary },
-    adminLink: { color: colors.muted, fontSize: 9, fontFamily: fonts.bold, letterSpacing: 1 },
     identityRow: { flexDirection: "row", alignItems: "center", gap: 14 },
     avatar: {
       width: 62,
@@ -1534,6 +1533,15 @@ function createStyles(colors: ThemeColors) {
     },
     settingsTitle: { color: colors.ink, fontSize: 13, fontFamily: fonts.bold },
     settingsCopy: { color: colors.muted, fontSize: 8, marginTop: 3 },
+    accountButton: {
+      minHeight: 48,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    accountText: { color: colors.ink, fontSize: 10, fontWeight: "900" },
     logoutButton: {
       minHeight: 48,
       borderRadius: radius.md,

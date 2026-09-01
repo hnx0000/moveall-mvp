@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
+  ConsentState,
+  ConsentUpdateInput,
   DirectMessage,
   FeedPost,
   KnowledgeFeedback,
@@ -16,7 +18,7 @@ import type {
   WorkoutSessionCreateInput,
   WorkoutSessionUpdateInput,
 } from "@moveall/contracts";
-import type { AppStore, User } from "../domain/store.js";
+import type { AppStore, StoredAuthSession, StoredMediaObject, User } from "../domain/store.js";
 
 export class MemoryStore implements AppStore {
   private readonly users = new Map<string, User>();
@@ -29,6 +31,9 @@ export class MemoryStore implements AppStore {
   private readonly blocks = new Set<string>();
   private readonly messages: DirectMessage[] = [];
   private readonly postShares = new Set<string>();
+  private readonly authSessions = new Map<string, StoredAuthSession>();
+  private readonly consents = new Map<string, ConsentState>();
+  private readonly mediaObjects = new Map<string, StoredMediaObject>();
 
   constructor(options: { seedDemo?: boolean } = {}) {
     if (options.seedDemo) this.seedDemoFeed();
@@ -109,6 +114,139 @@ export class MemoryStore implements AppStore {
     this.users.set(user.id, user);
     this.oauthIdentities.set(identityKey, user.id);
     return user;
+  }
+
+  async updatePassword(userId: string, passwordHash: string): Promise<boolean> {
+    const user = this.users.get(userId);
+    if (!user) return false;
+    this.users.set(userId, { ...user, passwordHash });
+    for (const session of this.authSessions.values()) {
+      if (session.userId === userId) session.revokedAt = new Date().toISOString();
+    }
+    return true;
+  }
+
+  async deleteUserAccount(userId: string): Promise<boolean> {
+    if (!this.users.delete(userId)) return false;
+    this.removeWhere(this.routines, (item) => item.userId === userId);
+    this.removeWhere(this.workouts, (item) => item.userId === userId);
+    this.removeWhere(this.posts, (item) => item.userId === userId);
+    this.removeWhere(this.knowledgeFeedback, (item) => item.userId === userId);
+    this.removeWhere(
+      this.messages,
+      (item) => item.senderId === userId || item.recipientId === userId,
+    );
+    for (const [key, linkedUserId] of this.oauthIdentities) {
+      if (linkedUserId === userId) this.oauthIdentities.delete(key);
+    }
+    for (const key of [...this.follows]) if (key.includes(userId)) this.follows.delete(key);
+    for (const key of [...this.blocks]) if (key.includes(userId)) this.blocks.delete(key);
+    for (const [id, session] of this.authSessions) {
+      if (session.userId === userId) this.authSessions.delete(id);
+    }
+    for (const [id, media] of this.mediaObjects) {
+      if (media.userId === userId) this.mediaObjects.delete(id);
+    }
+    this.consents.delete(userId);
+    return true;
+  }
+
+  async createAuthSession(input: {
+    userId: string;
+    refreshTokenHash: string;
+    expiresAt: string;
+  }): Promise<StoredAuthSession> {
+    const now = new Date().toISOString();
+    const session: StoredAuthSession = {
+      id: randomUUID(),
+      ...input,
+      createdAt: now,
+      lastSeenAt: now,
+      revokedAt: null,
+    };
+    this.authSessions.set(session.id, session);
+    return { ...session };
+  }
+
+  async findAuthSessionById(sessionId: string): Promise<StoredAuthSession | null> {
+    const session = this.authSessions.get(sessionId);
+    return session ? { ...session } : null;
+  }
+
+  async findAuthSessionByRefreshTokenHash(
+    refreshTokenHash: string,
+  ): Promise<StoredAuthSession | null> {
+    const session = [...this.authSessions.values()].find(
+      (item) => item.refreshTokenHash === refreshTokenHash,
+    );
+    return session ? { ...session } : null;
+  }
+
+  async rotateAuthSession(input: {
+    sessionId: string;
+    refreshTokenHash: string;
+    expiresAt: string;
+  }): Promise<StoredAuthSession | null> {
+    const session = this.authSessions.get(input.sessionId);
+    if (!session || session.revokedAt || Date.parse(session.expiresAt) <= Date.now()) return null;
+    const updated = {
+      ...session,
+      refreshTokenHash: input.refreshTokenHash,
+      expiresAt: input.expiresAt,
+      lastSeenAt: new Date().toISOString(),
+    };
+    this.authSessions.set(session.id, updated);
+    return { ...updated };
+  }
+
+  async revokeAuthSession(sessionId: string): Promise<void> {
+    const session = this.authSessions.get(sessionId);
+    if (session) session.revokedAt = new Date().toISOString();
+  }
+
+  async listAuthSessions(userId: string): Promise<StoredAuthSession[]> {
+    return [...this.authSessions.values()]
+      .filter((session) => session.userId === userId && !session.revokedAt)
+      .map((session) => ({ ...session }));
+  }
+
+  async getConsent(userId: string): Promise<ConsentState | null> {
+    return this.consents.get(userId) ?? null;
+  }
+
+  async saveConsent(userId: string, input: ConsentUpdateInput): Promise<ConsentState> {
+    const consent = { ...input, acceptedAt: new Date().toISOString() };
+    this.consents.set(userId, consent);
+    return { ...consent };
+  }
+
+  async createMediaObject(
+    input: Omit<StoredMediaObject, "id" | "status" | "createdAt">,
+  ): Promise<StoredMediaObject> {
+    const media: StoredMediaObject = {
+      ...input,
+      id: randomUUID(),
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    this.mediaObjects.set(media.id, media);
+    return { ...media };
+  }
+
+  async markMediaObjectAvailable(
+    userId: string,
+    mediaId: string,
+  ): Promise<StoredMediaObject | null> {
+    const media = this.mediaObjects.get(mediaId);
+    if (!media || media.userId !== userId || media.status !== "pending") return null;
+    media.status = "available";
+    return { ...media };
+  }
+
+  async listMediaObjects(userId: string): Promise<StoredMediaObject[]> {
+    return [...this.mediaObjects.values()]
+      .filter((media) => media.userId === userId && media.status !== "deleted")
+      .map((media) => ({ ...media }));
   }
 
   async createRoutine(userId: string, input: RoutineCreateInput): Promise<Routine> {
@@ -434,6 +572,12 @@ export class MemoryStore implements AppStore {
   }
 
   async close(): Promise<void> {}
+
+  private removeWhere<T>(items: T[], predicate: (item: T) => boolean): void {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      if (predicate(items[index]!)) items.splice(index, 1);
+    }
+  }
 
   private followKey(followerId: string, followingId: string): string {
     return `${followerId}:${followingId}`;

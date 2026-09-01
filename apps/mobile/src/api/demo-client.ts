@@ -2,7 +2,11 @@ import {
   sportLabels,
   sportValues,
   type AuthSession,
+  type AccountDeletionInput,
+  type AccountSession,
   type CommentCreateInput,
+  type ConsentState,
+  type ConsentUpdateInput,
   type DirectMessage,
   type DirectMessageCreateInput,
   type FeedPost,
@@ -12,12 +16,16 @@ import {
   type KnowledgeFeedbackCreateInput,
   type LoginInput,
   type Medal,
+  type MediaUploadRequestInput,
+  type MediaUploadTicket,
+  type PasswordChangeInput,
   type PostCreateInput,
   type PostShareResult,
   type PostUpdateInput,
   type ProfileUpdateInput,
   type PublicMemberProfile,
   type RegisterInput,
+  type RefreshSessionInput,
   type Routine,
   type RoutineCreateInput,
   type RoutineReorderInput,
@@ -575,6 +583,7 @@ const messages: DirectMessage[] = [];
 let avatarDataUri = readStored<string | undefined>("groov-demo-avatar-v1", undefined);
 
 let activeSession: AuthSession = sessionFor("mvp@groov.demo", "MVP 점검자");
+let activeConsent: ConsentState | null = null;
 
 export const demoApi = {
   register: async (input: RegisterInput) => {
@@ -587,6 +596,11 @@ export const demoApi = {
   },
   googleLogin: async (_input: GoogleLoginInput) => activeSession,
   devLogin: async () => activeSession,
+  refreshSession: async (_input: RefreshSessionInput) => {
+    activeSession = sessionFor(activeSession.user.email, activeSession.user.displayName);
+    return activeSession;
+  },
+  logout: async (_token: string) => ({ loggedOut: true as const }),
   me: async (_token: string) => activeSession.user,
   authProviders: async () => ({ google: true, development: true }),
   profile: async (_token: string) => ({
@@ -609,6 +623,41 @@ export const demoApi = {
       ...(avatarDataUri ? { avatarDataUri } : {}),
     };
   },
+  accountSessions: async (_token: string): Promise<AccountSession[]> => [
+    {
+      id: "demo-session",
+      createdAt: new Date(now - 86_400_000).toISOString(),
+      lastSeenAt: new Date().toISOString(),
+      expiresAt: new Date(now + 30 * 86_400_000).toISOString(),
+      current: true,
+    },
+  ],
+  revokeAccountSession: async (_token: string, _sessionId: string) => ({
+    revoked: true as const,
+  }),
+  changePassword: async (_token: string, _input: PasswordChangeInput) => activeSession,
+  deleteAccount: async (_token: string, _input: AccountDeletionInput) => ({
+    deleted: true as const,
+  }),
+  consent: async (_token: string) => activeConsent,
+  updateConsent: async (_token: string, input: ConsentUpdateInput) => {
+    activeConsent = { ...input, acceptedAt: new Date().toISOString() };
+    return activeConsent;
+  },
+  createMediaUploadTicket: async (
+    _token: string,
+    input: MediaUploadRequestInput,
+  ): Promise<MediaUploadTicket> => ({
+    mediaId: makeId("media"),
+    objectPath: `demo/${input.kind}/${makeId("object")}`,
+    signedUploadUrl: "https://example.invalid/demo-upload",
+    expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+  }),
+  completeMediaUpload: async (_token: string, mediaId: string) => ({
+    id: mediaId,
+    status: "available" as const,
+    objectPath: `demo/${mediaId}`,
+  }),
   sports: async () => demoSports,
   knowledge: async (sport: SportType) => articleSeeds.filter((item) => item.sport === sport),
   createKnowledgeFeedback: async (
@@ -882,6 +931,8 @@ function article(
 function sessionFor(email: string, displayName: string): AuthSession {
   return {
     accessToken: "public-demo-token",
+    refreshToken: "public-demo-refresh-token-that-is-long-enough",
+    accessTokenExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
     user: { id: "demo-user", email, displayName },
   };
 }

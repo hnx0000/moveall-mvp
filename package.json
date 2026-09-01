@@ -18,8 +18,9 @@
     "test": "pnpm --filter @moveall/contracts test && pnpm --filter @moveall/api test",
     "build": "pnpm --filter @moveall/contracts build && pnpm --filter @moveall/api build && pnpm --filter @moveall/mobile build",
     "build:site": "node scripts/build-site.mjs",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
-    "audit:dependencies": "pnpm audit --prod --audit-level high"
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm security:secrets",
+    "audit:dependencies": "pnpm audit --prod --audit-level high",
+    "security:secrets": "node scripts/check-secrets.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

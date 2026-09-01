@@ -4,9 +4,9 @@ GROOV는 여러 운동을 루틴화하고, 운동 기록을 공유하며, 전문
 제공하기 위한 Android·iOS·웹 애플리케이션 기반입니다. 현재 이름은 제품명이 확정되기 전의
 작업명입니다.
 
-이 저장소는 초기 기능 개발에 바로 사용할 수 있는 모듈형 모놀리식 구조입니다. 개발 환경은
-외부 서비스 없이 메모리 저장소로 실행되며, PostgreSQL 전환을 위한 저장소 구현과 초기
-마이그레이션도 포함합니다.
+이 저장소는 초기 기능 개발에 바로 사용할 수 있는 모듈형 모놀리식 구조입니다. 운영 DB는
+Supabase PostgreSQL로 확정했으며, 테스트는 독립적인 MemoryStore를 유지합니다. 운영용
+마이그레이션, 회전형 로그인 세션, 동의 이력과 Supabase Storage 업로드 티켓을 포함합니다.
 
 ## MVP 미리보기
 
@@ -17,7 +17,8 @@ GROOV는 여러 운동을 루틴화하고, 운동 기록을 공유하며, 전문
 
 - Google OIDC 로그인, 서버 ID 토큰 검증, 최초 로그인 게이트와 자동 세션 복원
 - 개발 환경에서만 서버가 발급하는 자동 로그인 세션과 운영 빌드 이중 차단
-- 앱 시작 시 `/v1/auth/me` 재검증을 거치는 30일 만료 액세스 토큰
+- 15분 접속 토큰, 30일 회전형 refresh token, 서버 세션 폐기와 앱 시작 시 자동 복원
+- 비밀번호 변경, 다른 로그인 종료, 계정·소유 데이터·미디어 삭제 경로
 - 근력·러닝·등산·다이빙·사이클·수영 종목
 - 개인 루틴 생성·조회
 - 홈에서 바로 시작하고 항목별로 완료하는 오늘의 루틴
@@ -32,7 +33,9 @@ GROOV는 여러 운동을 루틴화하고, 운동 기록을 공유하며, 전문
 - 화이트·다크 테마와 레퍼런스 기반 오렌지 포인트 색상
 - 한눈에 읽는 오늘의 활동 대시보드
 - MVP 운동 스토리와 개발용 예시 피드
-- 개발·테스트용 메모리 저장소와 PostgreSQL 저장소
+- Supabase PostgreSQL 운영 저장소와 테스트용 MemoryStore
+- 버전이 기록되는 필수 약관·개인정보 동의와 건강·위치·미디어 선택 동의
+- Supabase Storage 비공개 버킷용 2시간 제한 업로드 티켓
 - 입력 검증, 공통 오류 응답, 보안 헤더, CORS, 속도 제한, 민감 로그 제거
 - 포맷·린트·타입·테스트·웹 빌드·의존성 감사를 수행하는 CI
 
@@ -121,12 +124,15 @@ Android 에뮬레이터에서는 모바일 환경 파일의 API 주소를
 http://10.0.2.2:3000 으로 변경해야 할 수 있습니다. 실제 기기에서는 개발 PC의 LAN IP를
 사용하고 API HOST와 CORS_ORIGINS도 해당 개발 환경에 맞게 제한적으로 설정하세요.
 
-## PostgreSQL 사용
+## Supabase PostgreSQL 사용
 
-먼저 PostgreSQL 데이터베이스를 준비한 다음 apps/api/.env를 수정합니다.
+Supabase 프로젝트를 준비한 다음 apps/api/.env를 수정합니다. 장기 실행 API는 Session pooler,
+서버리스는 Transaction pooler를 사용하며 SSL을 유지합니다.
 
     DATA_STORE=postgres
-    DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/moveall
+    DATABASE_URL=postgresql://postgres.PROJECT_REF:PASSWORD@REGION.pooler.supabase.com:5432/postgres
+    DATABASE_MAX_CONNECTIONS=5
+    DATABASE_SSL=require
 
 스키마와 기본 종목 데이터 적용:
 
@@ -135,6 +141,8 @@ http://10.0.2.2:3000 으로 변경해야 할 수 있습니다. 실제 기기에�
 
 마이그레이션은 적용 내역을 schema_migrations 테이블에 기록합니다. 운영 데이터베이스에
 적용하기 전에는 반드시 백업과 별도 환경 검증이 필요합니다.
+
+미디어 버킷과 환경별 Secret 설정은 `docs/OPERATIONS.md`를 따릅니다.
 
 ## 품질 검사
 

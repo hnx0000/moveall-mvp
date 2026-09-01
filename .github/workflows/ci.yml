@@ -50,3 +50,6 @@ jobs:
 
       - name: Audit production dependencies
         run: pnpm audit:dependencies
+
+      - name: Reject committed secrets
+        run: pnpm security:secrets

@@ -1,8 +1,12 @@
 import type {
+  AccountSession,
+  ConsentState,
+  ConsentUpdateInput,
   DirectMessage,
   FeedPost,
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
+  MediaKind,
   PostCreateInput,
   PostShareResult,
   PostUpdateInput,
@@ -25,6 +29,25 @@ export type User = {
   createdAt: string;
 };
 
+export type StoredAuthSession = Omit<AccountSession, "current"> & {
+  userId: string;
+  refreshTokenHash: string;
+  revokedAt: string | null;
+};
+
+export type StoredMediaObject = {
+  id: string;
+  userId: string;
+  provider: "supabase" | "r2";
+  bucket: string;
+  objectPath: string;
+  kind: MediaKind;
+  contentType: string;
+  byteSize: number;
+  status: "pending" | "available" | "deleting" | "deleted";
+  createdAt: string;
+};
+
 export interface AppStore {
   findUserById(id: string): Promise<User | null>;
   findUserByEmail(email: string): Promise<User | null>;
@@ -37,6 +60,29 @@ export interface AppStore {
     email: string;
     displayName: string;
   }): Promise<User>;
+  updatePassword(userId: string, passwordHash: string): Promise<boolean>;
+  deleteUserAccount(userId: string): Promise<boolean>;
+  createAuthSession(input: {
+    userId: string;
+    refreshTokenHash: string;
+    expiresAt: string;
+  }): Promise<StoredAuthSession>;
+  findAuthSessionById(sessionId: string): Promise<StoredAuthSession | null>;
+  findAuthSessionByRefreshTokenHash(refreshTokenHash: string): Promise<StoredAuthSession | null>;
+  rotateAuthSession(input: {
+    sessionId: string;
+    refreshTokenHash: string;
+    expiresAt: string;
+  }): Promise<StoredAuthSession | null>;
+  revokeAuthSession(sessionId: string): Promise<void>;
+  listAuthSessions(userId: string): Promise<StoredAuthSession[]>;
+  getConsent(userId: string): Promise<ConsentState | null>;
+  saveConsent(userId: string, input: ConsentUpdateInput): Promise<ConsentState>;
+  createMediaObject(
+    input: Omit<StoredMediaObject, "id" | "status" | "createdAt">,
+  ): Promise<StoredMediaObject>;
+  markMediaObjectAvailable(userId: string, mediaId: string): Promise<StoredMediaObject | null>;
+  listMediaObjects(userId: string): Promise<StoredMediaObject[]>;
   createRoutine(userId: string, input: RoutineCreateInput): Promise<Routine>;
   listRoutines(userId: string): Promise<Routine[]>;
   updateRoutine(

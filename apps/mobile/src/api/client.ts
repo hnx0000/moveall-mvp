@@ -1,8 +1,12 @@
 import type {
+  AccountDeletionInput,
+  AccountSession,
   ApiFailure,
   ApiSuccess,
   AuthSession,
   CommentCreateInput,
+  ConsentState,
+  ConsentUpdateInput,
   DirectMessage,
   DirectMessageCreateInput,
   FeedPost,
@@ -13,6 +17,9 @@ import type {
   KnowledgeFeedbackCreateInput,
   LoginInput,
   Medal,
+  MediaUploadRequestInput,
+  MediaUploadTicket,
+  PasswordChangeInput,
   PostCreateInput,
   PostShareResult,
   PostUpdateInput,
@@ -20,6 +27,7 @@ import type {
   PublicMemberProfile,
   PublicUser,
   RegisterInput,
+  RefreshSessionInput,
   Routine,
   RoutineCreateInput,
   RoutineReorderInput,
@@ -92,6 +100,13 @@ const liveApi = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  refreshSession: (input: RefreshSessionInput) =>
+    request<AuthSession>("/v1/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  logout: (token: string) =>
+    request<{ loggedOut: true }>("/v1/auth/logout", { token, method: "POST" }),
   me: (token: string) => request<AuthSession["user"]>("/v1/auth/me", { token }),
   authProviders: () => request<{ google: boolean; development: boolean }>("/v1/auth/providers"),
   profile: (token: string) => request<UserProfile>("/v1/users/me/profile", { token }),
@@ -101,6 +116,42 @@ const liveApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+  accountSessions: (token: string) => request<AccountSession[]>("/v1/account/sessions", { token }),
+  revokeAccountSession: (token: string, sessionId: string) =>
+    request<{ revoked: true }>(`/v1/account/sessions/${sessionId}`, {
+      token,
+      method: "DELETE",
+    }),
+  changePassword: (token: string, input: PasswordChangeInput) =>
+    request<AuthSession>("/v1/account/password", {
+      token,
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  deleteAccount: (token: string, input: AccountDeletionInput) =>
+    request<{ deleted: true }>("/v1/account", {
+      token,
+      method: "DELETE",
+      body: JSON.stringify(input),
+    }),
+  consent: (token: string) => request<ConsentState | null>("/v1/consents/me", { token }),
+  updateConsent: (token: string, input: ConsentUpdateInput) =>
+    request<ConsentState>("/v1/consents/me", {
+      token,
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  createMediaUploadTicket: (token: string, input: MediaUploadRequestInput) =>
+    request<MediaUploadTicket>("/v1/media/upload-ticket", {
+      token,
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  completeMediaUpload: (token: string, mediaId: string) =>
+    request<{ id: string; status: "available"; objectPath: string }>(
+      `/v1/media/${mediaId}/complete`,
+      { token, method: "POST" },
+    ),
   sports: () => request<SportSummary[]>("/v1/sports"),
   knowledge: (sport: SportType) => request<KnowledgeArticle[]>("/v1/knowledge/" + sport),
   createKnowledgeFeedback: (
