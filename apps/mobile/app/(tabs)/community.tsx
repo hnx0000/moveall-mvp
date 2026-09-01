@@ -947,8 +947,6 @@ export default function CommunityScreen() {
         />
       }
     >
-      <Text style={styles.pageTitle}>함께 움직이는 중</Text>
-
       <CenterDialog
         message={feedNotice ?? ""}
         onClose={() => setFeedNotice(null)}
@@ -1446,7 +1444,10 @@ export default function CommunityScreen() {
         ) : null}
       </Card>
 
-      <Text style={styles.sectionTitle}>최신 피드</Text>
+      <View>
+        <Text style={styles.sectionEyebrow}>LATEST FEED</Text>
+        <Text style={styles.sectionTitle}>최신 피드</Text>
+      </View>
       <View style={styles.hashtagSearchRow}>
         <TextInput
           accessibilityLabel="해시태그 검색"
@@ -1853,7 +1854,6 @@ function readPersistedCurrentAvatar(): string | null {
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
-    pageTitle: { color: colors.ink, fontSize: 20, fontFamily: fonts.bold },
     shareModalBackdrop: {
       flex: 1,
       backgroundColor: "rgba(0,0,0,0.76)",
@@ -2226,6 +2226,13 @@ function createStyles(colors: ThemeColors) {
     composerHashtags: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
     composerHashtag: { color: colors.primary, fontSize: 11, fontFamily: fonts.bold },
     error: { color: colors.danger, fontSize: 10, marginBottom: 8 },
+    sectionEyebrow: {
+      color: colors.primary,
+      fontSize: 8,
+      fontFamily: fonts.bold,
+      letterSpacing: 1,
+      marginBottom: 4,
+    },
     sectionTitle: { color: colors.ink, fontSize: 17, fontFamily: fonts.bold },
     hashtagSearchRow: { flexDirection: "row", gap: 8, alignItems: "center" },
     hashtagSearchInput: {
