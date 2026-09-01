@@ -2,7 +2,7 @@ import { sportLabels } from "@moveall/contracts";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Screen } from "../../src/components/ui";
+import { CenterDialog, Screen } from "../../src/components/ui";
 import {
   markRecordGoalAchieved,
   readRecordGoals,
@@ -17,6 +17,8 @@ export default function GoalsScreen() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [goals, setGoals] = useState<RecordGoal[]>([]);
+  const [pendingDeleteGoal, setPendingDeleteGoal] = useState<RecordGoal | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -26,6 +28,32 @@ export default function GoalsScreen() {
 
   return (
     <Screen title="나만의 목표" action={<Text style={styles.privateBadge}>PRIVATE</Text>}>
+      <CenterDialog
+        confirmLabel="목표 제거"
+        danger
+        eyebrow="DELETE GOAL"
+        message={
+          pendingDeleteGoal
+            ? `${pendingDeleteGoal.authorName}님의 ${sportLabels[pendingDeleteGoal.sport]} 기록을 목표 목록에서 제거합니다.`
+            : ""
+        }
+        onClose={() => setPendingDeleteGoal(null)}
+        onConfirm={() => {
+          if (!pendingDeleteGoal) return;
+          removeRecordGoal(pendingDeleteGoal.id);
+          setGoals(readRecordGoals());
+          setPendingDeleteGoal(null);
+          setFeedback("목표를 제거했습니다.");
+        }}
+        title="이 목표를 제거할까요?"
+        visible={pendingDeleteGoal !== null}
+      />
+      <CenterDialog
+        message={feedback ?? ""}
+        onClose={() => setFeedback(null)}
+        title="처리했습니다"
+        visible={feedback !== null && pendingDeleteGoal === null}
+      />
       <Pressable onPress={() => router.back()}>
         <Text style={styles.back}>← 내 정보</Text>
       </Pressable>
@@ -51,6 +79,7 @@ export default function GoalsScreen() {
               onPress={() => {
                 markRecordGoalAchieved(goal.id);
                 setGoals(readRecordGoals());
+                setFeedback("목표를 달성으로 표시했습니다.");
               }}
               style={[styles.primary, goal.achieved && styles.primaryDone]}
             >
@@ -58,13 +87,7 @@ export default function GoalsScreen() {
                 {goal.achieved ? "목표 달성" : "달성으로 표시"}
               </Text>
             </Pressable>
-            <Pressable
-              onPress={() => {
-                removeRecordGoal(goal.id);
-                setGoals(readRecordGoals());
-              }}
-              style={styles.remove}
-            >
+            <Pressable onPress={() => setPendingDeleteGoal(goal)} style={styles.remove}>
               <Text style={styles.removeText}>제거</Text>
             </Pressable>
           </View>

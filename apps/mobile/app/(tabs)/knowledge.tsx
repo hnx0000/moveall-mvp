@@ -1032,7 +1032,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       gap: 7,
     },
-    challengeButtonSubmitted: { backgroundColor: "#78D9A5" },
+    challengeButtonSubmitted: { backgroundColor: colors.primary },
     challengeButtonText: { color: "#12100F", fontFamily: fonts.bold, fontSize: 12 },
     challengeTicket: { padding: 18, gap: 14, borderColor: colors.primary },
     ticketHeading: {

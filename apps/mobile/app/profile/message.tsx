@@ -86,7 +86,9 @@ export default function MessagePage() {
                   <Text style={[styles.messageText, { color: mine ? "#FFFFFF" : colors.ink }]}>
                     {message.content}
                   </Text>
-                  <Text style={[styles.time, { color: mine ? "#FFD2C7" : colors.muted }]}>
+                  <Text
+                    style={[styles.time, { color: mine ? "rgba(255,255,255,0.72)" : colors.muted }]}
+                  >
                     {new Date(message.createdAt).toLocaleTimeString("ko-KR", {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -153,6 +155,6 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     input: { flex: 1, minHeight: 44, fontSize: 11 },
     send: { minWidth: 74, borderRadius: 7, alignItems: "center", justifyContent: "center" },
     sendText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
-    error: { color: "#C94732", fontSize: 9 },
+    error: { color: colors.primary, fontSize: 9 },
   });
 }

@@ -236,9 +236,9 @@ const defaultRoutines: Routine[] = [
     sport: "strength",
     daysOfWeek: [1, 3, 5],
     items: [
-      { name: "전신 워밍업", target: "5분", order: 0 },
-      { name: "기본 전신 운동", target: "30분", order: 1 },
-      { name: "정리 운동", target: "5분", order: 2 },
+      { name: "스쿼트", target: "10회 · 4세트 · 예상 12분 · 휴식 2분", order: 0 },
+      { name: "벤치프레스", target: "8회 · 4세트 · 예상 12분 · 휴식 2분", order: 1 },
+      { name: "바벨 로우", target: "10회 · 4세트 · 예상 10분 · 휴식 1분", order: 2 },
     ],
     sortOrder: 0,
     createdAt: new Date(now - 7 * 86_400_000).toISOString(),
@@ -482,9 +482,12 @@ const demoMemberWorkouts: Record<string, WorkoutSession[]> = {
   ],
 };
 
-const routines = readStored<Routine[]>("moveall-demo-routines-v2", defaultRoutines);
+const deletedWorkoutIds = new Set<string>(
+  readStored<string[]>("groov-demo-deleted-workouts-v1", []),
+);
+const routines = initializeDemoRoutines();
 const workouts = initializeDemoWorkouts();
-const followingIds = new Set<string>();
+const followingIds = new Set<string>(readStored<string[]>("groov-demo-following-v1", []));
 const postShareRecipients = new Map<string, Set<string>>();
 const archived: FeedPost[] = [];
 const messages: DirectMessage[] = [];
@@ -621,7 +624,8 @@ export const demoApi = {
     post.shareCount = Math.max(post.shareCount ?? 0, recipients.size > 0 ? 1 : 0);
     return { shareCount: post.shareCount, recipientCount: recipients.size };
   },
-  workouts: async (_token: string) => workouts,
+  workouts: async (_token: string) =>
+    workouts.map((workout) => ({ ...workout, metrics: { ...workout.metrics } })),
   createWorkoutSession: async (_token: string, input: WorkoutSessionCreateInput) => {
     const item: WorkoutSession = {
       id: makeId("workout"),
@@ -651,6 +655,7 @@ export const demoApi = {
   deleteWorkoutSession: async (_token: string, workoutId: string) => {
     const index = workouts.findIndex((item) => item.id === workoutId);
     if (index >= 0) workouts.splice(index, 1);
+    deletedWorkoutIds.add(workoutId);
     persistDemoState();
     return { deleted: true as const };
   },
@@ -703,7 +708,7 @@ export const demoApi = {
     return {
       user: { id: userId, displayName: seed.displayName },
       isPrivate,
-      followersCount: seed.followersCount,
+      followersCount: seed.followersCount + (followingIds.has(userId) ? 1 : 0),
       followingCount: seed.followingCount,
       posts: isPrivate
         ? []
@@ -716,26 +721,34 @@ export const demoApi = {
     followersCount: 0,
     followingCount: followingIds.size,
     followers: [],
-    following: posts
-      .filter((post) => followingIds.has(post.userId))
-      .map((post) => ({ id: post.userId, displayName: post.authorDisplayName })),
+    following: [...followingIds].map((userId) => ({
+      id: userId,
+      displayName:
+        demoMemberDirectory[userId]?.displayName ??
+        posts.find((post) => post.userId === userId)?.authorDisplayName ??
+        "GROOV 멤버",
+    })),
   }),
   medals: async (_token: string): Promise<Medal[]> => medalsForWorkouts(workouts),
   followStatus: async (_token: string, userId: string) => ({
     following: followingIds.has(userId),
-    followersCount: 0,
+    followersCount:
+      (demoMemberDirectory[userId]?.followersCount ?? 0) + (followingIds.has(userId) ? 1 : 0),
   }),
   follow: async (_token: string, userId: string) => {
     followingIds.add(userId);
+    persistDemoFollowing();
     return { following: true as const };
   },
   unfollow: async (_token: string, userId: string) => {
     followingIds.delete(userId);
+    persistDemoFollowing();
     return { following: false as const };
   },
   removeFollower: async (_token: string, _userId: string) => ({ removed: true as const }),
   blockUser: async (_token: string, userId: string) => {
     followingIds.delete(userId);
+    persistDemoFollowing();
     return { blocked: true as const };
   },
   messages: async (_token: string, userId: string) =>
@@ -807,6 +820,27 @@ function demoWorkout(
 ): WorkoutSession {
   const endedAt = new Date(now - daysAgo * 86_400_000 - (daysAgo % 3) * 3_600_000);
   const startedAt = new Date(endedAt.getTime() - durationMinutes * 60_000);
+  const averageHeartRateBpm =
+    (
+      {
+        running: 148,
+        hiking: 132,
+        cycling: 141,
+        strength: 128,
+        swimming: 136,
+        diving: 112,
+      } as const
+    )[sport] +
+    (daysAgo % 5) -
+    2;
+  const averageCadenceSpm = sport === "running" ? 166 + (daysAgo % 7) : undefined;
+  const maximumHeartRateBpm = averageHeartRateBpm + 22 + (daysAgo % 4);
+  const hikingSteps =
+    sport === "hiking" ? Math.round(Number(metrics.distanceKm ?? 0) * 1380) : undefined;
+  const swimLaps = sport === "swimming" ? Number(metrics.laps ?? 0) : 0;
+  const swimTotalStrokes = swimLaps > 0 ? Math.round(swimLaps * (17 + (daysAgo % 3))) : 0;
+  const swimAverageSwolf =
+    swimLaps > 0 ? Math.round((durationMinutes * 60) / swimLaps + swimTotalStrokes / swimLaps) : 0;
   return {
     id: `demo-workout-${id}`,
     userId: "demo-user",
@@ -815,7 +849,32 @@ function demoWorkout(
     endedAt: endedAt.toISOString(),
     perceivedExertion,
     notes,
-    metrics: { durationMinutes, ...metrics },
+    metrics: {
+      durationMinutes,
+      averageHeartRateBpm,
+      maximumHeartRateBpm,
+      ...(sport === "hiking" && hikingSteps ? { steps: hikingSteps } : {}),
+      ...(sport === "swimming"
+        ? {
+            totalStrokes: swimTotalStrokes,
+            averageSwolf: swimAverageSwolf,
+            swimEnvironmentCode: 1,
+            poolLengthM: 25,
+          }
+        : {}),
+      ...(sport === "diving"
+        ? {
+            waterTemperatureC: 25 + (daysAgo % 4),
+          }
+        : {}),
+      ...(sport === "running" && averageCadenceSpm
+        ? {
+            averageCadenceSpm,
+            steps: Math.round(durationMinutes * averageCadenceSpm),
+          }
+        : {}),
+      ...metrics,
+    },
     source: "manual",
     createdAt: endedAt.toISOString(),
   };
@@ -876,22 +935,62 @@ function ensureWorkoutCoverage(
   return merged.sort((left, right) => Date.parse(right.endedAt) - Date.parse(left.endedAt));
 }
 
+function initializeDemoRoutines(): Routine[] {
+  const stored = readStored<Routine[]>("moveall-demo-routines-v2", defaultRoutines);
+  try {
+    if (!("localStorage" in globalThis)) return stored;
+    const versionKey = "groov-demo-routine-seed-version";
+    const version = "1";
+    if (globalThis.localStorage.getItem(versionKey) === version) return stored;
+    const seed = defaultRoutines[0]!;
+    const next = [...stored];
+    const seedIndex = next.findIndex((routine) => routine.id === seed.id);
+    if (seedIndex < 0) {
+      next.unshift(seed);
+    } else {
+      const current = next[seedIndex]!;
+      const isLegacySeed = current.items.some((item) =>
+        ["전신 워밍업", "기본 전신 운동", "정리 운동"].includes(item.name),
+      );
+      if (isLegacySeed) next[seedIndex] = seed;
+    }
+    globalThis.localStorage.setItem("moveall-demo-routines-v2", JSON.stringify(next));
+    globalThis.localStorage.setItem(versionKey, version);
+    return next;
+  } catch {
+    return stored;
+  }
+}
+
 function initializeDemoWorkouts(): WorkoutSession[] {
-  const stored = readStored<WorkoutSession[]>("moveall-demo-workouts-v2", []);
+  const stored = readStored<WorkoutSession[]>("moveall-demo-workouts-v2", []).filter(
+    (workout) => !deletedWorkoutIds.has(workout.id),
+  );
+  const availableSeeds = defaultWorkoutSeeds.filter(
+    (workout) => !deletedWorkoutIds.has(workout.id),
+  );
   try {
     if (!("localStorage" in globalThis)) {
-      return ensureWorkoutCoverage(stored, defaultWorkoutSeeds);
+      return ensureWorkoutCoverage(mergeSeedMetrics(stored, availableSeeds), availableSeeds);
     }
     const seedVersionKey = "groov-demo-workout-seed-version";
-    const seedVersion = "1";
+    const seedVersion = "5";
     if (globalThis.localStorage.getItem(seedVersionKey) === seedVersion) return stored;
-    const seeded = ensureWorkoutCoverage(stored, defaultWorkoutSeeds);
+    const seeded = ensureWorkoutCoverage(mergeSeedMetrics(stored, availableSeeds), availableSeeds);
     globalThis.localStorage.setItem("moveall-demo-workouts-v2", JSON.stringify(seeded));
     globalThis.localStorage.setItem(seedVersionKey, seedVersion);
     return seeded;
   } catch {
-    return ensureWorkoutCoverage(stored, defaultWorkoutSeeds);
+    return ensureWorkoutCoverage(mergeSeedMetrics(stored, availableSeeds), availableSeeds);
   }
+}
+
+function mergeSeedMetrics(stored: WorkoutSession[], seeds: WorkoutSession[]): WorkoutSession[] {
+  const seedsById = new Map(seeds.map((seed) => [seed.id, seed]));
+  return stored.map((workout) => {
+    const seed = seedsById.get(workout.id);
+    return seed ? { ...workout, metrics: { ...seed.metrics, ...workout.metrics } } : workout;
+  });
 }
 
 function readStored<T>(key: string, fallback: T): T {
@@ -909,6 +1008,10 @@ function persistDemoState() {
     if (!("localStorage" in globalThis)) return;
     globalThis.localStorage.setItem("moveall-demo-routines-v2", JSON.stringify(routines));
     globalThis.localStorage.setItem("moveall-demo-workouts-v2", JSON.stringify(workouts));
+    globalThis.localStorage.setItem(
+      "groov-demo-deleted-workouts-v1",
+      JSON.stringify([...deletedWorkoutIds]),
+    );
   } catch {
     // 저장소를 사용할 수 없는 환경에서는 현재 세션의 메모리 상태를 유지합니다.
   }
@@ -921,6 +1024,15 @@ function persistDemoAvatar() {
     else globalThis.localStorage.removeItem("groov-demo-avatar-v1");
   } catch {
     // 저장소를 사용할 수 없는 환경에서는 현재 세션의 프로필 사진을 유지합니다.
+  }
+}
+
+function persistDemoFollowing() {
+  try {
+    if (!("localStorage" in globalThis)) return;
+    globalThis.localStorage.setItem("groov-demo-following-v1", JSON.stringify([...followingIds]));
+  } catch {
+    // 저장소를 사용할 수 없는 환경에서는 현재 세션의 팔로우 상태를 유지합니다.
   }
 }
 

@@ -18,29 +18,15 @@ import {
   StyleSheet,
   Text,
   View,
-  type ImageSourcePropType,
 } from "react-native";
-import avatarDoyun from "../../assets/images/story-diving-01.jpg";
-import avatarHarin from "../../assets/images/story-diving-02.png";
-import avatarMinji from "../../assets/images/story-strength-02.jpg";
-import avatarYuna from "../../assets/images/story-strength-03.jpg";
-import avatarJun from "../../assets/images/story-swimming-01.jpg";
-import avatarTaeo from "../../assets/images/story-swimming-02.jpg";
 import { ApiError, api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
+import { demoAvatarSources } from "../../src/demo-avatars";
 import { fonts, radius, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
+import { formatSensorMetricLine } from "../../src/workout-metrics";
 
 type MemberTab = "records" | "posts";
-
-const demoAvatarSources: Record<string, ImageSourcePropType> = {
-  "demo-friend-1": avatarMinji,
-  "demo-friend-2": avatarJun,
-  "demo-friend-3": avatarDoyun,
-  "demo-friend-4": avatarYuna,
-  "demo-friend-private": avatarHarin,
-  "demo-friend-6": avatarTaeo,
-};
 
 export default function MemberProfilePage() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
@@ -357,6 +343,7 @@ function RecordList({
           <Text style={styles.recordMeta}>
             {durationLabel(workout)} · {calorieLabel(workout)}
           </Text>
+          <Text style={styles.recordSensorMetric}>{formatSensorMetricLine(workout)}</Text>
         </View>
       ))}
     </View>
@@ -449,7 +436,7 @@ function createStyles(colors: ThemeColors) {
       padding: 14,
       gap: 8,
     },
-    error: { color: "#C94732", fontSize: 10, fontFamily: fonts.medium },
+    error: { color: colors.primary, fontSize: 10, fontFamily: fonts.medium },
     retry: { color: colors.primary, fontSize: 9, fontFamily: fonts.bold },
     identityRow: { flexDirection: "row", alignItems: "center", gap: 14 },
     avatar: { width: 72, height: 72, borderRadius: 36 },
@@ -598,6 +585,12 @@ function createStyles(colors: ThemeColors) {
     recordMetric: { color: colors.ink, fontSize: 25, fontFamily: fonts.displayExtra },
     recordNote: { color: colors.ink, fontSize: 10, fontFamily: fonts.semibold },
     recordMeta: { color: colors.muted, fontSize: 8, fontFamily: fonts.medium },
+    recordSensorMetric: {
+      color: colors.primary,
+      fontSize: 8,
+      lineHeight: 13,
+      fontFamily: fonts.semibold,
+    },
     postGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
     postCard: {
       width: "48.8%",

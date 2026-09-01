@@ -131,9 +131,9 @@ export async function createApp(dependencies: AppDependencies) {
         sport: "strength",
         daysOfWeek: [1, 4],
         items: [
-          { name: "스쿼트", target: "5회 × 5세트", order: 0 },
-          { name: "벤치프레스", target: "8회 × 4세트", order: 1 },
-          { name: "바벨 로우", target: "10회 × 4세트", order: 2 },
+          { name: "스쿼트", target: "5회 · 5세트 · 예상 15분 · 휴식 2분", order: 0 },
+          { name: "벤치프레스", target: "8회 · 4세트 · 예상 12분 · 휴식 2분", order: 1 },
+          { name: "바벨 로우", target: "10회 · 4세트 · 예상 10분 · 휴식 1분", order: 2 },
         ],
       }),
     ]);

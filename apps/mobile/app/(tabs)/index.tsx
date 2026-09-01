@@ -6,6 +6,8 @@ import {
   type WorkoutSession,
 } from "@moveall/contracts";
 import { useFocusEffect, useRouter } from "expo-router";
+import * as Location from "expo-location";
+import { MapPin } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -30,6 +32,7 @@ import { useAsyncData } from "../../src/hooks/use-async-data";
 import { fonts, radius, shadows, space, typography, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 import { sortWorkoutsForDisplay } from "../../src/workout-display";
+import { aggregateSensorMetrics, formatSensorMetricLine } from "../../src/workout-metrics";
 
 const homeSportOrder: SportType[] = [
   "running",
@@ -39,6 +42,7 @@ const homeSportOrder: SportType[] = [
   "swimming",
   "diving",
 ];
+const homeGpsSports: SportType[] = ["running", "hiking", "cycling", "swimming"];
 
 const sportLogoIndex: Record<SportType, number> = {
   running: 0,
@@ -49,6 +53,17 @@ const sportLogoIndex: Record<SportType, number> = {
   diving: 5,
 };
 
+const sportLogoSourceCell = 362;
+const sportLogoCropSize = 350;
+const sportLogoCenters: Record<SportType, { x: number; y: number }> = {
+  running: { x: 199, y: 184 },
+  hiking: { x: 209.5, y: 181 },
+  cycling: { x: 205, y: 171.5 },
+  strength: { x: 195, y: 194 },
+  swimming: { x: 189.5, y: 181.5 },
+  diving: { x: 179.5, y: 176.5 },
+};
+
 const workoutMetricEditFields: Record<
   SportType,
   { key: string; label: string; placeholder: string }[]
@@ -57,31 +72,48 @@ const workoutMetricEditFields: Record<
     { key: "distanceKm", label: "거리 (km)", placeholder: "5.12" },
     { key: "paceSeconds", label: "페이스 (초/km)", placeholder: "363" },
     { key: "calories", label: "칼로리 (kcal)", placeholder: "368" },
+    { key: "averageHeartRateBpm", label: "평균 심박수 (bpm)", placeholder: "148" },
+    { key: "maximumHeartRateBpm", label: "최대 심박수 (bpm)", placeholder: "174" },
+    { key: "steps", label: "걸음", placeholder: "5210" },
+    { key: "averageCadenceSpm", label: "평균 케이던스 (spm)", placeholder: "168" },
   ],
   hiking: [
     { key: "distanceKm", label: "거리 (km)", placeholder: "6.42" },
     { key: "durationMinutes", label: "시간 (분)", placeholder: "126" },
     { key: "elevationGainM", label: "고도 상승 (m)", placeholder: "498" },
+    { key: "averageHeartRateBpm", label: "평균 심박수 (bpm)", placeholder: "132" },
+    { key: "maximumHeartRateBpm", label: "최대 심박수 (bpm)", placeholder: "158" },
+    { key: "steps", label: "걸음", placeholder: "12340" },
   ],
   cycling: [
     { key: "distanceKm", label: "거리 (km)", placeholder: "18.62" },
     { key: "averageSpeedKmh", label: "평균 속도 (km/h)", placeholder: "19.3" },
     { key: "calories", label: "칼로리 (kcal)", placeholder: "514" },
+    { key: "averageHeartRateBpm", label: "평균 심박수 (bpm)", placeholder: "141" },
+    { key: "maximumHeartRateBpm", label: "최대 심박수 (bpm)", placeholder: "169" },
   ],
   strength: [
     { key: "exerciseCount", label: "운동 수", placeholder: "5" },
     { key: "sets", label: "완료 세트", placeholder: "16" },
     { key: "volumeKg", label: "총 볼륨 (kg)", placeholder: "4280" },
+    { key: "averageHeartRateBpm", label: "평균 심박수 (bpm)", placeholder: "128" },
+    { key: "maximumHeartRateBpm", label: "최대 심박수 (bpm)", placeholder: "156" },
   ],
   swimming: [
     { key: "distanceM", label: "거리 (m)", placeholder: "1200" },
     { key: "durationMinutes", label: "시간 (분)", placeholder: "42" },
     { key: "laps", label: "랩 수", placeholder: "48" },
+    { key: "averageHeartRateBpm", label: "평균 심박수 (bpm)", placeholder: "136" },
+    { key: "totalStrokes", label: "총 스트로크", placeholder: "864" },
+    { key: "averageSwolf", label: "평균 SWOLF", placeholder: "48" },
   ],
   diving: [
     { key: "maxDepthM", label: "최대 수심 (m)", placeholder: "18" },
     { key: "dynamicDistanceM", label: "다이나믹 (m)", placeholder: "42" },
     { key: "durationMinutes", label: "시간 (분)", placeholder: "55" },
+    { key: "averageHeartRateBpm", label: "평균 심박수 (bpm)", placeholder: "112" },
+    { key: "maximumHeartRateBpm", label: "최대 심박수 (bpm)", placeholder: "138" },
+    { key: "waterTemperatureC", label: "수온 (°C)", placeholder: "27" },
   ],
 };
 
@@ -92,15 +124,14 @@ export default function HomeScreen() {
   const styles = createStyles(colors);
   const loader = useCallback(() => api.sports(), []);
   const { data: sports, error, loading, reload } = useAsyncData(loader);
-  const [activeRoutineId, setActiveRoutineId] = useState<string | null>(null);
-  const [completed, setCompleted] = useState<number[]>([]);
+  const [routineProgress, setRoutineProgress] = useState<Record<string, number[]>>({});
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
   const [medals, setMedals] = useState<Medal[]>([]);
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [completionMessage, setCompletionMessage] = useState<string | null>(null);
-  const [savingCompletion, setSavingCompletion] = useState(false);
+  const [savingRoutineId, setSavingRoutineId] = useState<string | null>(null);
   const [selectedSport, setSelectedSport] = useState<SportType>("running");
   const [recordingSport, setRecordingSport] = useState<SportType | null>(null);
   const [notificationOpen, setNotificationOpen] = useState(false);
@@ -111,6 +142,32 @@ export default function HomeScreen() {
   const [pendingDeleteWorkout, setPendingDeleteWorkout] = useState<WorkoutSession | null>(null);
   const [recordActionError, setRecordActionError] = useState<string | null>(null);
   const [savingRecordAction, setSavingRecordAction] = useState(false);
+  const [gpsReadiness, setGpsReadiness] = useState("GPS 상태 확인 중");
+  const recordSportScrollRef = useRef<ScrollView>(null);
+  const recordSportScrollOffsetRef = useRef(0);
+  const recordSportDragOriginRef = useRef(0);
+  const routineCelebrationAnimation = useRef(new Animated.Value(0)).current;
+  const recordSportPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          Platform.OS === "web" &&
+          Math.abs(gesture.dx) > 6 &&
+          Math.abs(gesture.dx) > Math.abs(gesture.dy),
+        onPanResponderGrant: () => {
+          recordSportDragOriginRef.current = recordSportScrollOffsetRef.current;
+        },
+        onPanResponderMove: (_event, gesture) => {
+          recordSportScrollRef.current?.scrollTo({
+            x: Math.max(0, recordSportDragOriginRef.current - gesture.dx),
+            animated: false,
+          });
+        },
+        onPanResponderRelease: () => undefined,
+        onPanResponderTerminate: () => undefined,
+      }),
+    [],
+  );
 
   const loadDashboard = useCallback(async () => {
     if (!session) return;
@@ -142,6 +199,28 @@ export default function HomeScreen() {
     useCallback(() => {
       void loadDashboard();
     }, [loadDashboard]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      void Promise.all([
+        Location.hasServicesEnabledAsync(),
+        Location.getForegroundPermissionsAsync(),
+      ])
+        .then(([servicesEnabled, permission]) => {
+          if (!active) return;
+          if (!servicesEnabled) setGpsReadiness("휴대폰 위치 서비스 꺼짐");
+          else if (permission.granted) setGpsReadiness("휴대폰 GPS 준비됨 · 고정밀 위치 측정");
+          else setGpsReadiness("기록 시작 시 GPS 권한 요청");
+        })
+        .catch(() => {
+          if (active) setGpsReadiness("기록 시작 시 GPS 상태 확인");
+        });
+      return () => {
+        active = false;
+      };
+    }, []),
   );
 
   const todayWorkouts = useMemo(
@@ -179,25 +258,50 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
-    setCompleted([]);
-    setCompletionMessage(null);
-  }, [activeRoutineId]);
+    if (!completionMessage) return undefined;
+    routineCelebrationAnimation.setValue(0);
+    const animation = Animated.spring(routineCelebrationAnimation, {
+      toValue: 1,
+      damping: 16,
+      stiffness: 190,
+      mass: 0.8,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [completionMessage, routineCelebrationAnimation]);
 
-  function toggleStep(index: number) {
-    if (!activeRoutineId) return;
-    setCompleted((current) =>
-      current.includes(index) ? current.filter((item) => item !== index) : [...current, index],
-    );
+  function toggleStep(routineId: string, index: number) {
+    setRoutineProgress((current) => {
+      const completedSteps = current[routineId] ?? [];
+      return {
+        ...current,
+        [routineId]: completedSteps.includes(index)
+          ? completedSteps.filter((item) => item !== index)
+          : [...completedSteps, index],
+      };
+    });
   }
 
   async function completeRoutine(routine: Routine) {
     const routineItems = [...routine.items].sort((left, right) => left.order - right.order);
-    if (!session || completed.length !== routineItems.length) return;
-    setSavingCompletion(true);
+    const completedSteps = routineProgress[routine.id] ?? [];
+    if (
+      !session ||
+      savingRoutineId !== null ||
+      routineItems.length === 0 ||
+      completedSteps.length !== routineItems.length
+    )
+      return;
+    setSavingRoutineId(routine.id);
     setDashboardError(null);
     try {
       const endedAt = new Date();
-      const durationMinutes = Math.max(10, routineItems.length * 10);
+      const strengthTotals = strengthRoutineTotals(routineItems);
+      const durationMinutes =
+        routine.sport === "strength" && strengthTotals.minutes > 0
+          ? strengthTotals.minutes
+          : Math.max(10, routineItems.length * 10);
       const previouslyEarned = new Set(
         medals.filter((medal) => medal.earned).map((medal) => medal.id),
       );
@@ -214,7 +318,7 @@ export default function HomeScreen() {
             ? {
                 exerciseCount: routineItems.length,
                 cycles: routineItems.length,
-                sets: routineItems.length,
+                sets: strengthTotals.sets || routineItems.length,
               }
             : {}),
         },
@@ -230,17 +334,19 @@ export default function HomeScreen() {
       const completionCount = nextWorkouts.filter((workout) =>
         workout.notes?.includes(`[routine:${routine.id}]`),
       ).length;
-      setCompletionMessage(
-        newMedal
-          ? `${routine.title} ${completionCount}회 완료 · ${newMedal.title} 메달을 획득했습니다!`
-          : `${routine.title} ${completionCount}회 완료 · 다음 메달까지 계속 이어가세요.`,
-      );
-      setActiveRoutineId(null);
-      setCompleted([]);
+      const nextCompletionMessage = newMedal
+        ? `${routine.title} ${completionCount}회 완료 · ${newMedal.title} 메달을 획득했습니다!`
+        : `${routine.title} ${completionCount}회 완료`;
+      setRoutineProgress((current) => {
+        const next = { ...current };
+        delete next[routine.id];
+        return next;
+      });
+      setCompletionMessage(nextCompletionMessage);
     } catch {
       setDashboardError("루틴 완료 기록을 저장하지 못했습니다.");
     } finally {
-      setSavingCompletion(false);
+      setSavingRoutineId(null);
     }
   }
 
@@ -350,29 +456,46 @@ export default function HomeScreen() {
                 const count = todayWorkouts.filter((workout) => workout.sport === sport).length;
                 return (
                   <Pressable
+                    accessibilityLabel={`${sportLabels[sport]} 기록 보기`}
                     accessibilityRole="tab"
                     accessibilityState={{ selected: active }}
                     disabled={recordingSport !== null}
                     key={sport}
-                    onPress={() => setSelectedSport(sport)}
+                    onPress={(event) => {
+                      if (Platform.OS === "web") {
+                        (
+                          event.currentTarget as unknown as {
+                            blur?: () => void;
+                          }
+                        ).blur?.();
+                      }
+                      setSelectedSport(sport);
+                    }}
                     style={[
-                      styles.activitySportTab,
-                      active && styles.activitySportTabActive,
+                      styles.activitySportIconTab,
+                      active && styles.activitySportIconTabActive,
                       recordingSport !== null && styles.recordingSelectionLocked,
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.activitySportTabText,
-                        active && styles.activitySportTabTextActive,
-                      ]}
-                    >
-                      {sportLabels[sport]}
-                    </Text>
+                    <View style={styles.activitySportIconFrame}>
+                      <SportLogo selected={active} size={27} sport={sport} />
+                    </View>
                     {count > 0 ? (
                       <View
-                        style={[styles.activitySportDot, active && styles.activitySportDotActive]}
-                      />
+                        style={[
+                          styles.activitySportCount,
+                          active && styles.activitySportCountActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.activitySportCountText,
+                            active && styles.activitySportCountTextActive,
+                          ]}
+                        >
+                          {count}
+                        </Text>
+                      </View>
                     ) : null}
                   </Pressable>
                 );
@@ -392,6 +515,20 @@ export default function HomeScreen() {
                     {selectedSportWorkouts.length > 0
                       ? `${selectedSportWorkouts.length}회 기록`
                       : "기록 전"}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.activityGpsInfo}>
+                <MapPin color={colors.primary} size={14} />
+                <View style={styles.activityGpsCopy}>
+                  <Text style={styles.activityGpsTitle}>
+                    {homeGpsSports.includes(selectedSport) ? "GPS 정보" : "타이머 기록"}
+                  </Text>
+                  <Text style={styles.activityGpsText}>
+                    {homeGpsSports.includes(selectedSport)
+                      ? gpsReadiness
+                      : `${sportLabels[selectedSport]}은 운동시간과 수행 항목을 중심으로 기록합니다.`}
                   </Text>
                 </View>
               </View>
@@ -455,21 +592,29 @@ export default function HomeScreen() {
               ) : null}
 
               <View style={styles.metrics}>
-                {activitySummary.metrics.map((metric, index) => (
-                  <Metric
-                    align={index === activitySummary.metrics.length - 1 ? "right" : "left"}
-                    colors={colors}
-                    key={metric.label}
-                    label={metric.label}
-                    value={metric.value}
-                  />
-                ))}
+                {activitySummary.metrics.map((metric, index) =>
+                  metric.hidden ? (
+                    <View key={`metric-spacer-${index}`} style={styles.metric} />
+                  ) : (
+                    <Metric
+                      align={index % 3 === 2 ? "right" : "left"}
+                      colors={colors}
+                      key={`${metric.label}-${index}`}
+                      label={metric.label}
+                      value={metric.value}
+                    />
+                  ),
+                )}
               </View>
 
               {recordingSport === selectedSport ? (
                 <LiveWorkoutRecorder
+                  history={workouts}
                   onClose={() => setRecordingSport(null)}
-                  onSaved={loadDashboard}
+                  onSaved={async () => {
+                    setRecordingSport(null);
+                    await loadDashboard();
+                  }}
                   routines={routines}
                   sport={recordingSport}
                 />
@@ -480,12 +625,53 @@ export default function HomeScreen() {
       </View>
 
       {dashboardError ? <Text style={styles.dashboardError}>{dashboardError}</Text> : null}
-      {completionMessage ? (
-        <View style={styles.completionBanner}>
-          <Text style={styles.completionBannerEyebrow}>ROUTINE COMPLETE</Text>
-          <Text style={styles.completionBannerText}>{completionMessage}</Text>
-        </View>
-      ) : null}
+
+      <Modal
+        animationType="none"
+        onRequestClose={() => setCompletionMessage(null)}
+        transparent
+        visible={completionMessage !== null}
+      >
+        {completionMessage ? (
+          <View accessibilityLiveRegion="assertive" style={styles.routineCelebrationBackdrop}>
+            <Animated.View
+              style={[
+                styles.routineCelebrationCopy,
+                {
+                  opacity: routineCelebrationAnimation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 1],
+                  }),
+                  transform: [
+                    {
+                      translateY: routineCelebrationAnimation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [18, 0],
+                      }),
+                    },
+                    {
+                      scale: routineCelebrationAnimation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.88, 1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <Text style={styles.routineCelebrationEyebrow}>ROUTINE COMPLETE</Text>
+              <Text style={styles.routineCelebrationMessage}>{completionMessage}</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setCompletionMessage(null)}
+                style={styles.routineCelebrationConfirm}
+              >
+                <Text style={styles.routineCelebrationConfirmText}>확인</Text>
+              </Pressable>
+            </Animated.View>
+          </View>
+        ) : null}
+      </Modal>
 
       <View style={styles.sectionHeading}>
         <Text style={styles.sectionTitle}>오늘의 루틴</Text>
@@ -494,7 +680,7 @@ export default function HomeScreen() {
         <View style={styles.todayRoutineStack}>
           {todayRoutines.map((routine) => {
             const routineItems = [...routine.items].sort((left, right) => left.order - right.order);
-            const active = activeRoutineId === routine.id;
+            const completedSteps = routineProgress[routine.id] ?? [];
             const completedToday = completedTodayRoutineIds.has(routine.id);
             const completionCount = workouts.filter((workout) =>
               workout.notes?.includes(`[routine:${routine.id}]`),
@@ -510,8 +696,8 @@ export default function HomeScreen() {
                     <Text style={styles.counterText}>
                       {completedToday
                         ? "오늘 완료"
-                        : active
-                          ? `${completed.length}/${routineItems.length}`
+                        : completedSteps.length > 0
+                          ? `${completedSteps.length}/${routineItems.length}`
                           : `${completionCount}회`}
                     </Text>
                   </View>
@@ -520,18 +706,18 @@ export default function HomeScreen() {
                 <Text style={styles.routineGuide}>
                   {completedToday
                     ? "오늘 루틴을 완료했습니다. 내일 다시 실행할 수 있습니다."
-                    : "내 정보에서 저장한 루틴 · 완료할 때마다 기록과 메달에 반영됩니다."}
+                    : "시작 절차 없이 항목을 바로 체크하세요. 완료 기록은 기록과 메달에 반영됩니다."}
                 </Text>
                 <View style={styles.routineList}>
                   {routineItems.map((item, index) => {
-                    const isDone = completedToday || (active && completed.includes(index));
+                    const isDone = completedToday || completedSteps.includes(index);
                     return (
                       <Pressable
                         accessibilityRole="checkbox"
-                        accessibilityState={{ checked: isDone, disabled: !active }}
-                        disabled={!active || completedToday}
+                        accessibilityState={{ checked: isDone, disabled: completedToday }}
+                        disabled={completedToday || savingRoutineId !== null}
                         key={`${item.order}-${item.name}`}
-                        onPress={() => toggleStep(index)}
+                        onPress={() => toggleStep(routine.id, index)}
                         style={({ pressed }) => [styles.routineItem, pressed && styles.pressed]}
                       >
                         <View style={[styles.stepNumber, isDone && styles.stepNumberDone]}>
@@ -554,23 +740,20 @@ export default function HomeScreen() {
                 <PrimaryButton
                   disabled={
                     completedToday ||
-                    savingCompletion ||
-                    (active && completed.length !== routineItems.length)
+                    savingRoutineId !== null ||
+                    routineItems.length === 0 ||
+                    completedSteps.length !== routineItems.length
                   }
                   label={
                     completedToday
                       ? "오늘 완료됨"
-                      : savingCompletion && active
-                        ? "완료 저장 중"
-                        : !active
-                          ? "루틴 시작"
-                          : completed.length === routineItems.length
-                            ? "루틴 완료 기록하기"
-                            : `${completed.length}/${routineItems.length} 진행 중`
+                      : savingRoutineId === routine.id
+                        ? "완료 기록 중"
+                        : completedSteps.length === routineItems.length && routineItems.length > 0
+                          ? "루틴 완료 기록하기"
+                          : `${completedSteps.length}/${routineItems.length} 체크`
                   }
-                  onPress={() =>
-                    active ? void completeRoutine(routine) : setActiveRoutineId(routine.id)
-                  }
+                  onPress={() => void completeRoutine(routine)}
                   style={styles.routineButton}
                 />
               </Card>
@@ -597,33 +780,54 @@ export default function HomeScreen() {
       {loading ? <StatePanel state="loading" message="운동 종목을 불러오는 중이에요." /> : null}
       {error ? <StatePanel state="error" message={error} onRetry={() => void reload()} /> : null}
       {sports ? (
-        <View style={styles.sportGrid}>
-          {homeSportOrder
-            .map((sportId) => sports.find((sport) => sport.id === sportId))
-            .filter((sport) => sport !== undefined)
-            .map((sport) => {
-              const selected = selectedSport === sport.id;
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  disabled={recordingSport !== null}
-                  key={sport.id}
-                  onPress={() => setSelectedSport(sport.id)}
-                  style={({ pressed }) => [
-                    styles.sportButton,
-                    selected && styles.sportButtonSelected,
-                    recordingSport !== null && styles.recordingSelectionLocked,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <SportLogo selected={selected} sport={sport.id} />
-                  <Text style={[styles.sportLabel, selected && styles.sportSelectedText]}>
-                    {sport.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+        <View {...recordSportPanResponder.panHandlers} style={styles.recordSportDragSurface}>
+          <ScrollView
+            accessibilityHint="좌우로 드래그해 다른 운동 종목을 볼 수 있습니다."
+            contentContainerStyle={styles.activitySportTabs}
+            horizontal
+            onScroll={(event) => {
+              recordSportScrollOffsetRef.current = event.nativeEvent.contentOffset.x;
+            }}
+            ref={recordSportScrollRef}
+            scrollEventThrottle={16}
+            showsHorizontalScrollIndicator={false}
+          >
+            {homeSportOrder
+              .map((sportId) => sports.find((sport) => sport.id === sportId))
+              .filter((sport) => sport !== undefined)
+              .map((sport) => {
+                const selected = selectedSport === sport.id;
+                const hasRecords = workouts.some((workout) => workout.sport === sport.id);
+                return (
+                  <Pressable
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected }}
+                    disabled={recordingSport !== null}
+                    key={sport.id}
+                    onPress={() => setSelectedSport(sport.id)}
+                    style={[
+                      styles.activitySportTab,
+                      selected && styles.activitySportTabActive,
+                      recordingSport !== null && styles.recordingSelectionLocked,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.activitySportTabText,
+                        selected && styles.activitySportTabTextActive,
+                      ]}
+                    >
+                      {sport.label}
+                    </Text>
+                    {hasRecords ? (
+                      <View
+                        style={[styles.activitySportDot, selected && styles.activitySportDotActive]}
+                      />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+          </ScrollView>
         </View>
       ) : null}
 
@@ -916,6 +1120,7 @@ function SwipeableWorkoutRow({
                 .map((metric) => `${metric.label} ${metric.value}`)
                 .join(" · ")}
             </Text>
+            <Text style={styles.historySensorMetric}>{formatSensorMetricLine(workout)}</Text>
           </View>
           <View style={styles.historyPrimary}>
             <Text style={styles.historyPrimaryLabel}>{summary.primaryLabel}</Text>
@@ -950,39 +1155,130 @@ function Metric({
   );
 }
 
-function SportLogo({ selected, sport }: { selected: boolean; sport: SportType }) {
+function SportLogo({
+  selected,
+  sport,
+  size = 48,
+}: {
+  selected: boolean;
+  sport: SportType;
+  size?: number;
+}) {
   const { colors } = useAppTheme();
-  const cell = 48;
+  const cell = size;
   const maskId = `sport-logo-${sport}`;
+  const sourceCenter = sportLogoCenters[sport];
+  const sourceX = sportLogoIndex[sport] * sportLogoSourceCell + sourceCenter.x;
+  const sourceY = sourceCenter.y;
+  const activeWeightOffsets = selected
+    ? [
+        { x: 0, y: 0 },
+        { x: -2, y: 0 },
+        { x: 2, y: 0 },
+        { x: 0, y: -2 },
+        { x: 0, y: 2 },
+      ]
+    : [{ x: 0, y: 0 }];
+
+  if (sport === "strength") {
+    const iconColor = selected ? "#FFFFFF" : colors.ink;
+    const strokeWidth = selected ? 1.2 : 0.85;
+    const barHeight = selected ? 1.3 : 0.95;
+    return (
+      <Svg height={cell} viewBox="0 0 28 28" width={cell}>
+        <Rect
+          fill="none"
+          height={8}
+          rx={1.4}
+          stroke={iconColor}
+          strokeWidth={strokeWidth}
+          width={3}
+          x={2}
+          y={10}
+        />
+        <Rect
+          fill="none"
+          height={14}
+          rx={1.8}
+          stroke={iconColor}
+          strokeWidth={strokeWidth}
+          width={4}
+          x={5.5}
+          y={7}
+        />
+        <Rect
+          fill={iconColor}
+          height={barHeight}
+          rx={barHeight / 2}
+          width={9}
+          x={9.5}
+          y={14 - barHeight / 2}
+        />
+        <Rect
+          fill="none"
+          height={14}
+          rx={1.8}
+          stroke={iconColor}
+          strokeWidth={strokeWidth}
+          width={4}
+          x={18.5}
+          y={7}
+        />
+        <Rect
+          fill="none"
+          height={8}
+          rx={1.4}
+          stroke={iconColor}
+          strokeWidth={strokeWidth}
+          width={3}
+          x={23}
+          y={10}
+        />
+      </Svg>
+    );
+  }
 
   return (
-    <Svg height={cell} viewBox={`0 0 ${cell} ${cell}`} width={cell}>
+    <Svg height={cell} viewBox={`0 0 ${sportLogoCropSize} ${sportLogoCropSize}`} width={cell}>
       <Defs>
-        <Mask
-          height={cell}
-          id={maskId}
-          maskContentUnits="userSpaceOnUse"
-          maskUnits="userSpaceOnUse"
-          width={cell}
-          x={0}
-          y={0}
-        >
-          <SvgImage
-            height={cell * 2 + 4}
-            href={sportLogoSheet}
-            preserveAspectRatio="none"
-            width={cell * 6}
-            x={-sportLogoIndex[sport] * cell}
+        {activeWeightOffsets.map((offset, index) => (
+          <Mask
+            height={sportLogoCropSize}
+            id={`${maskId}-${index}`}
+            key={`${offset.x}-${offset.y}`}
+            maskContentUnits="userSpaceOnUse"
+            maskUnits="userSpaceOnUse"
+            width={sportLogoCropSize}
+            x={0}
             y={0}
-          />
-        </Mask>
+          >
+            <SvgImage
+              height={sportLogoSourceCell * 2}
+              href={sportLogoSheet}
+              preserveAspectRatio="none"
+              width={sportLogoSourceCell * 6}
+              x={-(sourceX - sportLogoCropSize / 2) + offset.x}
+              y={-(sourceY - sportLogoCropSize / 2) + offset.y}
+            />
+            <Rect
+              fill="#000000"
+              height={30}
+              width={sportLogoCropSize}
+              x={0}
+              y={sportLogoCropSize - 30}
+            />
+          </Mask>
+        ))}
       </Defs>
-      <Rect
-        fill={selected ? "#FFFFFF" : colors.ink}
-        height={cell}
-        mask={`url(#${maskId})`}
-        width={cell}
-      />
+      {activeWeightOffsets.map((offset, index) => (
+        <Rect
+          fill={selected ? "#FFFFFF" : colors.ink}
+          height={sportLogoCropSize}
+          key={`${offset.x}-${offset.y}`}
+          mask={`url(#${maskId}-${index})`}
+          width={sportLogoCropSize}
+        />
+      ))}
     </Svg>
   );
 }
@@ -1011,7 +1307,7 @@ type SportActivitySummary = {
   primaryLabel: string;
   primaryValue: string;
   primaryUnit: string;
-  metrics: Array<{ label: string; value: string }>;
+  metrics: Array<{ label: string; value: string; hidden?: boolean }>;
   cycles?: { completed: number; total: number };
 };
 
@@ -1022,6 +1318,10 @@ function summarizeSportActivity(
   const durationSeconds = workouts.reduce((total, workout) => total + workoutDuration(workout), 0);
   const distanceKm = sumMetric(workouts, "distanceKm");
   const calories = Math.round(sumMetric(workouts, "calories"));
+  const sensorMetrics = aggregateSensorMetrics(workouts, sport);
+  const sensorValue = (label: string) =>
+    sensorMetrics.find((metric) => metric.label === label)?.value ??
+    (label.includes("심박") ? "0 bpm" : "0");
 
   if (sport === "running") {
     const paceSeconds = weightedPace(workouts, durationSeconds, distanceKm);
@@ -1033,6 +1333,9 @@ function summarizeSportActivity(
         { label: "거리", value: `${distanceKm.toFixed(2)} km` },
         { label: "시간", value: formatClock(durationSeconds) },
         { label: "소모", value: `${calories} kcal` },
+        { label: "평균 심박수", value: sensorValue("평균 심박수") },
+        { label: "최대 심박수", value: sensorValue("최대 심박수") },
+        { label: "걸음", value: sensorValue("걸음") },
       ],
     };
   }
@@ -1047,6 +1350,9 @@ function summarizeSportActivity(
         { label: "거리", value: `${distanceKm.toFixed(2)} km` },
         { label: "시간", value: formatClock(durationSeconds) },
         { label: "소모", value: `${calories} kcal` },
+        { label: "평균 심박수", value: sensorValue("평균 심박수") },
+        { label: "최대 심박수", value: sensorValue("최대 심박수") },
+        { label: "", value: "", hidden: true },
       ],
     };
   }
@@ -1058,8 +1364,11 @@ function summarizeSportActivity(
       primaryUnit: "",
       metrics: [
         { label: "거리", value: `${distanceKm.toFixed(2)} km` },
-        { label: "고도 상승", value: `${Math.round(sumMetric(workouts, "elevationGainM"))} m` },
+        { label: "걸음", value: sensorValue("걸음") },
         { label: "소모", value: `${calories} kcal` },
+        { label: "평균 심박수", value: sensorValue("평균 심박수") },
+        { label: "최대 심박수", value: sensorValue("최대 심박수") },
+        { label: "누적 고도", value: `${Math.round(sumMetric(workouts, "elevationGainM"))} m` },
       ],
     };
   }
@@ -1076,49 +1385,88 @@ function summarizeSportActivity(
         { label: "거리", value: `${Math.round(distanceM)} m` },
         { label: "랩", value: `${laps} lap` },
         { label: "소모", value: `${calories} kcal` },
+        { label: "평균 심박수", value: sensorValue("평균 심박수") },
+        { label: "총 스트로크", value: sensorValue("총 스트로크") },
+        { label: "평균 SWOLF", value: sensorValue("평균 SWOLF") },
       ],
     };
   }
 
   if (sport === "diving") {
-    const depthPb = Math.max(0, ...workouts.map((workout) => workout.metrics.maxDepthM ?? 0));
-    const dynamicDistance = sumMetric(workouts, "dynamicDistanceM");
+    const depthValues = workouts
+      .map((workout) => workout.metrics.maxDepthM ?? 0)
+      .filter((value) => value > 0);
+    const dynamicValues = workouts
+      .map((workout) => workout.metrics.dynamicDistanceM ?? 0)
+      .filter((value) => value > 0);
+    const averageDepth = averageMetricValues(depthValues);
+    const depthPb = depthValues.length ? Math.max(...depthValues) : 0;
+    const averageDynamic = averageMetricValues(dynamicValues);
+    const dynamicPb = dynamicValues.length ? Math.max(...dynamicValues) : 0;
+    const depthSessions = workouts.filter((workout) => (workout.metrics.maxDepthM ?? 0) > 0).length;
+    const dynamicSessions = workouts.filter(
+      (workout) => (workout.metrics.dynamicDistanceM ?? 0) > 0,
+    ).length;
     return {
-      primaryLabel: "수심 PB",
-      primaryValue: depthPb > 0 ? depthPb.toFixed(1) : "0.0",
-      primaryUnit: "m",
+      primaryLabel: "다이빙 시간",
+      primaryValue: formatClock(durationSeconds),
+      primaryUnit: "",
       metrics: [
-        { label: "다이나믹", value: `${Math.round(dynamicDistance)} m` },
-        { label: "다이빙 시간", value: formatClock(durationSeconds) },
-        { label: "세션", value: `${workouts.length}회` },
+        { label: "평균 DEPTH", value: `${averageDepth.toFixed(1)} m` },
+        { label: "PB", value: `${depthPb.toFixed(1)} m` },
+        { label: "세션", value: `${depthSessions}회` },
+        { label: "평균 DYNAMIC", value: `${Math.round(averageDynamic)} m` },
+        { label: "PB", value: `${Math.round(dynamicPb)} m` },
+        { label: "세션", value: `${dynamicSessions}회` },
+        { label: "평균 심박수", value: sensorValue("평균 심박수") },
+        { label: "최대 심박수", value: sensorValue("최대 심박수") },
+        { label: "수온", value: sensorValue("수온") },
       ],
     };
   }
 
   const recordedExerciseCount = Math.round(sumMetric(workouts, "exerciseCount"));
   const exerciseCount = recordedExerciseCount > 0 ? recordedExerciseCount : workouts.length;
-  const cycles = Math.round(
-    sumMetric(workouts, "cycles") ||
-      sumMetric(workouts, "sets") ||
-      sumMetric(workouts, "routineCompletion"),
-  );
-  const cycleTotal = cycles > 4 ? Math.min(cycles, 8) : 4;
   return {
-    primaryLabel: "실행 운동",
-    primaryValue: `${exerciseCount}`,
-    primaryUnit: "종목",
+    primaryLabel: "운동 시간",
+    primaryValue: formatClock(durationSeconds),
+    primaryUnit: "",
     metrics: [
+      { label: "완료 종목", value: `${exerciseCount}` },
       { label: "완료 세트", value: `${Math.round(sumMetric(workouts, "sets"))} set` },
-      { label: "운동 시간", value: formatClock(durationSeconds) },
+      { label: "소모", value: `${calories} kcal` },
+      { label: "평균 심박수", value: sensorValue("평균 심박수") },
+      { label: "최대 심박수", value: sensorValue("최대 심박수") },
       { label: "볼륨", value: `${Math.round(sumMetric(workouts, "volumeKg"))} kg` },
     ],
-    cycles: { completed: Math.min(cycles, cycleTotal), total: cycleTotal },
   };
+}
+
+function averageMetricValues(values: number[]) {
+  return values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0;
 }
 
 function workoutDuration(workout: WorkoutSession) {
   const elapsed = (Date.parse(workout.endedAt) - Date.parse(workout.startedAt)) / 1000;
   return Math.max(0, Number.isFinite(elapsed) ? elapsed : 0);
+}
+
+function strengthRoutineTotals(items: Routine["items"]) {
+  return items.reduce(
+    (totals, item) => {
+      const sets = Math.max(
+        1,
+        Math.round(Number(item.target.match(/(\d+(?:\.\d+)?)\s*세트/)?.[1] ?? 1)),
+      );
+      const estimatedMinutes = Number(item.target.match(/예상\s*(\d+(?:\.\d+)?)\s*분/)?.[1] ?? 0);
+      const restMinutes = Number(item.target.match(/휴식\s*(\d+(?:\.\d+)?)\s*분/)?.[1] ?? 0);
+      return {
+        sets: totals.sets + sets,
+        minutes: totals.minutes + estimatedMinutes + restMinutes * Math.max(0, sets - 1),
+      };
+    },
+    { sets: 0, minutes: 0 },
+  );
 }
 
 function sumMetric(workouts: WorkoutSession[], key: string) {
@@ -1136,18 +1484,18 @@ function weightedPace(workouts: WorkoutSession[], durationSeconds: number, dista
 }
 
 function formatClock(seconds: number) {
-  if (seconds <= 0) return "00:00";
-  const rounded = Math.round(seconds);
-  const hours = Math.floor(rounded / 3600);
-  const minutes = Math.floor((rounded % 3600) / 60);
-  const remainingSeconds = rounded % 60;
-  return hours > 0
-    ? `${hours}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`
-    : `${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
+  const centiseconds = Math.max(0, Math.round(seconds * 100));
+  const hours = Math.floor(centiseconds / 360_000);
+  const minutes = Math.floor((centiseconds % 360_000) / 6_000);
+  const remainingSeconds = Math.floor((centiseconds % 6_000) / 100);
+  const hundredths = centiseconds % 100;
+  return [hours, minutes, remainingSeconds, hundredths]
+    .map((value) => String(value).padStart(2, "0"))
+    .join(":");
 }
 
 function formatPace(seconds: number) {
-  if (seconds <= 0 || !Number.isFinite(seconds)) return "--'--\"";
+  if (seconds <= 0 || !Number.isFinite(seconds)) return "--/--";
   const rounded = Math.round(seconds);
   return `${Math.floor(rounded / 60)}'${(rounded % 60).toString().padStart(2, "0")}"`;
 }
@@ -1180,7 +1528,48 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "space-between",
     },
     activityDayCount: { color: colors.muted, fontFamily: fonts.medium, fontSize: 10 },
+    recordSportDragSurface: { width: "100%", overflow: "hidden" },
     activitySportTabs: { gap: 8, paddingTop: space[3], paddingBottom: space[3] },
+    activitySportIconTab: {
+      width: 46,
+      height: 46,
+      padding: 0,
+      borderRadius: 23,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      outlineColor: "transparent",
+      outlineWidth: 0,
+    },
+    activitySportIconFrame: {
+      width: 27,
+      height: 27,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    activitySportIconTabActive: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primary,
+    },
+    activitySportCount: {
+      position: "absolute",
+      top: -2,
+      right: -1,
+      minWidth: 15,
+      height: 15,
+      paddingHorizontal: 3,
+      borderRadius: 8,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.ink,
+      borderWidth: 2,
+      borderColor: colors.background,
+    },
+    activitySportCountActive: { backgroundColor: "#FFFFFF", borderColor: colors.primary },
+    activitySportCountText: { color: colors.background, fontFamily: fonts.bold, fontSize: 6 },
+    activitySportCountTextActive: { color: colors.primary },
     activitySportTab: {
       minHeight: 32,
       paddingHorizontal: 13,
@@ -1288,6 +1677,24 @@ function createStyles(colors: ThemeColors) {
       alignItems: "flex-start",
       justifyContent: "space-between",
     },
+    activityGpsInfo: {
+      minHeight: 42,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginTop: space[3],
+      paddingHorizontal: 11,
+      borderRadius: radius.md,
+      backgroundColor: colors.primarySoft,
+    },
+    activityGpsCopy: { flex: 1 },
+    activityGpsTitle: { color: colors.primary, fontFamily: fonts.bold, fontSize: 8 },
+    activityGpsText: {
+      color: colors.ink,
+      fontFamily: fonts.medium,
+      fontSize: 8,
+      marginTop: 2,
+    },
     activityStateLabel: {
       color: colors.primary,
       fontFamily: fonts.bold,
@@ -1304,44 +1711,78 @@ function createStyles(colors: ThemeColors) {
     },
     recordCountText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
     distanceRow: { flexDirection: "row", alignItems: "flex-end", marginTop: 4 },
-    distance: { ...typography.numeric(60), color: colors.ink, lineHeight: 66 },
+    distance: { ...typography.numeric(36), color: colors.ink, lineHeight: 44 },
     unit: {
       color: colors.muted,
       fontFamily: fonts.bold,
-      fontSize: 17,
-      marginLeft: 7,
-      marginBottom: 8,
+      fontSize: 15,
+      marginLeft: 6,
+      marginBottom: 5,
     },
     metrics: {
       flexDirection: "row",
+      flexWrap: "wrap",
       justifyContent: "space-between",
+      gap: 12,
       marginTop: space[4],
       paddingTop: space[4],
       borderTopWidth: 1,
       borderTopColor: colors.border,
     },
-    metric: { minWidth: 90 },
+    metric: { width: "30%", flexGrow: 0, flexShrink: 0 },
     metricRight: { alignItems: "flex-end" },
     metricValue: { ...typography.numeric(19), color: colors.ink },
     metricLabel: { color: colors.muted, fontFamily: fonts.regular, fontSize: 10, marginTop: 4 },
     sectionHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     sectionTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 17 },
     dashboardError: { color: colors.danger, fontFamily: fonts.medium, fontSize: 11 },
-    completionBanner: {
-      padding: space[4],
-      borderRadius: radius.xl,
-      backgroundColor: colors.primarySoft,
-      borderWidth: 1,
-      borderColor: colors.primary,
-      gap: 4,
+    routineCelebrationBackdrop: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(8,7,6,0.9)",
+      paddingHorizontal: 34,
     },
-    completionBannerEyebrow: {
+    routineCelebrationCopy: {
+      width: "100%",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 14,
+    },
+    routineCelebrationEyebrow: {
       color: colors.primary,
-      fontFamily: fonts.bold,
-      fontSize: 9,
-      letterSpacing: 1,
+      fontFamily: fonts.displayItalic,
+      fontSize: 13,
+      letterSpacing: 2.4,
+      textAlign: "center",
     },
-    completionBannerText: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 12 },
+    routineCelebrationMessage: {
+      maxWidth: 330,
+      color: "#FFFFFF",
+      fontFamily: fonts.bold,
+      fontSize: 22,
+      lineHeight: 33,
+      letterSpacing: -0.7,
+      textAlign: "center",
+      textShadowColor: "rgba(0,0,0,0.55)",
+      textShadowOffset: { width: 0, height: 3 },
+      textShadowRadius: 12,
+    },
+    routineCelebrationConfirm: {
+      minWidth: 128,
+      minHeight: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radius.full,
+      backgroundColor: colors.primary,
+      marginTop: 10,
+      paddingHorizontal: 28,
+    },
+    routineCelebrationConfirmText: {
+      color: "#FFFFFF",
+      fontFamily: fonts.bold,
+      fontSize: 12,
+    },
     counter: {
       backgroundColor: colors.primarySoft,
       borderRadius: radius.full,
@@ -1387,23 +1828,6 @@ function createStyles(colors: ThemeColors) {
     },
     noRoutineTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 18 },
     noRoutineText: { color: colors.muted, fontFamily: fonts.regular, fontSize: 11, lineHeight: 17 },
-    sportGrid: { flexDirection: "row", flexWrap: "wrap", gap: space[3] },
-    sportButton: {
-      width: "30%",
-      flexGrow: 1,
-      minHeight: 98,
-      alignItems: "center",
-      justifyContent: "center",
-      gap: space[2],
-      borderRadius: radius["2xl"],
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      ...shadows.card,
-    },
-    sportButtonSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
-    sportLabel: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 12 },
-    sportSelectedText: { color: "#FFFFFF" },
     historySection: { gap: space[3], marginTop: space[2] },
     historyHeading: {
       flexDirection: "row",
@@ -1477,6 +1901,12 @@ function createStyles(colors: ThemeColors) {
     historyDate: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 11 },
     historyNote: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9, marginTop: 4 },
     historySubMetric: { color: colors.muted, fontFamily: fonts.medium, fontSize: 8, marginTop: 4 },
+    historySensorMetric: {
+      color: colors.primary,
+      fontFamily: fonts.semibold,
+      fontSize: 8,
+      marginTop: 4,
+    },
     historyPrimary: { alignItems: "flex-end", maxWidth: 120 },
     historyPrimaryLabel: { color: colors.muted, fontFamily: fonts.medium, fontSize: 8 },
     historyPrimaryValue: {

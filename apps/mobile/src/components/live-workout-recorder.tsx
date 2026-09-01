@@ -1,4 +1,4 @@
-import { sportLabels, type Routine, type SportType } from "@moveall/contracts";
+import { sportLabels, type Routine, type SportType, type WorkoutSession } from "@moveall/contracts";
 import * as Location from "expo-location";
 import {
   Check,
@@ -8,14 +8,23 @@ import {
   MapPin,
   Pause,
   Play,
-  RotateCcw,
   Save,
   TimerReset,
   Watch,
   X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, Vibration, View } from "react-native";
+import {
+  Animated,
+  Easing,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  Vibration,
+  View,
+} from "react-native";
 import { api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import { fonts, radius, space, type ThemeColors } from "../theme";
@@ -23,11 +32,14 @@ import { useAppTheme } from "../theme-context";
 
 type RecorderPhase = "setup" | "starting" | "recording" | "paused" | "review" | "saving" | "done";
 type DivingSource = "device" | "manual";
+type SwimEnvironment = "indoor" | "outdoor";
+type CountdownValue = "3" | "2" | "1" | "GROOV!";
 type TrackPoint = {
   latitude: number;
   longitude: number;
   altitude: number | null;
   accuracy: number | null;
+  timestamp: number;
 };
 
 const gpsSports: SportType[] = ["running", "hiking", "cycling", "swimming"];
@@ -44,11 +56,13 @@ const assumedMet: Record<SportType, number> = {
 export function LiveWorkoutRecorder({
   sport,
   routines,
+  history,
   onClose,
   onSaved,
 }: {
   sport: SportType;
   routines: Routine[];
+  history: WorkoutSession[];
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
@@ -58,26 +72,41 @@ export function LiveWorkoutRecorder({
   const [phase, setPhase] = useState<RecorderPhase>(
     setupSports.includes(sport) ? "setup" : "starting",
   );
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [elapsedMilliseconds, setElapsedMilliseconds] = useState(0);
   const [points, setPoints] = useState<TrackPoint[]>([]);
   const [gpsStatus, setGpsStatus] = useState("GPS 준비 중");
   const [error, setError] = useState<string | null>(null);
   const [bodyWeight, setBodyWeight] = useState("70");
+  const [averageHeartRate, setAverageHeartRate] = useState("");
+  const [maximumHeartRate, setMaximumHeartRate] = useState("");
+  const [strengthVolume, setStrengthVolume] = useState("");
+  const [runningSteps, setRunningSteps] = useState("");
+  const [averageCadence, setAverageCadence] = useState("");
+  const [swimEnvironment, setSwimEnvironment] = useState<SwimEnvironment>("indoor");
   const [poolLength, setPoolLength] = useState("25");
+  const [swimStrokeCount, setSwimStrokeCount] = useState("");
+  const [swimAverageSwolf, setSwimAverageSwolf] = useState("");
   const [selectedRoutineId, setSelectedRoutineId] = useState("");
-  const [completedRoutineItems, setCompletedRoutineItems] = useState<number[]>([]);
+  const [completedRoutineSets, setCompletedRoutineSets] = useState<string[]>([]);
   const [divingSource, setDivingSource] = useState<DivingSource>("device");
   const [divingDevice, setDivingDevice] = useState("다이빙 컴퓨터");
   const [maxDepth, setMaxDepth] = useState("");
   const [dynamicDistance, setDynamicDistance] = useState("");
+  const [waterTemperature, setWaterTemperature] = useState("");
   const [devicePrepared, setDevicePrepared] = useState(false);
   const [targetAlert, setTargetAlert] = useState<string | null>(null);
   const [finishConfirmationOpen, setFinishConfirmationOpen] = useState(false);
+  const [startConfirmationOpen, setStartConfirmationOpen] = useState(!setupSports.includes(sport));
+  const [countdownValue, setCountdownValue] = useState<CountdownValue | null>(null);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
-  const startedAtRef = useRef<string | null>(null);
-  const autoStartedRef = useRef(false);
   const savingRef = useRef(false);
   const targetAlertKeysRef = useRef<string[]>([]);
+  const elapsedBaseMsRef = useRef(0);
+  const timerStartedAtMsRef = useRef<number | null>(null);
+  const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const finishedRef = useRef(false);
+  const countdownEntrance = useRef(new Animated.Value(0)).current;
+  const countdownPulse = useRef(new Animated.Value(0)).current;
 
   const sportRoutines = useMemo(
     () => routines.filter((routine) => routine.sport === sport),
@@ -92,16 +121,45 @@ export function LiveWorkoutRecorder({
     () => [...(selectedRoutine?.items ?? [])].sort((left, right) => left.order - right.order),
     [selectedRoutine],
   );
+  const routineSetCounts = useMemo(
+    () => selectedRoutineItems.map((item) => parseStrengthRoutinePlan(item.target)?.sets ?? 1),
+    [selectedRoutineItems],
+  );
+  const totalRoutineSets = routineSetCounts.reduce((total, count) => total + count, 0);
+  const completedRoutineExerciseCount = selectedRoutineItems.filter((_, itemIndex) =>
+    Array.from({ length: routineSetCounts[itemIndex] ?? 1 }, (_unused, setIndex) =>
+      completedRoutineSets.includes(routineSetKey(itemIndex, setIndex)),
+    ).every(Boolean),
+  ).length;
   const distanceKm = useMemo(() => calculateTrackDistance(points), [points]);
   const elevation = useMemo(() => calculateElevation(points), [points]);
+  const elapsedSeconds = elapsedMilliseconds / 1000;
   const weightKg = clampNumber(bodyWeight, 30, 250, 70);
   const calories = calculateCalories(sport, weightKg, elapsedSeconds);
   const paceSecondsPerKm = distanceKm > 0 ? elapsedSeconds / distanceKm : 0;
   const averageSpeedKmh = elapsedSeconds > 0 ? distanceKm / (elapsedSeconds / 3600) : 0;
   const distanceM = distanceKm * 1000;
   const poolLengthM = clampNumber(poolLength, 10, 100, 25);
-  const laps = poolLengthM > 0 ? Math.floor(distanceM / poolLengthM) : 0;
+  const laps =
+    swimEnvironment === "indoor" && poolLengthM > 0 ? Math.floor(distanceM / poolLengthM) : 0;
   const swimPaceSeconds = distanceM >= 25 ? elapsedSeconds / (distanceM / 100) : 0;
+  const measuredSwimStrokes = optionalMetric(swimStrokeCount, 1, 100_000);
+  const calculatedSwolf =
+    laps > 0 && measuredSwimStrokes ? elapsedSeconds / laps + measuredSwimStrokes / laps : 0;
+  const estimatedCadence = estimateRunningCadence(averageSpeedKmh, distanceKm);
+  const estimatedSteps =
+    sport === "hiking"
+      ? Math.round(distanceKm * 1380)
+      : estimatedCadence > 0
+        ? Math.round((elapsedSeconds / 60) * estimatedCadence)
+        : 0;
+  const measuredHeartRate = optionalMetric(averageHeartRate, 30, 250);
+  const measuredMaximumHeartRate = optionalMetric(maximumHeartRate, 30, 250);
+  const gpsAccuracy = points.at(-1)?.accuracy ?? null;
+  const startMessage = useMemo(
+    () => buildStartMessage(sport, history, selectedRoutine),
+    [history, selectedRoutine, sport],
+  );
   const active = phase === "recording";
   const canClose = phase === "setup" || phase === "done" || phase === "starting";
 
@@ -110,16 +168,68 @@ export function LiveWorkoutRecorder({
     watchRef.current = null;
   }, []);
 
+  const clearCountdown = useCallback(() => {
+    countdownTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+    countdownTimeoutsRef.current = [];
+    setCountdownValue(null);
+  }, []);
+
+  const freezeTimer = useCallback(() => {
+    if (timerStartedAtMsRef.current === null) return elapsedBaseMsRef.current;
+    const frozen = elapsedBaseMsRef.current + (Date.now() - timerStartedAtMsRef.current);
+    elapsedBaseMsRef.current = frozen;
+    timerStartedAtMsRef.current = null;
+    setElapsedMilliseconds(frozen);
+    return frozen;
+  }, []);
+
   useEffect(() => {
     if (phase !== "recording") return undefined;
-    const timer = setInterval(() => setElapsedSeconds((current) => current + 1), 1000);
+    timerStartedAtMsRef.current = Date.now();
+    const timer = setInterval(() => {
+      if (timerStartedAtMsRef.current === null) return;
+      setElapsedMilliseconds(elapsedBaseMsRef.current + (Date.now() - timerStartedAtMsRef.current));
+    }, 10);
     return () => clearInterval(timer);
   }, [phase]);
 
   useEffect(() => {
+    if (!countdownValue) return undefined;
+    countdownEntrance.setValue(0);
+    countdownPulse.setValue(0);
+    Vibration.vibrate(countdownValue === "GROOV!" ? [0, 70, 45, 90] : 32);
+    const animation = Animated.parallel([
+      Animated.timing(countdownEntrance, {
+        toValue: 1,
+        duration: 520,
+        easing: Easing.out(Easing.back(2.2)),
+        useNativeDriver: true,
+      }),
+      Animated.timing(countdownPulse, {
+        toValue: 1,
+        duration: 650,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [countdownEntrance, countdownPulse, countdownValue]);
+
+  useEffect(() => {
     if (phase !== "recording" || selectedRoutineItems.length === 0) return;
+    let strengthCumulativeSeconds = 0;
     selectedRoutineItems.forEach((item, index) => {
-      const target = parseRoutineTarget(item.target);
+      const strengthPlan = sport === "strength" ? parseStrengthRoutinePlan(item.target) : null;
+      if (strengthPlan) {
+        strengthCumulativeSeconds +=
+          (strengthPlan.estimatedMinutes +
+            strengthPlan.restMinutes * Math.max(0, strengthPlan.sets - 1)) *
+          60;
+      }
+      const target = strengthPlan
+        ? { kind: "time" as const, value: strengthCumulativeSeconds }
+        : parseRoutineTarget(item.target);
       if (!target) return;
       const key = `${selectedRoutine?.id ?? "free"}-${index}-${target.kind}`;
       if (targetAlertKeysRef.current.includes(key)) return;
@@ -130,21 +240,30 @@ export function LiveWorkoutRecorder({
       setTargetAlert(`그루비! ${item.name} ${item.target} 목표에 도달했어요.`);
       Vibration.vibrate([0, 220, 100, 220]);
     });
-  }, [distanceKm, elapsedSeconds, phase, selectedRoutine, selectedRoutineItems]);
+  }, [distanceKm, elapsedSeconds, phase, selectedRoutine, selectedRoutineItems, sport]);
 
-  useEffect(() => () => stopGps(), [stopGps]);
+  useEffect(
+    () => () => {
+      stopGps();
+      countdownTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+    },
+    [stopGps],
+  );
 
   const beginGps = useCallback(
     async (reset: boolean) => {
+      if (finishedRef.current) return;
       setError(null);
       setGpsStatus("GPS 연결 중");
       if (reset) {
-        setElapsedSeconds(0);
+        elapsedBaseMsRef.current = 0;
+        timerStartedAtMsRef.current = null;
+        setElapsedMilliseconds(0);
         setPoints([]);
-        startedAtRef.current = new Date().toISOString();
       }
       try {
         const permission = await Location.requestForegroundPermissionsAsync();
+        if (finishedRef.current) return;
         if (!permission.granted) {
           setPhase(setupSports.includes(sport) ? "setup" : "paused");
           setGpsStatus("GPS 권한 필요");
@@ -154,6 +273,7 @@ export function LiveWorkoutRecorder({
         const current = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
         });
+        if (finishedRef.current) return;
         const firstPoint = toTrackPoint(current);
         setPoints((existing) => (reset ? [firstPoint] : appendTrackPoint(existing, firstPoint)));
         setPhase("recording");
@@ -166,6 +286,7 @@ export function LiveWorkoutRecorder({
             distanceInterval: 3,
           },
           (nextLocation) => {
+            if (finishedRef.current) return;
             const nextPoint = toTrackPoint(nextLocation);
             setPoints((existing) => appendTrackPoint(existing, nextPoint));
             setGpsStatus(
@@ -178,6 +299,7 @@ export function LiveWorkoutRecorder({
           },
         );
       } catch {
+        if (finishedRef.current) return;
         setPhase(setupSports.includes(sport) ? "setup" : "paused");
         setGpsStatus("GPS 연결 실패");
         setError("현재 위치를 가져오지 못했습니다. 야외에서 다시 시도해 주세요.");
@@ -186,51 +308,85 @@ export function LiveWorkoutRecorder({
     [sport, stopGps],
   );
 
-  useEffect(() => {
-    if (setupSports.includes(sport) || autoStartedRef.current) return;
-    autoStartedRef.current = true;
-    void beginGps(true);
-  }, [beginGps, sport]);
+  function startCountdown(onComplete: () => void) {
+    if (finishedRef.current) return;
+    clearCountdown();
+    setPhase("starting");
+    setCountdownValue("3");
+    const sequence: Array<{ delay: number; value: CountdownValue }> = [
+      { delay: 760, value: "2" },
+      { delay: 1520, value: "1" },
+      { delay: 2280, value: "GROOV!" },
+    ];
+    countdownTimeoutsRef.current = sequence.map(({ delay, value }) =>
+      setTimeout(() => {
+        if (!finishedRef.current) setCountdownValue(value);
+      }, delay),
+    );
+    countdownTimeoutsRef.current.push(
+      setTimeout(() => {
+        countdownTimeoutsRef.current = [];
+        setCountdownValue(null);
+        if (!finishedRef.current) onComplete();
+      }, 3040),
+    );
+  }
 
-  function startConfiguredWorkout() {
+  function beginWorkoutNow(reset: boolean) {
+    if (finishedRef.current) return;
     setError(null);
-    setElapsedSeconds(0);
-    setCompletedRoutineItems([]);
-    setTargetAlert(null);
-    targetAlertKeysRef.current = [];
-    startedAtRef.current = new Date().toISOString();
-    if (sport === "swimming") {
-      if (!Number.isFinite(Number(poolLength)) || Number(poolLength) < 10) {
-        setError("수영장 길이를 10m 이상으로 설정해 주세요.");
-        return;
-      }
-      void beginGps(true);
+    if (reset) {
+      elapsedBaseMsRef.current = 0;
+      timerStartedAtMsRef.current = null;
+      setElapsedMilliseconds(0);
+      setCompletedRoutineSets([]);
+      setTargetAlert(null);
+      targetAlertKeysRef.current = [];
+    }
+    if (gpsSports.includes(sport)) {
+      void beginGps(reset);
       return;
     }
     setPhase("recording");
   }
 
+  function startConfiguredWorkout() {
+    if (finishedRef.current) return;
+    setError(null);
+    if (sport === "swimming" && swimEnvironment === "indoor") {
+      if (!Number.isFinite(Number(poolLength)) || Number(poolLength) < 10) {
+        setError("수영장 길이를 10m 이상으로 설정해 주세요.");
+        return;
+      }
+    }
+    setStartConfirmationOpen(true);
+  }
+
   function pauseWorkout() {
+    freezeTimer();
     stopGps();
     setPhase("paused");
     if (gpsSports.includes(sport)) setGpsStatus("일시정지");
   }
 
   function resumeWorkout() {
-    if (gpsSports.includes(sport)) {
-      void beginGps(false);
-      return;
-    }
-    setPhase("recording");
+    if (finishedRef.current) return;
+    startCountdown(() => beginWorkoutNow(false));
   }
 
-  function toggleRoutineItem(index: number) {
-    setCompletedRoutineItems((current) =>
-      current.includes(index) ? current.filter((item) => item !== index) : [...current, index],
+  function toggleRoutineSet(itemIndex: number, setIndex: number) {
+    const key = routineSetKey(itemIndex, setIndex);
+    setCompletedRoutineSets((current) =>
+      current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
     );
   }
 
   async function finishWorkout() {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    clearCountdown();
+    setStartConfirmationOpen(false);
+    freezeTimer();
     stopGps();
     if (sport === "diving") {
       setPhase("review");
@@ -260,12 +416,10 @@ export function LiveWorkoutRecorder({
     setPhase("saving");
     setError(null);
     const endedAt = new Date();
-    const fallbackStartedAt = new Date(endedAt.getTime() - Math.max(1, elapsedSeconds) * 1000);
-    const startedAt = startedAtRef.current ? new Date(startedAtRef.current) : fallbackStartedAt;
-    if (startedAt.getTime() >= endedAt.getTime()) startedAt.setTime(endedAt.getTime() - 1000);
+    const recordedElapsedMs = Math.max(10, elapsedBaseMsRef.current);
+    const startedAt = new Date(endedAt.getTime() - recordedElapsedMs);
     const allRoutineItemsCompleted =
-      selectedRoutineItems.length > 0 &&
-      completedRoutineItems.length === selectedRoutineItems.length;
+      totalRoutineSets > 0 && completedRoutineSets.length === totalRoutineSets;
     const divingDeviceCode = divingSource === "device" ? deviceCode(divingDevice) : 0;
 
     try {
@@ -277,14 +431,20 @@ export function LiveWorkoutRecorder({
         notes: buildWorkoutNotes({
           sport,
           selectedRoutine,
-          completed: completedRoutineItems.length,
+          completed: completedRoutineExerciseCount,
           total: selectedRoutineItems.length,
           divingSource,
           divingDevice,
         }),
         metrics: {
-          durationMinutes: Number(Math.max(1, elapsedSeconds / 60).toFixed(2)),
+          durationMinutes: Number((recordedElapsedMs / 60_000).toFixed(4)),
           calories,
+          ...(optionalMetric(averageHeartRate, 30, 250) !== undefined
+            ? { averageHeartRateBpm: Math.round(optionalMetric(averageHeartRate, 30, 250)!) }
+            : {}),
+          ...(optionalMetric(maximumHeartRate, 30, 250) !== undefined
+            ? { maximumHeartRateBpm: Math.round(optionalMetric(maximumHeartRate, 30, 250)!) }
+            : {}),
           ...(distanceKm > 0
             ? {
                 distanceKm: Number(distanceKm.toFixed(3)),
@@ -298,8 +458,23 @@ export function LiveWorkoutRecorder({
                 gpsPointCount: points.length,
               }
             : {}),
+          ...((sport === "running" || sport === "hiking") &&
+          (optionalMetric(runningSteps, 1, 200_000) !== undefined || estimatedSteps > 0)
+            ? {
+                steps: Math.round(optionalMetric(runningSteps, 1, 200_000) ?? estimatedSteps),
+              }
+            : {}),
           ...(sport === "running" && paceSecondsPerKm > 0
-            ? { paceSeconds: Number(paceSecondsPerKm.toFixed(1)) }
+            ? {
+                paceSeconds: Number(paceSecondsPerKm.toFixed(1)),
+                ...(optionalMetric(averageCadence, 1, 300) !== undefined || estimatedCadence > 0
+                  ? {
+                      averageCadenceSpm: Math.round(
+                        optionalMetric(averageCadence, 1, 300) ?? estimatedCadence,
+                      ),
+                    }
+                  : {}),
+              }
             : {}),
           ...(sport === "cycling" && distanceKm > 0
             ? {
@@ -309,15 +484,21 @@ export function LiveWorkoutRecorder({
             : {}),
           ...(sport === "swimming"
             ? {
-                poolLengthM,
+                swimEnvironmentCode: swimEnvironment === "indoor" ? 1 : 2,
+                poolLengthM: swimEnvironment === "indoor" ? poolLengthM : 0,
                 laps,
                 swimPaceSeconds: Number(swimPaceSeconds.toFixed(1)),
+                totalStrokes: Math.round(measuredSwimStrokes ?? 0),
+                averageSwolf: Number(
+                  (optionalMetric(swimAverageSwolf, 1, 300) ?? calculatedSwolf).toFixed(1),
+                ),
               }
             : {}),
           ...(sport === "strength"
             ? {
-                exerciseCount: completedRoutineItems.length,
-                sets: completedRoutineItems.length,
+                exerciseCount: completedRoutineExerciseCount,
+                sets: completedRoutineSets.length,
+                volumeKg: Math.max(0, optionalMetric(strengthVolume, 1, 1_000_000) ?? 0),
                 routineCompletion: allRoutineItemsCompleted ? 1 : 0,
               }
             : {}),
@@ -325,6 +506,7 @@ export function LiveWorkoutRecorder({
             ? {
                 maxDepthM: Math.max(0, Number(maxDepth) || 0),
                 dynamicDistanceM: Math.max(0, Number(dynamicDistance) || 0),
+                waterTemperatureC: Math.max(0, optionalMetric(waterTemperature, 1, 45) ?? 0),
                 divingDeviceCode,
               }
             : {}),
@@ -334,6 +516,7 @@ export function LiveWorkoutRecorder({
       setPhase("done");
       await onSaved();
     } catch (caught) {
+      finishedRef.current = false;
       setPhase(sport === "diving" ? "review" : "paused");
       setError(caught instanceof Error ? caught.message : "운동 기록을 저장하지 못했습니다.");
     } finally {
@@ -341,31 +524,137 @@ export function LiveWorkoutRecorder({
     }
   }
 
-  function resetRecorder() {
-    stopGps();
-    setElapsedSeconds(0);
-    setPoints([]);
-    setCompletedRoutineItems([]);
-    setMaxDepth("");
-    setDynamicDistance("");
-    setError(null);
-    setTargetAlert(null);
-    targetAlertKeysRef.current = [];
-    setGpsStatus("GPS 준비 중");
-    startedAtRef.current = null;
-    autoStartedRef.current = false;
-    savingRef.current = false;
-    setPhase(setupSports.includes(sport) ? "setup" : "starting");
-    if (!setupSports.includes(sport)) {
-      setTimeout(() => {
-        autoStartedRef.current = true;
-        void beginGps(true);
-      }, 0);
-    }
-  }
-
   return (
     <View style={styles.shell}>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => {
+          setStartConfirmationOpen(false);
+          if (!setupSports.includes(sport)) onClose();
+        }}
+        transparent
+        visible={startConfirmationOpen}
+      >
+        <View style={styles.confirmBackdrop}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmEyebrow}>READY TO GROOV</Text>
+            <Text style={styles.confirmTitle}>{sportLabels[sport]} 기록을 시작할까요?</Text>
+            <Text style={styles.startMessage}>{startMessage}</Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setStartConfirmationOpen(false);
+                  if (!setupSports.includes(sport)) onClose();
+                }}
+                style={styles.confirmCancel}
+              >
+                <Text style={styles.confirmCancelText}>취소</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setStartConfirmationOpen(false);
+                  startCountdown(() => beginWorkoutNow(true));
+                }}
+                style={styles.confirmFinish}
+              >
+                <Text style={styles.confirmFinishText}>3초 후 시작</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal animationType="fade" transparent visible={countdownValue !== null}>
+        {countdownValue ? (
+          <View accessibilityLiveRegion="assertive" style={styles.countdownBackdrop}>
+            <View style={styles.countdownStage}>
+              <Animated.View
+                style={[
+                  styles.countdownRing,
+                  {
+                    opacity: countdownPulse.interpolate({
+                      inputRange: [0, 0.25, 1],
+                      outputRange: [0, 0.72, 0],
+                    }),
+                    transform: [
+                      {
+                        scale: countdownPulse.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.42, 1.85],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.countdownRing,
+                  styles.countdownRingSecondary,
+                  {
+                    opacity: countdownPulse.interpolate({
+                      inputRange: [0, 0.4, 1],
+                      outputRange: [0, 0.35, 0],
+                    }),
+                    transform: [
+                      {
+                        scale: countdownPulse.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.28, 2.35],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.countdownCopy,
+                  {
+                    opacity: countdownEntrance.interpolate({
+                      inputRange: [0, 0.12, 1],
+                      outputRange: [0, 1, 1],
+                    }),
+                    transform: [
+                      {
+                        translateY: countdownEntrance.interpolate({
+                          inputRange: [0, 0.72, 1],
+                          outputRange: [62, -8, 0],
+                        }),
+                      },
+                      {
+                        scale: countdownEntrance.interpolate({
+                          inputRange: [0, 0.72, 1],
+                          outputRange: [0.28, 1.24, 1],
+                        }),
+                      },
+                      {
+                        rotate: countdownEntrance.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ["-5deg", "0deg"],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <Text style={styles.countdownEyebrow}>READY TO MOVE</Text>
+                <Text
+                  style={[
+                    styles.countdownValue,
+                    countdownValue === "GROOV!" && styles.countdownWord,
+                  ]}
+                >
+                  {countdownValue === "GROOV!" ? countdownValue : `${countdownValue}!`}
+                </Text>
+              </Animated.View>
+            </View>
+          </View>
+        ) : null}
+      </Modal>
+
       <Modal
         animationType="fade"
         onRequestClose={() => setFinishConfirmationOpen(false)}
@@ -378,6 +667,158 @@ export function LiveWorkoutRecorder({
             <Text style={styles.confirmTitle}>기록을 종료할까요?</Text>
             <Text style={styles.confirmCopy}>
               현재까지의 {sportLabels[sport]} 기록을 중지하고 오늘의 활동에 저장합니다.
+            </Text>
+            <View style={styles.finishMetricGrid}>
+              <View
+                style={[
+                  styles.finishMetricField,
+                  (sport === "swimming" || sport === "diving") && styles.finishMetricFieldCompact,
+                ]}
+              >
+                <Text style={styles.finishMetricLabel}>평균 심박수</Text>
+                <View style={styles.finishMetricInputRow}>
+                  <TextInput
+                    accessibilityLabel="평균 심박수"
+                    keyboardType="number-pad"
+                    onChangeText={setAverageHeartRate}
+                    placeholder="선택"
+                    placeholderTextColor={colors.muted}
+                    style={styles.finishMetricInput}
+                    value={averageHeartRate}
+                  />
+                  <Text style={styles.finishMetricUnit}>bpm</Text>
+                </View>
+              </View>
+              {["running", "hiking", "cycling", "strength", "diving"].includes(sport) ? (
+                <View
+                  style={[
+                    styles.finishMetricField,
+                    sport === "diving" && styles.finishMetricFieldCompact,
+                  ]}
+                >
+                  <Text style={styles.finishMetricLabel}>최대 심박수</Text>
+                  <View style={styles.finishMetricInputRow}>
+                    <TextInput
+                      accessibilityLabel="최대 심박수"
+                      keyboardType="number-pad"
+                      onChangeText={setMaximumHeartRate}
+                      placeholder="선택"
+                      placeholderTextColor={colors.muted}
+                      style={styles.finishMetricInput}
+                      value={maximumHeartRate}
+                    />
+                    <Text style={styles.finishMetricUnit}>bpm</Text>
+                  </View>
+                </View>
+              ) : null}
+              {sport === "diving" ? (
+                <View style={[styles.finishMetricField, styles.finishMetricFieldCompact]}>
+                  <Text style={styles.finishMetricLabel}>수온</Text>
+                  <View style={styles.finishMetricInputRow}>
+                    <TextInput
+                      accessibilityLabel="다이빙 수온"
+                      keyboardType="decimal-pad"
+                      onChangeText={setWaterTemperature}
+                      placeholder="선택"
+                      placeholderTextColor={colors.muted}
+                      style={styles.finishMetricInput}
+                      value={waterTemperature}
+                    />
+                    <Text style={styles.finishMetricUnit}>°C</Text>
+                  </View>
+                </View>
+              ) : null}
+              {sport === "strength" ? (
+                <View style={styles.finishMetricField}>
+                  <Text style={styles.finishMetricLabel}>총 볼륨</Text>
+                  <View style={styles.finishMetricInputRow}>
+                    <TextInput
+                      accessibilityLabel="근력운동 총 볼륨"
+                      keyboardType="decimal-pad"
+                      onChangeText={setStrengthVolume}
+                      placeholder="선택"
+                      placeholderTextColor={colors.muted}
+                      style={styles.finishMetricInput}
+                      value={strengthVolume}
+                    />
+                    <Text style={styles.finishMetricUnit}>kg</Text>
+                  </View>
+                </View>
+              ) : null}
+              {sport === "swimming" ? (
+                <>
+                  <View style={[styles.finishMetricField, styles.finishMetricFieldCompact]}>
+                    <Text style={styles.finishMetricLabel}>총 스트로크</Text>
+                    <View style={styles.finishMetricInputRow}>
+                      <TextInput
+                        accessibilityLabel="수영 총 스트로크"
+                        keyboardType="number-pad"
+                        onChangeText={setSwimStrokeCount}
+                        placeholder="선택"
+                        placeholderTextColor={colors.muted}
+                        style={styles.finishMetricInput}
+                        value={swimStrokeCount}
+                      />
+                      <Text style={styles.finishMetricUnit}>회</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.finishMetricField, styles.finishMetricFieldCompact]}>
+                    <Text style={styles.finishMetricLabel}>평균 SWOLF</Text>
+                    <View style={styles.finishMetricInputRow}>
+                      <TextInput
+                        accessibilityLabel="수영 평균 SWOLF"
+                        keyboardType="decimal-pad"
+                        onChangeText={setSwimAverageSwolf}
+                        placeholder={
+                          calculatedSwolf > 0 ? String(Math.round(calculatedSwolf)) : "선택"
+                        }
+                        placeholderTextColor={colors.muted}
+                        style={styles.finishMetricInput}
+                        value={swimAverageSwolf}
+                      />
+                    </View>
+                  </View>
+                </>
+              ) : null}
+              {sport === "running" || sport === "hiking" ? (
+                <>
+                  <View style={styles.finishMetricField}>
+                    <Text style={styles.finishMetricLabel}>걸음</Text>
+                    <View style={styles.finishMetricInputRow}>
+                      <TextInput
+                        accessibilityLabel="러닝 걸음 수"
+                        keyboardType="number-pad"
+                        onChangeText={setRunningSteps}
+                        placeholder="선택"
+                        placeholderTextColor={colors.muted}
+                        style={styles.finishMetricInput}
+                        value={runningSteps}
+                      />
+                      <Text style={styles.finishMetricUnit}>걸음</Text>
+                    </View>
+                  </View>
+                  {sport === "running" ? (
+                    <View style={styles.finishMetricField}>
+                      <Text style={styles.finishMetricLabel}>평균 케이던스</Text>
+                      <View style={styles.finishMetricInputRow}>
+                        <TextInput
+                          accessibilityLabel="러닝 평균 케이던스"
+                          keyboardType="number-pad"
+                          onChangeText={setAverageCadence}
+                          placeholder="선택"
+                          placeholderTextColor={colors.muted}
+                          style={styles.finishMetricInput}
+                          value={averageCadence}
+                        />
+                        <Text style={styles.finishMetricUnit}>spm</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+            </View>
+            <Text style={styles.finishMetricHint}>
+              워치 또는 측정 화면에 값이 있을 때 입력하세요. 비워두면 0으로 표시됩니다.
             </Text>
             <View style={styles.confirmActions}>
               <Pressable
@@ -427,6 +868,7 @@ export function LiveWorkoutRecorder({
           divingSource={divingSource}
           error={error}
           poolLength={poolLength}
+          setSwimEnvironment={setSwimEnvironment}
           routines={sportRoutines}
           selectedRoutine={selectedRoutine}
           setBodyWeight={setBodyWeight}
@@ -436,6 +878,7 @@ export function LiveWorkoutRecorder({
           setPoolLength={setPoolLength}
           setSelectedRoutineId={setSelectedRoutineId}
           sport={sport}
+          swimEnvironment={swimEnvironment}
           styles={styles}
           onStart={startConfiguredWorkout}
         />
@@ -446,19 +889,9 @@ export function LiveWorkoutRecorder({
           </View>
           <Text style={styles.doneTitle}>기록 저장 완료</Text>
           <Text style={styles.doneCopy}>오늘의 활동과 내 기록에 바로 반영했습니다.</Text>
-          <View style={styles.doneActions}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={resetRecorder}
-              style={styles.secondaryButton}
-            >
-              <RotateCcw color={colors.ink} size={16} />
-              <Text style={styles.secondaryButtonText}>한 번 더</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" onPress={onClose} style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>완료</Text>
-            </Pressable>
-          </View>
+          <Pressable accessibilityRole="button" onPress={onClose} style={styles.primaryButton}>
+            <Text style={styles.primaryButtonText}>완료</Text>
+          </Pressable>
         </View>
       ) : phase === "review" ? (
         <DivingReview
@@ -467,7 +900,7 @@ export function LiveWorkoutRecorder({
           divingDevice={divingDevice}
           divingSource={divingSource}
           dynamicDistance={dynamicDistance}
-          elapsedSeconds={elapsedSeconds}
+          elapsedMilliseconds={elapsedMilliseconds}
           error={error}
           maxDepth={maxDepth}
           setDynamicDistance={setDynamicDistance}
@@ -480,7 +913,7 @@ export function LiveWorkoutRecorder({
           <View style={styles.timerRow}>
             <View>
               <Text style={styles.timerLabel}>{active ? "운동 시간" : gpsStatus}</Text>
-              <Text style={styles.timer}>{formatClock(elapsedSeconds)}</Text>
+              <Text style={styles.timer}>{formatClock(elapsedMilliseconds)}</Text>
             </View>
             {gpsSports.includes(sport) ? (
               <View style={styles.gpsBadge}>
@@ -492,34 +925,44 @@ export function LiveWorkoutRecorder({
 
           {gpsSports.includes(sport) ? (
             <GpsMetrics
+              averageHeartRate={measuredHeartRate}
+              averageSwolf={optionalMetric(swimAverageSwolf, 1, 300) ?? calculatedSwolf}
+              maximumHeartRate={measuredMaximumHeartRate}
               averageSpeedKmh={averageSpeedKmh}
               calories={calories}
               colors={colors}
               distanceKm={distanceKm}
               elevationGain={elevation.gain}
+              estimatedCadence={estimatedCadence}
+              estimatedSteps={estimatedSteps}
+              gpsAccuracy={gpsAccuracy}
+              gpsPointCount={points.length}
+              gpsStatus={gpsStatus}
               laps={laps}
               paceSecondsPerKm={paceSecondsPerKm}
               sport={sport}
               styles={styles}
               swimPaceSeconds={swimPaceSeconds}
+              totalStrokes={measuredSwimStrokes ?? 0}
             />
           ) : null}
 
           {sport === "strength" ? (
             <View style={styles.routineTracking}>
               <Text style={styles.blockLabel}>
-                {selectedRoutine?.title ?? "자유 근력 운동"} · {completedRoutineItems.length}/
-                {selectedRoutineItems.length}
+                {selectedRoutine?.title ?? "자유 근력 운동"} · {completedRoutineSets.length}/
+                {totalRoutineSets}세트
               </Text>
               {selectedRoutineItems.length ? (
                 selectedRoutineItems.map((item, index) => {
-                  const checked = completedRoutineItems.includes(index);
+                  const setCount = routineSetCounts[index] ?? 1;
+                  const setChecks = Array.from({ length: setCount }, (_unused, setIndex) =>
+                    completedRoutineSets.includes(routineSetKey(index, setIndex)),
+                  );
+                  const checked = setChecks.every(Boolean);
                   return (
-                    <Pressable
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked }}
+                    <View
                       key={`${item.order}-${item.name}`}
-                      onPress={() => toggleRoutineItem(index)}
                       style={[styles.routineItem, checked && styles.routineItemChecked]}
                     >
                       <View style={[styles.checkBox, checked && styles.checkBoxChecked]}>
@@ -530,8 +973,32 @@ export function LiveWorkoutRecorder({
                           {item.name}
                         </Text>
                         <Text style={styles.routineTarget}>{item.target}</Text>
+                        <View style={styles.routineSetRow}>
+                          {setChecks.map((setChecked, setIndex) => (
+                            <Pressable
+                              accessibilityLabel={`${item.name} ${setIndex + 1}세트 ${setChecked ? "완료 취소" : "완료"}`}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: setChecked }}
+                              key={`${item.order}-set-${setIndex}`}
+                              onPress={() => toggleRoutineSet(index, setIndex)}
+                              style={[
+                                styles.routineSetButton,
+                                setChecked && styles.routineSetButtonChecked,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.routineSetButtonText,
+                                  setChecked && styles.routineSetButtonTextChecked,
+                                ]}
+                              >
+                                {setChecked ? "✓" : setIndex + 1}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
                       </View>
-                    </Pressable>
+                    </View>
                   );
                 })
               ) : (
@@ -548,7 +1015,7 @@ export function LiveWorkoutRecorder({
                   {divingSource === "device" ? divingDevice : "수기 기록 모드"}
                 </Text>
                 <Text style={styles.deviceLiveText}>
-                  종료 후 수심과 다이나믹 기록을 확인해 저장합니다.
+                  시간과 연결된 측정값을 기록합니다. DYNAMIC은 종료 후 수기로 입력합니다.
                 </Text>
               </View>
             </View>
@@ -606,6 +1073,8 @@ function SetupPanel({
   setSelectedRoutineId,
   poolLength,
   setPoolLength,
+  swimEnvironment,
+  setSwimEnvironment,
   bodyWeight,
   setBodyWeight,
   divingSource,
@@ -626,6 +1095,8 @@ function SetupPanel({
   setSelectedRoutineId: (value: string) => void;
   poolLength: string;
   setPoolLength: (value: string) => void;
+  swimEnvironment: SwimEnvironment;
+  setSwimEnvironment: (value: SwimEnvironment) => void;
   bodyWeight: string;
   setBodyWeight: (value: string) => void;
   divingSource: DivingSource;
@@ -640,6 +1111,22 @@ function SetupPanel({
   colors: ThemeColors;
 }) {
   const [routineListOpen, setRoutineListOpen] = useState(false);
+  const selectedStrengthItems = [...(selectedRoutine?.items ?? [])].sort(
+    (left, right) => left.order - right.order,
+  );
+  const selectedStrengthPlans = selectedStrengthItems.map((item) =>
+    parseStrengthRoutinePlan(item.target),
+  );
+  const plannedSets = selectedStrengthPlans.reduce((total, plan) => total + (plan?.sets ?? 1), 0);
+  const plannedMinutes = Math.round(
+    selectedStrengthPlans.reduce(
+      (total, plan) =>
+        total +
+        (plan?.estimatedMinutes ?? 0) +
+        (plan?.restMinutes ?? 0) * Math.max(0, (plan?.sets ?? 1) - 1),
+      0,
+    ),
+  );
   return (
     <View style={styles.setupPanel}>
       {sport === "strength" ? (
@@ -678,47 +1165,99 @@ function SetupPanel({
               ) : null}
             </View>
           ) : null}
-          <Text style={styles.setupHint}>시작 후 루틴 항목을 하나씩 체크할 수 있습니다.</Text>
+          {selectedRoutine ? (
+            <View style={styles.setupRoutinePreview}>
+              <Text style={styles.setupRoutineSummary}>
+                {selectedStrengthItems.length}종목 · 총 {plannedSets}세트 · 예상 {plannedMinutes}분
+              </Text>
+              {selectedStrengthItems.map((item, index) => (
+                <View key={`${item.order}-${item.name}`} style={styles.setupRoutineItem}>
+                  <Text style={styles.setupRoutineIndex}>{index + 1}</Text>
+                  <View style={styles.setupRoutineCopy}>
+                    <Text style={styles.setupRoutineName}>{item.name}</Text>
+                    <Text style={styles.setupRoutineTarget}>{item.target}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
+          <Text style={styles.setupHint}>시작 후 운동별 세트를 하나씩 체크할 수 있습니다.</Text>
         </View>
       ) : null}
 
       {sport === "swimming" ? (
         <>
           <View style={styles.setupBlock}>
-            <Text style={styles.blockLabel}>수영장 길이</Text>
+            <Text style={styles.blockLabel}>수영 환경</Text>
             <View style={styles.optionRow}>
-              {["25", "50"].map((value) => (
+              {(
+                [
+                  { value: "indoor", label: "실내수영" },
+                  { value: "outdoor", label: "실외수영" },
+                ] as const
+              ).map((option) => (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityState={{ selected: poolLength === value }}
-                  key={value}
-                  onPress={() => setPoolLength(value)}
-                  style={[styles.optionButton, poolLength === value && styles.optionButtonActive]}
+                  accessibilityState={{ selected: swimEnvironment === option.value }}
+                  key={option.value}
+                  onPress={() => setSwimEnvironment(option.value)}
+                  style={[
+                    styles.sourceButton,
+                    swimEnvironment === option.value && styles.optionButtonActive,
+                  ]}
                 >
                   <Text
                     style={[
                       styles.optionButtonText,
-                      poolLength === value && styles.optionButtonTextActive,
+                      swimEnvironment === option.value && styles.optionButtonTextActive,
                     ]}
                   >
-                    {value}m
+                    {option.label}
                   </Text>
                 </Pressable>
               ))}
-              <TextInput
-                accessibilityLabel="사용자 지정 수영장 길이"
-                keyboardType="decimal-pad"
-                onChangeText={setPoolLength}
-                placeholder="직접 입력"
-                placeholderTextColor={colors.muted}
-                style={styles.inlineInput}
-                value={poolLength === "25" || poolLength === "50" ? "" : poolLength}
-              />
             </View>
             <Text style={styles.setupHint}>
-              GPS 거리 ÷ 수영장 길이로 랩을 자동 계산합니다. 실내에서는 GPS 오차가 있을 수 있습니다.
+              {swimEnvironment === "indoor"
+                ? "수영장 길이와 이동 거리를 기준으로 랩을 계산합니다."
+                : "실외수영은 GPS 거리와 페이스를 기록하며 랩은 계산하지 않습니다."}
             </Text>
           </View>
+          {swimEnvironment === "indoor" ? (
+            <View style={styles.setupBlock}>
+              <Text style={styles.blockLabel}>수영장 길이</Text>
+              <View style={styles.optionRow}>
+                {["25", "50"].map((value) => (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: poolLength === value }}
+                    key={value}
+                    onPress={() => setPoolLength(value)}
+                    style={[styles.optionButton, poolLength === value && styles.optionButtonActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.optionButtonText,
+                        poolLength === value && styles.optionButtonTextActive,
+                      ]}
+                    >
+                      {value}m
+                    </Text>
+                  </Pressable>
+                ))}
+                <TextInput
+                  accessibilityLabel="사용자 지정 수영장 길이"
+                  keyboardType="decimal-pad"
+                  onChangeText={setPoolLength}
+                  placeholder="직접 입력"
+                  placeholderTextColor={colors.muted}
+                  style={styles.inlineInput}
+                  value={poolLength === "25" || poolLength === "50" ? "" : poolLength}
+                />
+              </View>
+              <Text style={styles.setupHint}>기록 거리 ÷ 수영장 길이로 랩을 자동 계산합니다.</Text>
+            </View>
+          ) : null}
           <WeightInput
             bodyWeight={bodyWeight}
             colors={colors}
@@ -786,12 +1325,13 @@ function SetupPanel({
                 </Text>
               </Pressable>
               <Text style={styles.setupHint}>
-                제조사 계정 연동 전에는 종료 후 측정기에 표시된 값을 확인 입력합니다.
+                제조사 계정 연동 전에는 종료 후 측정기에 표시된 DEPTH·심박·수온을 확인 입력합니다.
+                DYNAMIC은 수기로 기록합니다.
               </Text>
             </View>
           ) : (
             <Text style={styles.setupHint}>
-              운동 종료 후 최대 수심과 다이나믹 거리를 직접 입력합니다.
+              운동 시간은 자동 측정하고, 종료 후 DEPTH와 DYNAMIC을 직접 입력합니다.
             </Text>
           )}
         </View>
@@ -845,9 +1385,18 @@ function GpsMetrics({
   paceSecondsPerKm,
   averageSpeedKmh,
   elevationGain,
+  averageHeartRate,
+  averageSwolf,
+  maximumHeartRate,
+  estimatedCadence,
+  estimatedSteps,
+  gpsAccuracy,
+  gpsPointCount,
+  gpsStatus,
   calories,
   laps,
   swimPaceSeconds,
+  totalStrokes,
   styles,
   colors,
 }: {
@@ -856,47 +1405,94 @@ function GpsMetrics({
   paceSecondsPerKm: number;
   averageSpeedKmh: number;
   elevationGain: number;
+  averageHeartRate: number | undefined;
+  averageSwolf: number;
+  maximumHeartRate: number | undefined;
+  estimatedCadence: number;
+  estimatedSteps: number;
+  gpsAccuracy: number | null;
+  gpsPointCount: number;
+  gpsStatus: string;
   calories: number;
   laps: number;
   swimPaceSeconds: number;
+  totalStrokes: number;
   styles: ReturnType<typeof createStyles>;
   colors: ThemeColors;
 }) {
+  const heartRateValue = averageHeartRate ? `${Math.round(averageHeartRate)} bpm` : "0 bpm";
+  const maximumHeartRateValue = maximumHeartRate ? `${Math.round(maximumHeartRate)} bpm` : "0 bpm";
   const metrics =
-    sport === "swimming"
+    sport === "running"
       ? [
-          { label: "거리", value: `${Math.round(distanceKm * 1000)} m` },
-          { label: "랩", value: `${laps} lap` },
-          { label: "페이스", value: formatPace(swimPaceSeconds, "/100m") },
+          { label: "거리", value: `${distanceKm.toFixed(2)} km` },
+          { label: "페이스", value: formatPace(paceSecondsPerKm, "/km") },
+          { label: "평균 심박수", value: heartRateValue },
+          { label: "최대 심박수", value: maximumHeartRateValue },
+          {
+            label: "평균 케이던스",
+            value: estimatedCadence > 0 ? `${Math.round(estimatedCadence)} spm` : "0 spm",
+          },
+          {
+            label: "걸음",
+            value: estimatedSteps > 0 ? estimatedSteps.toLocaleString("ko-KR") : "0",
+          },
           { label: "칼로리", value: `${calories} kcal` },
         ]
-      : sport === "cycling"
+      : sport === "swimming"
         ? [
-            { label: "거리", value: `${distanceKm.toFixed(2)} km` },
-            { label: "평균속도", value: `${averageSpeedKmh.toFixed(1)} km/h` },
-            { label: "고도 상승", value: `${Math.round(elevationGain)} m` },
+            { label: "거리", value: `${Math.round(distanceKm * 1000)} m` },
+            { label: "랩", value: `${laps} lap` },
+            { label: "페이스", value: formatPace(swimPaceSeconds, "/100m") },
+            { label: "평균 심박수", value: heartRateValue },
+            { label: "총 스트로크", value: Math.round(totalStrokes).toLocaleString("ko-KR") },
+            { label: "평균 SWOLF", value: averageSwolf > 0 ? `${Math.round(averageSwolf)}` : "0" },
             { label: "칼로리", value: `${calories} kcal` },
           ]
-        : [
-            { label: "거리", value: `${distanceKm.toFixed(2)} km` },
-            { label: "페이스", value: formatPace(paceSecondsPerKm, "/km") },
-            { label: "고도 상승", value: `${Math.round(elevationGain)} m` },
-            { label: "칼로리", value: `${calories} kcal` },
-          ];
+        : sport === "cycling"
+          ? [
+              { label: "거리", value: `${distanceKm.toFixed(2)} km` },
+              { label: "평균속도", value: `${averageSpeedKmh.toFixed(1)} km/h` },
+              { label: "고도 상승", value: `${Math.round(elevationGain)} m` },
+              { label: "평균 심박수", value: heartRateValue },
+              { label: "최대 심박수", value: maximumHeartRateValue },
+              { label: "칼로리", value: `${calories} kcal` },
+            ]
+          : [
+              { label: "거리", value: `${distanceKm.toFixed(2)} km` },
+              { label: "페이스", value: formatPace(paceSecondsPerKm, "/km") },
+              { label: "고도 상승", value: `${Math.round(elevationGain)} m` },
+              {
+                label: "걸음",
+                value: estimatedSteps > 0 ? estimatedSteps.toLocaleString("ko-KR") : "0",
+              },
+              { label: "평균 심박수", value: heartRateValue },
+              { label: "최대 심박수", value: maximumHeartRateValue },
+              { label: "칼로리", value: `${calories} kcal` },
+            ];
   return (
-    <View style={styles.metricGrid}>
-      {metrics.map((metric) => (
-        <View key={metric.label} style={styles.metricCell}>
-          <Text style={styles.metricLabel}>{metric.label}</Text>
-          <Text style={[styles.metricValue, { color: colors.ink }]}>{metric.value}</Text>
-        </View>
-      ))}
+    <View style={styles.gpsMetricStack}>
+      <View style={styles.gpsInfoBar}>
+        <MapPin color={colors.primary} size={14} />
+        <Text style={styles.gpsInfoText}>
+          {gpsStatus} · 정확도 {gpsAccuracy === null ? "확인 중" : `±${Math.round(gpsAccuracy)}m`} ·
+          위치 {gpsPointCount}점
+        </Text>
+      </View>
+      <View style={styles.metricGrid}>
+        {metrics.map((metric) => (
+          <View key={metric.label} style={styles.metricCell}>
+            <Text style={styles.metricLabel}>{metric.label}</Text>
+            <Text style={[styles.metricValue, { color: colors.ink }]}>{metric.value}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
 
 function DivingReview({
-  elapsedSeconds,
+  elapsedMilliseconds,
   divingSource,
   divingDevice,
   devicePrepared,
@@ -909,7 +1505,7 @@ function DivingReview({
   styles,
   colors,
 }: {
-  elapsedSeconds: number;
+  elapsedMilliseconds: number;
   divingSource: DivingSource;
   divingDevice: string;
   devicePrepared: boolean;
@@ -926,7 +1522,7 @@ function DivingReview({
     <View style={styles.reviewPanel}>
       <View style={styles.reviewHeading}>
         <Text style={styles.reviewTitle}>다이빙 기록 확인</Text>
-        <Text style={styles.reviewTime}>{formatClock(elapsedSeconds)}</Text>
+        <Text style={styles.reviewTime}>{formatClock(elapsedMilliseconds)}</Text>
       </View>
       <View style={styles.reviewSource}>
         <Watch color={colors.primary} size={18} />
@@ -938,7 +1534,7 @@ function DivingReview({
       </View>
       <View style={styles.twoInputs}>
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>최대 수심</Text>
+          <Text style={styles.inputLabel}>DEPTH</Text>
           <View style={styles.inputWithUnit}>
             <TextInput
               accessibilityLabel="최대 수심"
@@ -953,7 +1549,7 @@ function DivingReview({
           </View>
         </View>
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>다이나믹</Text>
+          <Text style={styles.inputLabel}>DYNAMIC · 수기</Text>
           <View style={styles.inputWithUnit}>
             <TextInput
               accessibilityLabel="다이나믹 거리"
@@ -968,6 +1564,10 @@ function DivingReview({
           </View>
         </View>
       </View>
+      <Text style={styles.setupHint}>
+        DYNAMIC은 워치 버전 연동 전까지 이번 세션의 측정값을 수기로 입력합니다. PB는 저장된 전체
+        기록에서 자동 계산됩니다.
+      </Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Pressable accessibilityRole="button" onPress={onSave} style={styles.primaryButtonLarge}>
         <Save color="#FFFFFF" size={17} />
@@ -983,6 +1583,7 @@ function toTrackPoint(location: Location.LocationObject): TrackPoint {
     longitude: location.coords.longitude,
     altitude: location.coords.altitude,
     accuracy: location.coords.accuracy,
+    timestamp: location.timestamp,
   };
 }
 
@@ -1040,18 +1641,87 @@ function clampNumber(value: string, min: number, max: number, fallback: number) 
   return Math.min(max, Math.max(min, parsed));
 }
 
-function formatClock(totalSeconds: number) {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+function optionalMetric(value: string, min: number, max: number) {
+  if (!value.trim()) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min || parsed > max) return undefined;
+  return parsed;
+}
+
+function formatClock(totalMilliseconds: number) {
+  const centiseconds = Math.floor(totalMilliseconds / 10);
+  const hours = Math.floor(centiseconds / 360_000);
+  const minutes = Math.floor((centiseconds % 360_000) / 6_000);
+  const seconds = Math.floor((centiseconds % 6_000) / 100);
+  const hundredths = centiseconds % 100;
+  return [hours, minutes, seconds, hundredths]
+    .map((value) => String(value).padStart(2, "0"))
+    .join(":");
 }
 
 function formatPace(value: number, unit: string) {
-  if (!value || !Number.isFinite(value)) return `--:-- ${unit}`;
+  if (!value || !Number.isFinite(value)) return `--/-- ${unit}`;
   const minutes = Math.floor(value / 60);
   const seconds = Math.round(value % 60);
   return `${minutes}:${String(seconds).padStart(2, "0")} ${unit}`;
+}
+
+function estimateRunningCadence(averageSpeedKmh: number, distanceKm: number) {
+  if (distanceKm <= 0 || averageSpeedKmh <= 0) return 0;
+  return Math.min(190, Math.max(154, 151 + averageSpeedKmh * 1.8));
+}
+
+function buildStartMessage(
+  sport: SportType,
+  history: WorkoutSession[],
+  selectedRoutine: Routine | null,
+) {
+  const recent = history
+    .filter((workout) => workout.sport === sport)
+    .sort((left, right) => Date.parse(right.endedAt) - Date.parse(left.endedAt))
+    .slice(0, 5);
+  const averageMetric = (key: string) => {
+    const values = recent
+      .map((workout) => workout.metrics[key])
+      .filter((value): value is number => typeof value === "number" && value > 0);
+    return values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0;
+  };
+
+  if (sport === "running") {
+    const heartRate = averageMetric("averageHeartRateBpm");
+    const cadence = averageMetric("averageCadenceSpm");
+    if (heartRate > 158) {
+      return "최근 평균 심박이 높았습니다. 초반 페이스를 낮추고, 오늘도 안전 러닝해볼까요?";
+    }
+    if (cadence > 0 && cadence < 165) {
+      return "최근 케이던스가 낮았습니다. 보폭을 가볍게 줄이고 리듬을 유지해볼까요?";
+    }
+    return "페이스를 유지하며, 오늘도 안전 러닝해볼까요?";
+  }
+  if (sport === "hiking") {
+    return averageMetric("elevationGainM") > 450
+      ? "최근 오르막 비중이 높았습니다. 초반 체력을 아끼고 안전하게 정상까지 가볼까요?"
+      : "호흡 가능한 속도를 유지하며 안전하게 산행해볼까요?";
+  }
+  if (sport === "cycling") {
+    return averageMetric("averageSpeedKmh") > 24
+      ? "최근 속도가 높았습니다. 초반 과속을 피하고 일정한 케이던스로 달려볼까요?"
+      : "페이스를 일정하게 유지하며 오늘의 거리를 채워볼까요?";
+  }
+  if (sport === "strength") {
+    return selectedRoutine
+      ? `${selectedRoutine.title} 순서대로 자세를 지키며 각 항목을 완료해볼까요?`
+      : "세트 사이 회복을 지키며 오늘의 근력 운동을 시작해볼까요?";
+  }
+  if (sport === "swimming") {
+    const pace = averageMetric("swimPaceSeconds");
+    return pace > 150
+      ? "최근 후반 페이스가 떨어졌습니다. 초반 호흡을 여유 있게 가져가볼까요?"
+      : "스트로크 리듬을 유지하며 오늘의 랩을 채워볼까요?";
+  }
+  return averageMetric("maxDepthM") > 20
+    ? "최근 수심 기록이 깊었습니다. 이퀄라이징과 버디 체크를 먼저 확인할까요?"
+    : "장비와 버디 상태를 확인하고 안전하게 다이빙을 시작할까요?";
 }
 
 function buildWorkoutNotes({
@@ -1085,6 +1755,10 @@ function deviceCode(deviceName: string) {
 }
 
 function parseRoutineTarget(value: string) {
+  const estimatedTimeMatch = value.match(/예상\s*(\d+(?:\.\d+)?)\s*분/);
+  if (estimatedTimeMatch) {
+    return { kind: "time" as const, value: Number(estimatedTimeMatch[1]) * 60 };
+  }
   const timeMatch = value.match(/(\d+(?:\.\d+)?)\s*(분|시간)/);
   if (timeMatch) {
     const amount = Number(timeMatch[1]);
@@ -1100,6 +1774,24 @@ function parseRoutineTarget(value: string) {
     };
   }
   return null;
+}
+
+function parseStrengthRoutinePlan(value: string) {
+  const repetitions = Number(value.match(/(\d+(?:\.\d+)?)\s*회/)?.[1] ?? 0);
+  const sets = Number(value.match(/(\d+(?:\.\d+)?)\s*세트/)?.[1] ?? 0);
+  const estimatedMinutes = Number(value.match(/예상\s*(\d+(?:\.\d+)?)\s*분/)?.[1] ?? 0);
+  const restMinutes = Number(value.match(/휴식\s*(\d+(?:\.\d+)?)\s*분/)?.[1] ?? 0);
+  if (!repetitions && !sets && !estimatedMinutes && !restMinutes) return null;
+  return {
+    repetitions,
+    sets: Math.max(1, Math.round(sets || 1)),
+    estimatedMinutes,
+    restMinutes,
+  };
+}
+
+function routineSetKey(itemIndex: number, setIndex: number) {
+  return `${itemIndex}-${setIndex}`;
 }
 
 function createStyles(colors: ThemeColors) {
@@ -1135,6 +1827,124 @@ function createStyles(colors: ThemeColors) {
     },
     confirmTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 20 },
     confirmCopy: { color: colors.muted, fontFamily: fonts.regular, fontSize: 10, lineHeight: 17 },
+    startMessage: {
+      color: colors.ink,
+      fontFamily: fonts.semibold,
+      fontSize: 13,
+      lineHeight: 21,
+      paddingVertical: 5,
+    },
+    countdownBackdrop: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(8,7,6,0.96)",
+      overflow: "hidden",
+    },
+    countdownStage: {
+      width: 280,
+      height: 280,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    countdownRing: {
+      position: "absolute",
+      width: 178,
+      height: 178,
+      borderRadius: 89,
+      borderWidth: 3,
+      borderColor: colors.primary,
+    },
+    countdownRingSecondary: {
+      width: 132,
+      height: 132,
+      borderRadius: 66,
+      borderWidth: 1,
+    },
+    countdownCopy: {
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    countdownEyebrow: {
+      color: "rgba(255,255,255,0.62)",
+      fontFamily: fonts.display,
+      fontSize: 9,
+      letterSpacing: 2.8,
+      marginBottom: -5,
+    },
+    countdownValue: {
+      color: colors.primary,
+      fontFamily: fonts.displayItalic,
+      fontSize: 138,
+      lineHeight: 154,
+      letterSpacing: -9,
+      textShadowColor: "rgba(255,77,42,0.28)",
+      textShadowOffset: { width: 0, height: 10 },
+      textShadowRadius: 26,
+    },
+    countdownWord: {
+      fontSize: 70,
+      lineHeight: 86,
+      letterSpacing: -4,
+    },
+    finishMetricGrid: {
+      width: "100%",
+      minWidth: 0,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+    },
+    finishMetricField: {
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: "45%",
+      minWidth: 0,
+      maxWidth: "100%",
+      gap: 5,
+    },
+    finishMetricFieldCompact: {
+      flexBasis: "30%",
+    },
+    finishMetricLabel: { color: colors.ink, fontFamily: fonts.bold, fontSize: 9 },
+    finishMetricInputRow: {
+      minHeight: 42,
+      flexDirection: "row",
+      alignItems: "center",
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      paddingHorizontal: 10,
+      width: "100%",
+      minWidth: 0,
+      maxWidth: "100%",
+      overflow: "hidden",
+    },
+    finishMetricInput: {
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 0,
+      minWidth: 0,
+      color: colors.ink,
+      fontFamily: fonts.bold,
+      fontSize: 12,
+      borderWidth: 0,
+      paddingHorizontal: 0,
+      paddingVertical: 0,
+      outlineWidth: 0,
+    },
+    finishMetricUnit: {
+      flexShrink: 0,
+      color: colors.muted,
+      fontFamily: fonts.semibold,
+      fontSize: 8,
+    },
+    finishMetricHint: {
+      color: colors.muted,
+      fontFamily: fonts.regular,
+      fontSize: 8,
+      lineHeight: 13,
+    },
     confirmActions: { flexDirection: "row", gap: 8, marginTop: 4 },
     confirmCancel: {
       flex: 1,
@@ -1210,6 +2020,31 @@ function createStyles(colors: ThemeColors) {
     },
     selectMenuTitle: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 10 },
     selectMenuMeta: { color: colors.muted, fontFamily: fonts.regular, fontSize: 8, marginTop: 2 },
+    setupRoutinePreview: {
+      gap: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.background,
+      padding: 11,
+    },
+    setupRoutineSummary: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
+    setupRoutineItem: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+    setupRoutineIndex: {
+      width: 18,
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 8,
+      paddingTop: 1,
+    },
+    setupRoutineCopy: { flex: 1 },
+    setupRoutineName: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 9 },
+    setupRoutineTarget: {
+      color: colors.muted,
+      fontFamily: fonts.regular,
+      fontSize: 8,
+      marginTop: 2,
+    },
     optionRow: { flexDirection: "row", gap: space[2] },
     optionButton: {
       minWidth: 66,
@@ -1315,7 +2150,7 @@ function createStyles(colors: ThemeColors) {
     timer: {
       color: colors.ink,
       fontFamily: fonts.displayExtra,
-      fontSize: 32,
+      fontSize: 28,
       letterSpacing: -1,
       marginTop: 2,
     },
@@ -1330,6 +2165,17 @@ function createStyles(colors: ThemeColors) {
       marginBottom: 4,
     },
     gpsText: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 8 },
+    gpsMetricStack: { gap: space[2] },
+    gpsInfoBar: {
+      minHeight: 36,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 10,
+      borderRadius: radius.md,
+      backgroundColor: colors.primarySoft,
+    },
+    gpsInfoText: { flex: 1, color: colors.ink, fontFamily: fonts.medium, fontSize: 8 },
     metricGrid: {
       flexDirection: "row",
       flexWrap: "wrap",
@@ -1351,14 +2197,14 @@ function createStyles(colors: ThemeColors) {
     metricValue: { fontFamily: fonts.displayExtra, fontSize: 15, marginTop: 3 },
     routineTracking: { gap: space[2] },
     routineItem: {
-      minHeight: 49,
+      minHeight: 72,
       flexDirection: "row",
-      alignItems: "center",
+      alignItems: "flex-start",
       gap: 10,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radius.md,
-      paddingHorizontal: 11,
+      padding: 11,
     },
     routineItemChecked: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
     checkBox: {
@@ -1375,6 +2221,20 @@ function createStyles(colors: ThemeColors) {
     routineName: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 11 },
     routineNameChecked: { color: colors.muted, textDecorationLine: "line-through" },
     routineTarget: { color: colors.muted, fontFamily: fonts.regular, fontSize: 8, marginTop: 2 },
+    routineSetRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 9 },
+    routineSetButton: {
+      width: 29,
+      height: 29,
+      borderRadius: radius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.background,
+    },
+    routineSetButtonChecked: { backgroundColor: colors.primary, borderColor: colors.primary },
+    routineSetButtonText: { color: colors.ink, fontFamily: fonts.bold, fontSize: 9 },
+    routineSetButtonTextChecked: { color: "#FFFFFF" },
     emptyText: {
       color: colors.muted,
       fontFamily: fonts.regular,
@@ -1451,7 +2311,6 @@ function createStyles(colors: ThemeColors) {
     },
     doneTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 18, marginTop: 4 },
     doneCopy: { color: colors.muted, fontFamily: fonts.regular, fontSize: 10 },
-    doneActions: { width: "100%", flexDirection: "row", gap: space[2], marginTop: space[3] },
     reviewPanel: { gap: space[4], marginTop: space[4] },
     reviewHeading: {
       flexDirection: "row",

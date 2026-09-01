@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { ApiError, api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
+import { demoAvatarSources } from "../demo-avatars";
 import { type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 
@@ -107,60 +108,65 @@ export function ConnectionsScreen({ mode }: { mode: "followers" | "following" })
           <Text style={styles.empty}>현재 표시할 계정이 없습니다.</Text>
         ) : null}
         <View style={styles.list}>
-          {people.map((person) => (
-            <View key={person.id} style={styles.card}>
-              {person.avatarDataUri ? (
-                <Image source={{ uri: person.avatarDataUri }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>
-                    {person.displayName.slice(0, 1).toUpperCase()}
-                  </Text>
+          {people.map((person) => {
+            const avatarSource = person.avatarDataUri
+              ? { uri: person.avatarDataUri }
+              : demoAvatarSources[person.id];
+            return (
+              <View key={person.id} style={styles.card}>
+                {avatarSource ? (
+                  <Image source={avatarSource} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>
+                      {person.displayName.slice(0, 1).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.personCopy}>
+                  <Text style={styles.name}>{person.displayName}</Text>
+                  <Text style={styles.status}>GROOV MEMBER</Text>
                 </View>
-              )}
-              <View style={styles.personCopy}>
-                <Text style={styles.name}>{person.displayName}</Text>
-                <Text style={styles.status}>GROOV MEMBER</Text>
+                <View style={styles.actions}>
+                  <Pressable
+                    onPress={() =>
+                      router.push({ pathname: "/profile/member", params: { userId: person.id } })
+                    }
+                    style={styles.actionPrimary}
+                  >
+                    <Text style={styles.actionPrimaryText}>피드</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() =>
+                      router.push({
+                        pathname: "/profile/message",
+                        params: { userId: person.id, name: person.displayName },
+                      })
+                    }
+                    style={styles.action}
+                  >
+                    <Text style={styles.actionText}>메시지</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={busyId === person.id}
+                    onPress={() => void disconnect(person)}
+                    style={styles.action}
+                  >
+                    <Text style={styles.actionText}>
+                      {mode === "followers" ? "삭제" : "언팔로우"}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={busyId === person.id}
+                    onPress={() => void block(person)}
+                    style={styles.blockAction}
+                  >
+                    <Text style={styles.blockText}>차단</Text>
+                  </Pressable>
+                </View>
               </View>
-              <View style={styles.actions}>
-                <Pressable
-                  onPress={() =>
-                    router.push({ pathname: "/profile/member", params: { userId: person.id } })
-                  }
-                  style={styles.actionPrimary}
-                >
-                  <Text style={styles.actionPrimaryText}>피드</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() =>
-                    router.push({
-                      pathname: "/profile/message",
-                      params: { userId: person.id, name: person.displayName },
-                    })
-                  }
-                  style={styles.action}
-                >
-                  <Text style={styles.actionText}>메시지</Text>
-                </Pressable>
-                <Pressable
-                  disabled={busyId === person.id}
-                  onPress={() => void disconnect(person)}
-                  style={styles.action}
-                >
-                  <Text style={styles.actionText}>
-                    {mode === "followers" ? "삭제" : "언팔로우"}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  disabled={busyId === person.id}
-                  onPress={() => void block(person)}
-                  style={styles.blockAction}
-                >
-                  <Text style={styles.blockText}>차단</Text>
-                </Pressable>
-              </View>
-            </View>
-          ))}
+            );
+          })}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -242,8 +248,8 @@ function createStyles(colors: ThemeColors) {
     },
     actionText: { color: colors.ink, fontSize: 8, fontWeight: "900" },
     blockAction: { minWidth: 58, minHeight: 36, alignItems: "center", justifyContent: "center" },
-    blockText: { color: "#C94732", fontSize: 8, fontWeight: "900" },
-    error: { color: "#C94732", fontSize: 10 },
+    blockText: { color: colors.primary, fontSize: 8, fontWeight: "900" },
+    error: { color: colors.primary, fontSize: 10 },
     empty: { color: colors.muted, textAlign: "center", paddingVertical: 50, fontSize: 10 },
   });
 }

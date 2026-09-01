@@ -46,7 +46,15 @@ import storySwimming01 from "../../assets/images/story-swimming-01.jpg";
 import storySwimming02 from "../../assets/images/story-swimming-02.jpg";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
-import { BellButton, Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
+import { demoAvatarSources } from "../../src/demo-avatars";
+import {
+  BellButton,
+  Card,
+  CenterDialog,
+  PrimaryButton,
+  Screen,
+  StatePanel,
+} from "../../src/components/ui";
 import {
   StoryCanvas,
   type StoryBackground,
@@ -375,10 +383,11 @@ export default function CommunityScreen() {
   const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
   const [goalPost, setGoalPost] = useState<FeedPost | null>(null);
   const [goalPrivate, setGoalPrivate] = useState(false);
-  const [notificationOpen, setNotificationOpen] = useState(false);
   const [followingIds, setFollowingIds] = useState<string[]>([]);
   const [followBusyIds, setFollowBusyIds] = useState<string[]>([]);
-  const [currentAvatarUri, setCurrentAvatarUri] = useState<string | null>(null);
+  const [currentAvatarUri, setCurrentAvatarUri] = useState<string | null>(() =>
+    readPersistedCurrentAvatar(),
+  );
   const [draftPhoto, setDraftPhoto] = useState<string | null>(null);
   const [todayWorkoutOptions, setTodayWorkoutOptions] = useState<WorkoutSession[]>([]);
   const [workoutPickerOpen, setWorkoutPickerOpen] = useState(false);
@@ -416,9 +425,12 @@ export default function CommunityScreen() {
     return avatars;
   }, [currentAvatarUri, posts, session?.user.id]);
 
-  const avatarForUser = useCallback(
-    (userId?: string) =>
-      userId ? (avatarByUserId.get(userId) ?? null) : (currentAvatarUri ?? null),
+  const avatarSourceForUser = useCallback(
+    (userId?: string): ImageSourcePropType | null => {
+      const uri = userId ? avatarByUserId.get(userId) : currentAvatarUri;
+      if (uri) return { uri };
+      return userId ? (demoAvatarSources[userId] ?? null) : null;
+    },
     [avatarByUserId, currentAvatarUri],
   );
 
@@ -530,29 +542,30 @@ export default function CommunityScreen() {
     params.storyText,
   ]);
 
-  useEffect(() => {
-    if (!session) return;
-    void api
-      .socialSummary(session.accessToken)
-      .then((summary) => setFollowingIds(summary.following.map((person) => person.id)))
-      .catch(() => setFollowingIds([]));
-  }, [session]);
-
   useFocusEffect(
     useCallback(() => {
       if (!session) {
         setCurrentAvatarUri(null);
+        setFollowingIds([]);
         return undefined;
       }
       let active = true;
+      const persistedAvatar = readPersistedCurrentAvatar();
+      if (persistedAvatar) setCurrentAvatarUri(persistedAvatar);
       void api
         .profile(session.accessToken)
         .then((profile) => {
-          if (active) setCurrentAvatarUri(profile.avatarDataUri ?? null);
+          if (active) setCurrentAvatarUri(profile.avatarDataUri ?? persistedAvatar);
         })
         .catch(() => {
-          if (active) setCurrentAvatarUri(null);
+          if (active) setCurrentAvatarUri(persistedAvatar);
         });
+      void api
+        .socialSummary(session.accessToken)
+        .then((summary) => {
+          if (active) setFollowingIds(summary.following.map((person) => person.id));
+        })
+        .catch(() => undefined);
       void reload();
       return () => {
         active = false;
@@ -810,13 +823,18 @@ export default function CommunityScreen() {
       action={
         <BellButton
           label="피드 알림 확인"
-          onPress={() => setNotificationOpen((current) => !current)}
+          onPress={() => setFeedNotice("오늘 확인할 새로운 피드 알림이 없습니다.")}
         />
       }
     >
       <Text style={styles.pageTitle}>함께 움직이는 중</Text>
-      {notificationOpen ? <Text style={styles.notice}>새로운 피드 알림이 없습니다.</Text> : null}
-      {feedNotice ? <Text style={styles.feedNotice}>{feedNotice}</Text> : null}
+
+      <CenterDialog
+        message={feedNotice ?? ""}
+        onClose={() => setFeedNotice(null)}
+        title="안내"
+        visible={feedNotice !== null}
+      />
 
       <Modal
         animationType="fade"
@@ -981,9 +999,9 @@ export default function CommunityScreen() {
                   style={styles.storyViewerIdentity}
                 >
                   <View style={styles.storyViewerAvatar}>
-                    {avatarForUser(selectedStoryOwner.profileUserId) ? (
+                    {avatarSourceForUser(selectedStoryOwner.profileUserId) ? (
                       <Image
-                        source={{ uri: avatarForUser(selectedStoryOwner.profileUserId)! }}
+                        source={avatarSourceForUser(selectedStoryOwner.profileUserId)!}
                         style={styles.avatarImage}
                       />
                     ) : (
@@ -1080,7 +1098,7 @@ export default function CommunityScreen() {
       >
         {storyOwners.map((owner, index) => {
           const selected = selectedStoryOwnerId === owner.id;
-          const avatarUri = avatarForUser(owner.profileUserId);
+          const avatarSource = avatarSourceForUser(owner.profileUserId);
           return (
             <Pressable
               accessibilityLabel={`${owner.name} 스토리 ${owner.stories.length}개 열기`}
@@ -1092,8 +1110,8 @@ export default function CommunityScreen() {
             >
               <View style={[styles.storyRing, selected && styles.storyRingSelected]}>
                 <View style={[styles.storyAvatar, index === 0 && styles.myStory]}>
-                  {avatarUri ? (
-                    <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+                  {avatarSource ? (
+                    <Image source={avatarSource} style={styles.avatarImage} />
                   ) : (
                     <Text style={[styles.storyInitial, index === 0 && styles.myStoryText]}>
                       {owner.icon}
@@ -1348,6 +1366,7 @@ export default function CommunityScreen() {
         const cheered = cheeredPosts.includes(post.id);
         const commentsOpen = openComments.includes(post.id);
         const bookmarked = bookmarkedPosts.includes(post.id);
+        const postAvatarSource = avatarSourceForUser(post.userId);
         return (
           <View key={post.id} style={styles.post}>
             <View style={styles.postHeader}>
@@ -1358,8 +1377,8 @@ export default function CommunityScreen() {
                 style={styles.authorRow}
               >
                 <View style={styles.authorAvatar}>
-                  {post.authorAvatarDataUri ? (
-                    <Image source={{ uri: post.authorAvatarDataUri }} style={styles.avatarImage} />
+                  {postAvatarSource ? (
+                    <Image source={postAvatarSource} style={styles.avatarImage} />
                   ) : (
                     <Text style={styles.authorInitial}>{post.authorDisplayName.slice(0, 1)}</Text>
                   )}
@@ -1486,31 +1505,31 @@ export default function CommunityScreen() {
             {commentsOpen ? (
               <View style={styles.comments}>
                 {post.comments.length ? (
-                  post.comments.map((comment) => (
-                    <View key={comment.id} style={styles.commentRow}>
-                      <Pressable
-                        accessibilityLabel={`${comment.authorDisplayName} 프로필 보기`}
-                        accessibilityRole="button"
-                        onPress={() => openMemberProfile(comment.userId)}
-                        style={styles.commentIdentity}
-                      >
-                        <View style={styles.commentAvatar}>
-                          {comment.authorAvatarDataUri ? (
-                            <Image
-                              source={{ uri: comment.authorAvatarDataUri }}
-                              style={styles.avatarImage}
-                            />
-                          ) : (
-                            <Text style={styles.commentAvatarText}>
-                              {comment.authorDisplayName.slice(0, 1)}
-                            </Text>
-                          )}
-                        </View>
-                        <Text style={styles.commentAuthor}>{comment.authorDisplayName}</Text>
-                      </Pressable>
-                      <Text style={styles.comment}>{comment.content}</Text>
-                    </View>
-                  ))
+                  post.comments.map((comment) => {
+                    const commentAvatarSource = avatarSourceForUser(comment.userId);
+                    return (
+                      <View key={comment.id} style={styles.commentRow}>
+                        <Pressable
+                          accessibilityLabel={`${comment.authorDisplayName} 프로필 보기`}
+                          accessibilityRole="button"
+                          onPress={() => openMemberProfile(comment.userId)}
+                          style={styles.commentIdentity}
+                        >
+                          <View style={styles.commentAvatar}>
+                            {commentAvatarSource ? (
+                              <Image source={commentAvatarSource} style={styles.avatarImage} />
+                            ) : (
+                              <Text style={styles.commentAvatarText}>
+                                {comment.authorDisplayName.slice(0, 1)}
+                              </Text>
+                            )}
+                          </View>
+                          <Text style={styles.commentAuthor}>{comment.authorDisplayName}</Text>
+                        </Pressable>
+                        <Text style={styles.comment}>{comment.content}</Text>
+                      </View>
+                    );
+                  })
                 ) : (
                   <Text style={styles.emptyComment}>아직 댓글이 없습니다.</Text>
                 )}
@@ -1690,20 +1709,18 @@ function publicPostUrl(postId: string) {
   return `https://moveall-mvp.longrun0000.chatgpt.site/community?post=${encodeURIComponent(postId)}`;
 }
 
+function readPersistedCurrentAvatar(): string | null {
+  try {
+    if (!("localStorage" in globalThis)) return null;
+    return globalThis.localStorage.getItem("groov-demo-avatar-v1");
+  } catch {
+    return null;
+  }
+}
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     pageTitle: { color: colors.ink, fontSize: 20, fontFamily: fonts.bold },
-    notice: { color: colors.primary, fontSize: 11, fontFamily: fonts.medium, marginTop: -9 },
-    feedNotice: {
-      color: colors.ink,
-      fontSize: 10,
-      lineHeight: 16,
-      fontFamily: fonts.semibold,
-      backgroundColor: colors.primarySoft,
-      borderRadius: radius.md,
-      paddingHorizontal: 12,
-      paddingVertical: 9,
-    },
     shareModalBackdrop: {
       flex: 1,
       backgroundColor: "rgba(0,0,0,0.76)",

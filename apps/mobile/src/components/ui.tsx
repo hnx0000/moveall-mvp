@@ -3,6 +3,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Bell } from "lucide-react-native";
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -211,6 +212,84 @@ export function StatePanel({
   );
 }
 
+export function CenterDialog({
+  visible,
+  eyebrow = "GROOV NOTICE",
+  title,
+  message,
+  confirmLabel = "확인",
+  cancelLabel = "취소",
+  busy = false,
+  danger = false,
+  onClose,
+  onConfirm,
+}: {
+  visible: boolean;
+  eyebrow?: string;
+  title: string;
+  message?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  busy?: boolean;
+  danger?: boolean;
+  onClose: () => void;
+  onConfirm?: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
+
+  return (
+    <Modal
+      animationType="fade"
+      onRequestClose={() => {
+        if (!busy) onClose();
+      }}
+      statusBarTranslucent
+      transparent
+      visible={visible}
+    >
+      <View accessibilityViewIsModal style={styles.dialogBackdrop}>
+        <View style={styles.dialogCard}>
+          <Text style={[styles.dialogEyebrow, danger && styles.dialogEyebrowDanger]}>
+            {eyebrow}
+          </Text>
+          <Text style={styles.dialogTitle}>{title}</Text>
+          {message ? <Text style={styles.dialogMessage}>{message}</Text> : null}
+          <View style={styles.dialogActions}>
+            {onConfirm ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy}
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.dialogSecondary,
+                  pressed && styles.buttonPressed,
+                  busy && styles.buttonDisabled,
+                ]}
+              >
+                <Text style={styles.dialogSecondaryText}>{cancelLabel}</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={onConfirm ?? onClose}
+              style={({ pressed }) => [
+                styles.dialogPrimary,
+                danger && styles.dialogPrimaryDanger,
+                pressed && styles.buttonPressed,
+                busy && styles.buttonDisabled,
+              ]}
+            >
+              <Text style={styles.dialogPrimaryText}>{confirmLabel}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.background },
@@ -312,5 +391,63 @@ function createStyles(colors: ThemeColors) {
       lineHeight: 21,
     },
     errorText: { color: colors.danger },
+    dialogBackdrop: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(0,0,0,0.76)",
+      padding: 20,
+    },
+    dialogCard: {
+      width: "100%",
+      maxWidth: 400,
+      borderRadius: radius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      padding: 20,
+      gap: 11,
+      ...shadows.card,
+    },
+    dialogEyebrow: {
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 8,
+      letterSpacing: 0.8,
+    },
+    dialogEyebrowDanger: { color: colors.danger },
+    dialogTitle: {
+      color: colors.ink,
+      fontFamily: fonts.displayExtra,
+      fontSize: 20,
+      lineHeight: 27,
+    },
+    dialogMessage: {
+      color: colors.muted,
+      fontFamily: fonts.regular,
+      fontSize: 11,
+      lineHeight: 18,
+    },
+    dialogActions: { flexDirection: "row", gap: 8, marginTop: 3 },
+    dialogSecondary: {
+      minWidth: 78,
+      minHeight: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    dialogSecondaryText: { color: colors.muted, fontFamily: fonts.bold, fontSize: 10 },
+    dialogPrimary: {
+      flex: 1,
+      minHeight: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radius.md,
+      backgroundColor: colors.primary,
+    },
+    dialogPrimaryDanger: { backgroundColor: colors.danger },
+    dialogPrimaryText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
   });
 }

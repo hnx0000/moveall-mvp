@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { ApiError, api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
+import { CenterDialog } from "../components/ui";
 import { type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 
@@ -28,6 +29,8 @@ export function ContentScreen({ archived = false }: { archived?: boolean }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pendingDeletePost, setPendingDeletePost] = useState<FeedPost | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -90,7 +93,10 @@ export function ContentScreen({ archived = false }: { archived?: boolean }) {
     try {
       await api.deletePost(session.accessToken, post.id);
       setPosts((current) => current.filter((item) => item.id !== post.id));
+      setPendingDeletePost(null);
+      setFeedback("게시물을 삭제했습니다.");
     } catch (caught) {
+      setPendingDeletePost(null);
       setError(caught instanceof ApiError ? caught.message : "삭제하지 못했습니다.");
     } finally {
       setBusyId(null);
@@ -99,6 +105,33 @@ export function ContentScreen({ archived = false }: { archived?: boolean }) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <CenterDialog
+        busy={pendingDeletePost ? busyId === pendingDeletePost.id : false}
+        confirmLabel={
+          pendingDeletePost && busyId === pendingDeletePost.id ? "삭제 중" : "게시물 삭제"
+        }
+        danger
+        eyebrow="DELETE POST"
+        message={pendingDeletePost?.content ?? ""}
+        onClose={() => setPendingDeletePost(null)}
+        onConfirm={() => {
+          if (pendingDeletePost) void remove(pendingDeletePost);
+        }}
+        title="이 게시물을 삭제할까요?"
+        visible={pendingDeletePost !== null}
+      />
+      <CenterDialog
+        message={error ?? ""}
+        onClose={() => setError(null)}
+        title="확인이 필요합니다"
+        visible={error !== null && pendingDeletePost === null}
+      />
+      <CenterDialog
+        message={feedback ?? ""}
+        onClose={() => setFeedback(null)}
+        title="처리했습니다"
+        visible={feedback !== null && error === null && pendingDeletePost === null}
+      />
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.topBar}>
           <Pressable onPress={() => router.back()}>
@@ -138,7 +171,6 @@ export function ContentScreen({ archived = false }: { archived?: boolean }) {
           ))}
         </View>
         {loading ? <ActivityIndicator color={colors.primary} /> : null}
-        {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.list}>
           {visible.map((post) => (
             <View key={post.id} style={styles.card}>
@@ -207,7 +239,7 @@ export function ContentScreen({ archived = false }: { archived?: boolean }) {
                 </Pressable>
                 <Pressable
                   disabled={busyId === post.id}
-                  onPress={() => void remove(post)}
+                  onPress={() => setPendingDeletePost(post)}
                   style={styles.deleteAction}
                 >
                   <Text style={styles.deleteText}>삭제</Text>
@@ -318,7 +350,7 @@ function createStyles(colors: ThemeColors) {
     },
     primaryActionText: { color: "#FFFFFF", fontSize: 8, fontWeight: "900" },
     deleteAction: { minWidth: 58, alignItems: "center", justifyContent: "center" },
-    deleteText: { color: "#C94732", fontSize: 8, fontWeight: "900" },
+    deleteText: { color: colors.primary, fontSize: 8, fontWeight: "900" },
     editInput: {
       color: colors.ink,
       minHeight: 74,
@@ -327,7 +359,7 @@ function createStyles(colors: ThemeColors) {
       fontSize: 13,
       lineHeight: 20,
     },
-    error: { color: "#C94732", fontSize: 10 },
+    error: { color: colors.primary, fontSize: 10 },
     empty: { color: colors.muted, textAlign: "center", paddingVertical: 50, fontSize: 10 },
   });
 }

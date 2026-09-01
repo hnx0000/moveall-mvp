@@ -21,6 +21,7 @@ import { useAuth } from "../auth/auth-context";
 import { type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 import { sortWorkoutsForDisplay } from "../workout-display";
+import { formatSensorMetricLine } from "../workout-metrics";
 
 export function RecordsScreen({ sport }: { sport?: SportType }) {
   const router = useRouter();
@@ -117,6 +118,7 @@ export function RecordsScreen({ sport }: { sport?: SportType }) {
                   {new Date(workout.startedAt).toLocaleDateString("ko-KR")}
                 </Text>
                 <Text style={styles.recordNote}>{workout.notes ?? "기록된 메모가 없습니다."}</Text>
+                <Text style={styles.recordSensorMetric}>{formatSensorMetricLine(workout)}</Text>
               </View>
               <View style={styles.recordMetric}>
                 <Text style={styles.recordMetricStrong}>{primaryMetric(workout)}</Text>
@@ -283,10 +285,11 @@ function createStyles(colors: ThemeColors) {
     recordSport: { color: colors.primary, fontSize: 7, fontWeight: "900" },
     recordDate: { color: colors.ink, fontSize: 13, fontWeight: "900" },
     recordNote: { color: colors.muted, fontSize: 8, lineHeight: 13 },
+    recordSensorMetric: { color: colors.primary, fontSize: 7, lineHeight: 12, fontWeight: "800" },
     recordMetric: { alignItems: "flex-end", gap: 3 },
     recordMetricStrong: { color: colors.ink, fontSize: 14, fontWeight: "900" },
     recordMetricSub: { color: colors.muted, fontSize: 7 },
-    error: { color: "#C94732", fontSize: 10 },
+    error: { color: colors.primary, fontSize: 10 },
     empty: { color: colors.muted, paddingVertical: 40, textAlign: "center", fontSize: 10 },
   });
 }

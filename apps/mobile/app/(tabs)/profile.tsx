@@ -28,6 +28,7 @@ import {
 } from "react-native";
 import { ApiError, api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
+import { CenterDialog } from "../../src/components/ui";
 import {
   fonts,
   maxContentWidth,
@@ -38,14 +39,44 @@ import {
 } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 import { sortWorkoutsForDisplay } from "../../src/workout-display";
+import { formatSensorMetricLine } from "../../src/workout-metrics";
 
 type ProfileTab = "records" | "posts" | "routines";
 type RecordFilter = "all" | SportType;
 type RoutineSport = "strength" | "swimming" | "diving";
-type RoutineDraftItem = { name: string; target: string };
+type RoutineDraftItem = {
+  name: string;
+  target: string;
+  repetitions: string;
+  sets: string;
+  estimatedMinutes: string;
+  restMinutes: string;
+};
 
 const routineSports: RoutineSport[] = ["strength", "swimming", "diving"];
-const emptyRoutineItem = (): RoutineDraftItem => ({ name: "", target: "" });
+const emptyRoutineItem = (): RoutineDraftItem => ({
+  name: "",
+  target: "",
+  repetitions: "",
+  sets: "",
+  estimatedMinutes: "",
+  restMinutes: "",
+});
+
+function strengthRoutineTarget(item: RoutineDraftItem) {
+  return `${item.repetitions}회 · ${item.sets}세트 · 예상 ${item.estimatedMinutes}분 · 휴식 ${item.restMinutes}분`;
+}
+
+function parseStrengthRoutineTarget(name: string, target: string): RoutineDraftItem {
+  return {
+    name,
+    target,
+    repetitions: target.match(/(\d+(?:\.\d+)?)\s*회/)?.[1] ?? "",
+    sets: target.match(/(\d+(?:\.\d+)?)\s*세트/)?.[1] ?? "",
+    estimatedMinutes: target.match(/예상\s*(\d+(?:\.\d+)?)\s*분/)?.[1] ?? "",
+    restMinutes: target.match(/휴식\s*(\d+(?:\.\d+)?)\s*분/)?.[1] ?? "",
+  };
+}
 
 const emptySocial: SocialSummary = {
   followersCount: 0,
@@ -127,6 +158,8 @@ export default function ProfileScreen() {
     [recordFilter, workouts],
   );
   const earnedMedals = medals.filter((medal) => medal.earned);
+  const pendingDeleteRoutine =
+    routines.find((routine) => routine.id === pendingDeleteRoutineId) ?? null;
 
   const saveNickname = async () => {
     if (!session) return;
@@ -210,13 +243,42 @@ export default function ProfileScreen() {
 
   const saveRoutine = async () => {
     if (!session) return;
+    const activeItems = routineItems.filter((item) =>
+      [
+        item.name,
+        item.target,
+        item.repetitions,
+        item.sets,
+        item.estimatedMinutes,
+        item.restMinutes,
+      ].some((value) => value.trim()),
+    );
+    if (routineSport === "strength") {
+      const invalidItem = activeItems.find(
+        (item) =>
+          !item.name.trim() ||
+          !(Number(item.repetitions) > 0) ||
+          !(Number(item.sets) > 0) ||
+          !(Number(item.estimatedMinutes) > 0) ||
+          !Number.isFinite(Number(item.restMinutes)) ||
+          Number(item.restMinutes) < 0,
+      );
+      if (invalidItem || activeItems.length === 0) {
+        setError("근력 루틴은 운동명·횟수·세트·예상 시간·휴식 시간을 모두 입력해 주세요.");
+        return;
+      }
+    }
     const parsed = RoutineCreateInputSchema.safeParse({
       title: routineTitle.trim(),
       sport: routineSport,
       daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
-      items: routineItems
-        .filter((item) => item.name.trim() && item.target.trim())
-        .map((item, order) => ({ name: item.name.trim(), target: item.target.trim(), order })),
+      items: activeItems
+        .filter((item) => item.name.trim() && (routineSport === "strength" || item.target.trim()))
+        .map((item, order) => ({
+          name: item.name.trim(),
+          target: routineSport === "strength" ? strengthRoutineTarget(item) : item.target.trim(),
+          order,
+        })),
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "루틴 내용을 확인해 주세요.");
@@ -255,7 +317,11 @@ export default function ProfileScreen() {
     setRoutineItems(
       [...routine.items]
         .sort((left, right) => left.order - right.order)
-        .map(({ name, target }) => ({ name, target })),
+        .map(({ name, target }) =>
+          routine.sport === "strength"
+            ? parseStrengthRoutineTarget(name, target)
+            : { ...emptyRoutineItem(), name, target },
+        ),
     );
     setEditingRoutineId(routine.id);
     setRoutineMessage("수정할 내용을 바꾼 뒤 저장해 주세요.");
@@ -272,6 +338,7 @@ export default function ProfileScreen() {
       setPendingDeleteRoutineId(null);
       setRoutineMessage("루틴을 제거했습니다.");
     } catch (caught) {
+      setPendingDeleteRoutineId(null);
       setError(caught instanceof ApiError ? caught.message : "루틴을 제거하지 못했습니다.");
     } finally {
       setSavingRoutine(false);
@@ -317,6 +384,35 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <CenterDialog
+        busy={savingRoutine}
+        confirmLabel={savingRoutine ? "제거 중" : "루틴 제거"}
+        danger
+        eyebrow="DELETE ROUTINE"
+        message={
+          pendingDeleteRoutine
+            ? `${pendingDeleteRoutine.title} 루틴은 제거 후 다시 복구할 수 없습니다.`
+            : ""
+        }
+        onClose={() => setPendingDeleteRoutineId(null)}
+        onConfirm={() => {
+          if (pendingDeleteRoutine) void deleteRoutine(pendingDeleteRoutine.id);
+        }}
+        title="이 루틴을 제거할까요?"
+        visible={pendingDeleteRoutine !== null}
+      />
+      <CenterDialog
+        message={error ?? ""}
+        onClose={() => setError(null)}
+        title="확인이 필요합니다"
+        visible={error !== null && pendingDeleteRoutine === null}
+      />
+      <CenterDialog
+        message={routineMessage ?? ""}
+        onClose={() => setRoutineMessage(null)}
+        title="처리했습니다"
+        visible={routineMessage !== null && error === null && pendingDeleteRoutine === null}
+      />
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.topBar}>
           <Text style={styles.brand}>GROOV</Text>
@@ -522,7 +618,6 @@ export default function ProfileScreen() {
             <ActivityIndicator color={colors.primary} />
           </View>
         ) : null}
-        {error ? <Text style={styles.error}>{error}</Text> : null}
         {!loading && tab === "records" ? (
           <RecordList workouts={visibleWorkouts.slice(0, 3)} styles={styles} />
         ) : null}
@@ -605,13 +700,48 @@ export default function ProfileScreen() {
                         style={styles.routineItemInput}
                         value={item.name}
                       />
-                      <TextInput
-                        onChangeText={(value) => updateRoutineItem(index, "target", value)}
-                        placeholder="횟수·시간·거리"
-                        placeholderTextColor={colors.muted}
-                        style={styles.routineTargetInput}
-                        value={item.target}
-                      />
+                      {routineSport === "strength" ? (
+                        <View style={styles.strengthDetailGrid}>
+                          <RoutineNumberField
+                            label="횟수"
+                            onChangeText={(value) => updateRoutineItem(index, "repetitions", value)}
+                            styles={styles}
+                            unit="회"
+                            value={item.repetitions}
+                          />
+                          <RoutineNumberField
+                            label="세트"
+                            onChangeText={(value) => updateRoutineItem(index, "sets", value)}
+                            styles={styles}
+                            unit="세트"
+                            value={item.sets}
+                          />
+                          <RoutineNumberField
+                            label="예상 소요"
+                            onChangeText={(value) =>
+                              updateRoutineItem(index, "estimatedMinutes", value)
+                            }
+                            styles={styles}
+                            unit="분"
+                            value={item.estimatedMinutes}
+                          />
+                          <RoutineNumberField
+                            label="세트 휴식"
+                            onChangeText={(value) => updateRoutineItem(index, "restMinutes", value)}
+                            styles={styles}
+                            unit="분"
+                            value={item.restMinutes}
+                          />
+                        </View>
+                      ) : (
+                        <TextInput
+                          onChangeText={(value) => updateRoutineItem(index, "target", value)}
+                          placeholder="횟수·시간·거리"
+                          placeholderTextColor={colors.muted}
+                          style={styles.routineTargetInput}
+                          value={item.target}
+                        />
+                      )}
                     </View>
                     <View style={styles.itemActions}>
                       <Pressable
@@ -669,7 +799,6 @@ export default function ProfileScreen() {
                 </Text>
               </Pressable>
             </View>
-            {routineMessage ? <Text style={styles.routineMessage}>{routineMessage}</Text> : null}
             <View style={styles.savedRoutineHeader}>
               <Text style={styles.savedRoutineTitle}>저장한 루틴</Text>
               <Text style={styles.savedRoutineCount}>{routines.length}개</Text>
@@ -722,26 +851,12 @@ export default function ProfileScreen() {
                     ))}
                 </View>
                 <View style={styles.routineCardActions}>
-                  {pendingDeleteRoutineId === routine.id ? (
-                    <>
-                      <Text style={styles.deleteConfirmText}>이 루틴을 제거할까요?</Text>
-                      <Pressable onPress={() => setPendingDeleteRoutineId(null)}>
-                        <Text style={styles.secondaryAction}>취소</Text>
-                      </Pressable>
-                      <Pressable onPress={() => void deleteRoutine(routine.id)}>
-                        <Text style={styles.deleteAction}>제거</Text>
-                      </Pressable>
-                    </>
-                  ) : (
-                    <>
-                      <Pressable onPress={() => editRoutine(routine)}>
-                        <Text style={styles.secondaryAction}>수정</Text>
-                      </Pressable>
-                      <Pressable onPress={() => setPendingDeleteRoutineId(routine.id)}>
-                        <Text style={styles.deleteAction}>제거</Text>
-                      </Pressable>
-                    </>
-                  )}
+                  <Pressable onPress={() => editRoutine(routine)}>
+                    <Text style={styles.secondaryAction}>수정</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setPendingDeleteRoutineId(routine.id)}>
+                    <Text style={styles.deleteAction}>제거</Text>
+                  </Pressable>
                 </View>
               </View>
             ))}
@@ -864,6 +979,7 @@ function RecordList({
               {durationMinutes(workout)}분 · 강도 {workout.perceivedExertion}/10
             </Text>
           </View>
+          <Text style={styles.recordSensorMetric}>{formatSensorMetricLine(workout)}</Text>
           {workout.notes ? <Text style={styles.recordNote}>{workout.notes}</Text> : null}
         </View>
       ))}
@@ -898,6 +1014,37 @@ function PostList({
           </Text>
         </Pressable>
       ))}
+    </View>
+  );
+}
+
+function RoutineNumberField({
+  label,
+  unit,
+  value,
+  onChangeText,
+  styles,
+}: {
+  label: string;
+  unit: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.strengthDetailField}>
+      <Text style={styles.strengthDetailLabel}>{label}</Text>
+      <View style={styles.strengthDetailInputRow}>
+        <TextInput
+          accessibilityLabel={label}
+          keyboardType="decimal-pad"
+          onChangeText={onChangeText}
+          placeholder="0"
+          style={styles.strengthDetailInput}
+          value={value}
+        />
+        <Text style={styles.strengthDetailUnit}>{unit}</Text>
+      </View>
     </View>
   );
 }
@@ -1120,7 +1267,7 @@ function createStyles(colors: ThemeColors) {
       bottom: -1,
     },
     loading: { paddingVertical: 44 },
-    error: { color: "#C94732", fontSize: 10, fontWeight: "700", lineHeight: 16 },
+    error: { color: colors.primary, fontSize: 10, fontWeight: "700", lineHeight: 16 },
     contentSection: { gap: 9 },
     recordCard: {
       borderBottomWidth: 1,
@@ -1137,6 +1284,12 @@ function createStyles(colors: ThemeColors) {
     },
     metricStrong: { ...typography.numeric(24), color: colors.ink },
     metricSub: { color: colors.muted, fontSize: 8 },
+    recordSensorMetric: {
+      color: colors.primary,
+      fontFamily: fonts.semibold,
+      fontSize: 8,
+      lineHeight: 13,
+    },
     recordNote: { color: colors.muted, fontSize: 9, lineHeight: 15 },
     postGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
     postTile: {
@@ -1255,6 +1408,35 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.regular,
       fontSize: 9,
     },
+    strengthDetailGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+      paddingTop: 8,
+    },
+    strengthDetailField: {
+      width: "48%",
+      gap: 4,
+    },
+    strengthDetailLabel: { color: colors.muted, fontFamily: fonts.medium, fontSize: 7 },
+    strengthDetailInputRow: {
+      minHeight: 34,
+      flexDirection: "row",
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      paddingHorizontal: 8,
+      backgroundColor: colors.surfaceMuted,
+    },
+    strengthDetailInput: {
+      flex: 1,
+      color: colors.ink,
+      fontFamily: fonts.semibold,
+      fontSize: 10,
+      paddingVertical: 6,
+    },
+    strengthDetailUnit: { color: colors.muted, fontFamily: fonts.medium, fontSize: 8 },
     itemActions: { alignItems: "center", justifyContent: "center", gap: 2 },
     iconAction: { color: colors.ink, fontFamily: fonts.bold, fontSize: 15, paddingHorizontal: 5 },
     actionDisabled: { color: colors.border },
