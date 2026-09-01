@@ -781,7 +781,10 @@ export default function HomeScreen() {
       )}
 
       <View style={styles.sectionHeading}>
-        <Text style={styles.sectionTitle}>기록</Text>
+        <View>
+          <Text style={styles.homeSectionEyebrow}>ACTIVITY RECORDS</Text>
+          <Text style={styles.sectionTitle}>기록</Text>
+        </View>
       </View>
       {loading ? <StatePanel state="loading" message="운동 종목을 불러오는 중이에요." /> : null}
       {error ? <StatePanel state="error" message={error} onRetry={() => void reload()} /> : null}
