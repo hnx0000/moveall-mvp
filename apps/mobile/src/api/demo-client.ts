@@ -218,12 +218,34 @@ const posts: FeedPost[] = [
   {
     id: "demo-post-taeo",
     userId: "demo-friend-6",
-    authorDisplayName: "선셋하이커 태오",
-    sport: "hiking",
-    content: "일몰 전에 정상 도착. 오늘의 고도 612m.",
+    authorDisplayName: "리프트 태오",
+    sport: "strength",
+    content: "상체 루틴 6종목 18세트. 마지막 세트까지 집중했습니다.",
     contentType: "post",
     likeCount: 23,
     createdAt: new Date(now - 30 * 60 * 60_000).toISOString(),
+    comments: [],
+  },
+  {
+    id: "demo-post-seoa",
+    userId: "demo-friend-7",
+    authorDisplayName: "스튜디오 서아",
+    sport: "strength",
+    content: "등과 어깨 16세트 완료. 자세에 집중한 저녁 루틴.",
+    contentType: "story",
+    likeCount: 39,
+    createdAt: new Date(now - 34 * 60 * 60_000).toISOString(),
+    comments: [],
+  },
+  {
+    id: "demo-post-jiyoung",
+    userId: "demo-friend-8",
+    authorDisplayName: "스트롱 지영",
+    sport: "strength",
+    content: "하체 루틴 5종목 완료. 오늘의 볼륨도 차분하게 채웠어요.",
+    contentType: "post",
+    likeCount: 47,
+    createdAt: new Date(now - 38 * 60 * 60_000).toISOString(),
     comments: [],
   },
 ];
@@ -393,10 +415,22 @@ const demoMemberDirectory: Record<
     followingCount: 58,
   },
   "demo-friend-6": {
-    displayName: "선셋하이커 태오",
+    displayName: "리프트 태오",
     isPrivate: false,
     followersCount: 64,
     followingCount: 51,
+  },
+  "demo-friend-7": {
+    displayName: "스튜디오 서아",
+    isPrivate: false,
+    followersCount: 183,
+    followingCount: 76,
+  },
+  "demo-friend-8": {
+    displayName: "스트롱 지영",
+    isPrivate: false,
+    followersCount: 157,
+    followingCount: 89,
   },
 };
 
@@ -469,15 +503,62 @@ const demoMemberWorkouts: Record<string, WorkoutSession[]> = {
   ],
   "demo-friend-private": [],
   "demo-friend-6": [
-    demoMemberWorkout("demo-friend-6", "taeo-hike-1", "hiking", 2, 119, 7, "일몰 전 정상", {
-      distanceKm: 6.08,
-      calories: 632,
-      elevationGainM: 612,
+    demoMemberWorkout("demo-friend-6", "taeo-strength-1", "strength", 2, 62, 8, "상체 볼륨 루틴", {
+      calories: 452,
+      exerciseCount: 6,
+      sets: 18,
+      volumeKg: 5840,
     }),
-    demoMemberWorkout("demo-friend-6", "taeo-dive-1", "diving", 9, 54, 7, "다이나믹 풀 세션", {
-      calories: 238,
-      maxDepthM: 16,
-      dynamicDistanceM: 42,
+    demoMemberWorkout(
+      "demo-friend-6",
+      "taeo-hike-1",
+      "hiking",
+      9,
+      104,
+      6,
+      "사진 없이 남긴 아침 산행",
+      {
+        distanceKm: 5.38,
+        calories: 548,
+        elevationGainM: 426,
+      },
+    ),
+  ],
+  "demo-friend-7": [
+    demoMemberWorkout("demo-friend-7", "seoa-strength-1", "strength", 3, 54, 8, "등과 어깨", {
+      calories: 394,
+      exerciseCount: 5,
+      sets: 16,
+      volumeKg: 4680,
+    }),
+    demoMemberWorkout("demo-friend-7", "seoa-swim-1", "swimming", 9, 42, 7, "아침 자유형", {
+      distanceKm: 1.2,
+      distanceM: 1200,
+      calories: 308,
+      laps: 48,
+    }),
+  ],
+  "demo-friend-8": [
+    demoMemberWorkout(
+      "demo-friend-8",
+      "jiyoung-strength-1",
+      "strength",
+      2,
+      57,
+      8,
+      "하체 집중 루틴",
+      {
+        calories: 418,
+        exerciseCount: 5,
+        sets: 18,
+        volumeKg: 5220,
+      },
+    ),
+    demoMemberWorkout("demo-friend-8", "jiyoung-strength-2", "strength", 7, 48, 7, "등과 코어", {
+      calories: 352,
+      exerciseCount: 5,
+      sets: 15,
+      volumeKg: 3960,
     }),
   ],
 };

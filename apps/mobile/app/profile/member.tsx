@@ -7,7 +7,7 @@ import {
   type WorkoutSession,
 } from "@moveall/contracts";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { Lock, MessageCircle } from "lucide-react-native";
+import { Lock } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -22,6 +22,7 @@ import {
 import { ApiError, api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { demoAvatarSources } from "../../src/demo-avatars";
+import { TapTalkIcon } from "../../src/components/tap-icons";
 import { fonts, radius, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 import { formatSensorMetricLine } from "../../src/workout-metrics";
@@ -165,8 +166,8 @@ export default function MemberProfilePage() {
                 }
                 style={styles.messageButton}
               >
-                <MessageCircle color={colors.ink} size={15} />
-                <Text style={styles.messageText}>메시지</Text>
+                <TapTalkIcon color={colors.ink} size={15} strokeWidth={1.8} />
+                <Text style={styles.messageText}>탭톡</Text>
               </Pressable>
             </View>
 

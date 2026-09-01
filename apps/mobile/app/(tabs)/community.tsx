@@ -17,9 +17,7 @@ import {
   Image as ImageIcon,
   Link2,
   MessageCircle,
-  Send,
   Share2,
-  Users,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -33,17 +31,28 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
   type ImageSourcePropType,
 } from "react-native";
-import feedRunImage from "../../assets/images/feed-run.jpg";
-import storyDiving01 from "../../assets/images/story-diving-01.jpg";
-import storyDiving02 from "../../assets/images/story-diving-02.png";
-import storyStrength01 from "../../assets/images/story-strength-01.jpg";
-import storyStrength02 from "../../assets/images/story-strength-02.jpg";
-import storyStrength03 from "../../assets/images/story-strength-03.jpg";
-import storySwimming01 from "../../assets/images/story-swimming-01.jpg";
-import storySwimming02 from "../../assets/images/story-swimming-02.jpg";
+import storyDiveDepth from "../../assets/images/instagram/story-dive-depth.jpg";
+import storyDiveGroup from "../../assets/images/instagram/story-dive-group.jpg";
+import storyDiveLine from "../../assets/images/instagram/story-dive-line.jpg";
+import storyPoolBlue from "../../assets/images/instagram/story-pool-blue.jpg";
+import storyPoolLane from "../../assets/images/instagram/story-pool-lane.jpg";
+import storyPoolSide from "../../assets/images/instagram/story-poolside.jpg";
+import storyPoolSunset from "../../assets/images/instagram/story-pool-sunset.jpg";
+import storyPoolSurface from "../../assets/images/instagram/story-pool-surface.jpg";
+import harinStory01 from "../../assets/images/people/harin/story-01.jpg";
+import harinStory02 from "../../assets/images/people/harin/story-02.jpg";
+import harinStory03 from "../../assets/images/people/harin/story-03.jpg";
+import jiyoungStory01 from "../../assets/images/people/jiyoung/story-01.jpg";
+import minjiStory01 from "../../assets/images/people/minji/story-01.jpg";
+import minjiStory02 from "../../assets/images/people/minji/story-02.jpg";
+import seoaStory01 from "../../assets/images/people/seoa/story-01.jpg";
+import seoaStory02 from "../../assets/images/people/seoa/story-02.jpg";
+import taeoStory01 from "../../assets/images/people/taeo/story-01.jpg";
+import yunaStory01 from "../../assets/images/people/yuna/story-01.jpg";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { demoAvatarSources } from "../../src/demo-avatars";
@@ -63,6 +72,7 @@ import {
   type StoryVisibility,
 } from "../../src/components/story-canvas";
 import { type MapPoint } from "../../src/components/workout-map.types";
+import { TapShareIcon } from "../../src/components/tap-icons";
 import { saveRecordGoal } from "../../src/goals";
 import { useAsyncData } from "../../src/hooks/use-async-data";
 import { fonts, gradients, radius, space, type ThemeColors } from "../../src/theme";
@@ -157,7 +167,7 @@ const baseStories: Record<SportType, DemoStory> = {
   ),
   strength: demoStory(
     "strength",
-    "photo",
+    "ink",
     "BODY CHECK",
     "오늘의 눈바디.",
     "8",
@@ -166,7 +176,6 @@ const baseStories: Record<SportType, DemoStory> = {
     "16 SET",
     684,
     [],
-    storyStrength01,
   ),
   swimming: demoStory(
     "swimming",
@@ -179,7 +188,7 @@ const baseStories: Record<SportType, DemoStory> = {
     "48 LAP",
     596,
     [],
-    storySwimming01,
+    storyPoolSurface,
   ),
   diving: demoStory(
     "diving",
@@ -192,7 +201,7 @@ const baseStories: Record<SportType, DemoStory> = {
     "42 M DYNAMIC",
     742,
     [],
-    storyDiving01,
+    storyDiveDepth,
   ),
 };
 
@@ -207,7 +216,48 @@ const storyOwners: StoryOwner[] = [
       baseStories.cycling,
       baseStories.strength,
       baseStories.swimming,
+      {
+        ...baseStories.swimming,
+        id: "me-swimming-lane",
+        photo: storyPoolLane,
+        customText: "레인 위로 번지는 빛.",
+      },
+      {
+        ...baseStories.swimming,
+        id: "me-swimming-blue",
+        photo: storyPoolBlue,
+        layout: "split",
+        customText: "오늘의 블루 세션.",
+      },
+      {
+        ...baseStories.swimming,
+        id: "me-swimming-side",
+        photo: storyPoolSide,
+        layout: "low",
+        customText: "물에 들어가기 전.",
+      },
+      {
+        ...baseStories.swimming,
+        id: "me-swimming-sunset",
+        photo: storyPoolSunset,
+        layout: "editorial",
+        customText: "노을 아래 마지막 랩.",
+      },
       baseStories.diving,
+      {
+        ...baseStories.diving,
+        id: "me-diving-line",
+        photo: storyDiveLine,
+        layout: "centered",
+        customText: "라인을 따라 차분하게.",
+      },
+      {
+        ...baseStories.diving,
+        id: "me-diving-group",
+        photo: storyDiveGroup,
+        layout: "low",
+        customText: "함께 내려간 블루 세션.",
+      },
     ],
   },
   {
@@ -216,13 +266,22 @@ const storyOwners: StoryOwner[] = [
     name: "민지",
     icon: "R",
     stories: [
-      { ...baseStories.running, id: "minji-running", customText: "새벽 6시, 가볍게." },
       {
-        ...baseStories.strength,
-        id: "minji-strength",
-        layout: "split",
-        photo: storyStrength02,
-        customText: "등 운동 끝.",
+        ...baseStories.hiking,
+        id: "minji-hiking",
+        background: "photo",
+        photo: minjiStory01,
+        routePoints: [],
+        customText: "정상에서 한 번 더 숨 고르기.",
+      },
+      {
+        ...baseStories.hiking,
+        id: "minji-sunset",
+        background: "photo",
+        layout: "low",
+        photo: minjiStory02,
+        routePoints: [],
+        customText: "해가 지기 전 도착.",
       },
     ],
   },
@@ -248,18 +307,11 @@ const storyOwners: StoryOwner[] = [
     icon: "S",
     stories: [
       {
-        ...baseStories.strength,
-        id: "yuna-strength",
-        layout: "editorial",
-        photo: storyStrength03,
-        customText: "오늘도 나답게.",
-      },
-      {
-        ...baseStories.swimming,
-        id: "yuna-swimming",
+        ...baseStories.diving,
+        id: "yuna-diving",
         layout: "low",
-        photo: storySwimming02,
-        customText: "1,700m clear.",
+        photo: yunaStory01,
+        customText: "수면 아래에서 찾은 집중.",
       },
     ],
   },
@@ -285,17 +337,31 @@ const storyOwners: StoryOwner[] = [
     icon: "W",
     stories: [
       {
-        ...baseStories.swimming,
-        id: "harin-swimming",
+        ...baseStories.hiking,
+        id: "harin-hiking-rest",
+        background: "photo",
         layout: "split",
-        customText: "레인 끝의 평온.",
+        photo: harinStory01,
+        routePoints: [],
+        customText: "바위 위에서 잠깐 쉬기.",
       },
       {
-        ...baseStories.diving,
-        id: "harin-diving",
+        ...baseStories.hiking,
+        id: "harin-hiking-trail",
+        background: "photo",
         layout: "centered",
-        photo: storyDiving02,
-        customText: "블루홀에서 마주친 순간.",
+        photo: harinStory02,
+        routePoints: [],
+        customText: "오늘도 한 걸음 위로.",
+      },
+      {
+        ...baseStories.running,
+        id: "harin-running",
+        background: "photo",
+        layout: "low",
+        photo: harinStory03,
+        routePoints: [],
+        customText: "가볍게 움직인 오후.",
       },
     ],
   },
@@ -306,23 +372,71 @@ const storyOwners: StoryOwner[] = [
     icon: "T",
     stories: [
       {
-        ...baseStories.hiking,
-        id: "taeo-hiking",
+        ...baseStories.strength,
+        id: "taeo-strength",
+        background: "photo",
+        layout: "low",
+        photo: taeoStory01,
+        customText: "오늘의 상체 루틴 완료.",
+      },
+      { ...baseStories.hiking, id: "taeo-hiking", customText: "사진 없이 기록만 남긴 산행." },
+    ],
+  },
+  {
+    id: "seoa",
+    profileUserId: "demo-friend-7",
+    name: "서아",
+    icon: "S",
+    stories: [
+      {
+        ...baseStories.running,
+        id: "seoa-running",
+        background: "photo",
         layout: "editorial",
-        customText: "일몰 전 정상.",
+        photo: seoaStory01,
+        routePoints: [],
+        customText: "트랙 위에서 가볍게.",
       },
       {
-        ...baseStories.diving,
-        id: "taeo-diving",
-        layout: "low",
-        customText: "다이나믹 42m.",
+        ...baseStories.strength,
+        id: "seoa-strength",
+        background: "photo",
+        layout: "split",
+        photo: seoaStory02,
+        customText: "자세에 집중한 루틴.",
+      },
+    ],
+  },
+  {
+    id: "jiyoung",
+    profileUserId: "demo-friend-8",
+    name: "지영",
+    icon: "J",
+    stories: [
+      {
+        ...baseStories.strength,
+        id: "jiyoung-strength",
+        background: "photo",
+        layout: "editorial",
+        photo: jiyoungStory01,
+        customText: "오늘의 근력 루틴 완료.",
       },
     ],
   },
 ];
 
+const feedImageSources: Partial<Record<string, ImageSourcePropType>> = {
+  "demo-post-running": minjiStory01,
+  "demo-post-swimming": yunaStory01,
+  "demo-post-taeo": taeoStory01,
+  "demo-post-seoa": seoaStory02,
+  "demo-post-jiyoung": jiyoungStory01,
+  "demo-post-harin": harinStory02,
+};
+
 export default function CommunityScreen() {
   const router = useRouter();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const params = useLocalSearchParams<{
     draft?: string;
     sport?: string;
@@ -413,6 +527,12 @@ export default function CommunityScreen() {
     [selectedStoryOwnerId],
   );
   const activeDemoStory = selectedStoryOwner?.stories[storyIndex] ?? null;
+  const storyViewerMaxWidth = Math.min(420, Math.max(240, windowWidth - 28));
+  const storyCanvasHeight = Math.max(
+    0,
+    Math.min(storyViewerMaxWidth * (16 / 9), windowHeight - 132),
+  );
+  const storyViewerWidth = storyCanvasHeight * (9 / 16);
   const avatarByUserId = useMemo(() => {
     const avatars = new Map<string, string>();
     if (session?.user.id && currentAvatarUri) avatars.set(session.user.id, currentAvatarUri);
@@ -739,8 +859,8 @@ export default function CommunityScreen() {
       setSharedCounts((current) => ({ ...current, [postId]: result.shareCount }));
       setFeedNotice(
         result.recipientCount > 0
-          ? `팔로잉 중인 친구 ${result.recipientCount}명의 공유함에 보냈습니다.`
-          : "먼저 친구를 팔로우하면 해당 친구에게 기록을 공유할 수 있어요.",
+          ? `팔로잉 중인 친구 ${result.recipientCount}명의 TAP에 보냈습니다.`
+          : "먼저 친구를 팔로우하면 해당 친구의 TAP에 기록을 공유할 수 있어요.",
       );
       setShareTargetPost(null);
     } catch (caught) {
@@ -864,14 +984,14 @@ export default function CommunityScreen() {
                 style={({ pressed }) => [styles.shareOption, pressed && styles.shareOptionPressed]}
               >
                 <View style={styles.shareOptionIcon}>
-                  <Users color={colors.primary} size={19} strokeWidth={2.1} />
+                  <TapShareIcon color={colors.primary} size={23} strokeWidth={2.05} />
                 </View>
                 <View style={styles.shareOptionCopy}>
                   <Text style={styles.shareOptionTitle}>
-                    {shareBusy === "following" ? "보내는 중..." : "팔로잉 친구에게"}
+                    {shareBusy === "following" ? "보내는 중..." : "탭에 공유하기"}
                   </Text>
                   <Text style={styles.shareOptionMeta}>
-                    GROOV에서 팔로잉 중인 친구의 공유함으로 보냅니다.
+                    팔로잉 중인 친구들의 TAP으로 기록을 보냅니다.
                   </Text>
                 </View>
               </Pressable>
@@ -977,7 +1097,7 @@ export default function CommunityScreen() {
       >
         {activeDemoStory && selectedStoryOwner ? (
           <View style={styles.storyModalBackdrop}>
-            <View style={styles.storyViewer}>
+            <View style={[styles.storyViewer, { width: storyViewerWidth }]}>
               <View style={styles.storyProgressRow}>
                 {selectedStoryOwner.stories.map((story, index) => (
                   <View
@@ -1037,7 +1157,7 @@ export default function CommunityScreen() {
                   distance={activeDemoStory.distance}
                   distanceUnit={activeDemoStory.distanceUnit}
                   duration={activeDemoStory.duration}
-                  height={540}
+                  height={storyCanvasHeight}
                   layout={activeDemoStory.layout}
                   layers={["record", "route", "text", "points"]}
                   moveScore={activeDemoStory.points}
@@ -1367,6 +1487,7 @@ export default function CommunityScreen() {
         const commentsOpen = openComments.includes(post.id);
         const bookmarked = bookmarkedPosts.includes(post.id);
         const postAvatarSource = avatarSourceForUser(post.userId);
+        const postImageSource = feedImageSources[post.id];
         return (
           <View key={post.id} style={styles.post}>
             <View style={styles.postHeader}>
@@ -1412,22 +1533,34 @@ export default function CommunityScreen() {
                 <Text style={styles.time}>{relativeTime(post.createdAt)}</Text>
               </View>
             </View>
-            <ImageBackground
-              accessibilityLabel={`${sportLabels[post.sport]} 운동 기록 사진`}
-              imageStyle={styles.feedArtworkImage}
-              source={feedRunImage}
-              style={styles.feedArtwork}
-            >
-              <LinearGradient
-                colors={gradients.imageOverlay.colors}
-                end={gradients.imageOverlay.end}
-                start={gradients.imageOverlay.start}
-                style={StyleSheet.absoluteFill}
-              />
-              <Text style={styles.feedArtworkBrand}>GROOV STORY</Text>
-              <Text style={styles.feedArtworkSport}>{sportLabels[post.sport]}</Text>
-              <Text style={styles.feedArtworkMeta}>SHARED TODAY</Text>
-            </ImageBackground>
+            {postImageSource ? (
+              <ImageBackground
+                accessibilityLabel={`${sportLabels[post.sport]} 운동 기록 사진`}
+                imageStyle={styles.feedArtworkImage}
+                resizeMode="cover"
+                source={postImageSource}
+                style={styles.feedArtwork}
+              >
+                <LinearGradient
+                  colors={gradients.imageOverlay.colors}
+                  end={gradients.imageOverlay.end}
+                  start={gradients.imageOverlay.start}
+                  style={StyleSheet.absoluteFill}
+                />
+                <Text style={styles.feedArtworkBrand}>GROOV STORY</Text>
+                <Text style={styles.feedArtworkSport}>{sportLabels[post.sport]}</Text>
+                <Text style={styles.feedArtworkMeta}>SHARED TODAY</Text>
+              </ImageBackground>
+            ) : (
+              <View
+                accessibilityLabel={`${sportLabels[post.sport]} 사진 없는 운동 기록`}
+                style={[styles.feedArtwork, styles.feedRecordArtwork]}
+              >
+                <Text style={styles.feedArtworkBrand}>GROOV RECORD</Text>
+                <Text style={styles.feedArtworkSport}>{sportLabels[post.sport]}</Text>
+                <Text style={styles.feedArtworkMeta}>VERIFIED ACTIVITY</Text>
+              </View>
+            )}
             <Text style={styles.postCopy}>
               {post.content.split(/(\s+)/).map((part, index) =>
                 part.startsWith("#") && part.length > 1 ? (
@@ -1472,7 +1605,7 @@ export default function CommunityScreen() {
                 <Text style={styles.actionCount}>{post.comments.length}</Text>
               </Pressable>
               <Pressable
-                accessibilityLabel="공유 방법 선택"
+                accessibilityLabel="탭에 공유하기"
                 accessibilityRole="button"
                 onPress={() => {
                   setFeedNotice(null);
@@ -1480,7 +1613,7 @@ export default function CommunityScreen() {
                 }}
                 style={styles.action}
               >
-                <Send color={colors.ink} size={20} strokeWidth={2} />
+                <TapShareIcon color={colors.ink} size={24} strokeWidth={2.05} />
                 <Text style={styles.actionCount}>
                   {sharedCounts[post.id] ?? post.shareCount ?? 0}
                 </Text>
@@ -2147,14 +2280,25 @@ function createStyles(colors: ThemeColors) {
     followTextActive: { color: colors.ink },
     time: { color: colors.muted, fontSize: 10, fontFamily: fonts.regular },
     feedArtwork: {
-      height: 288,
+      width: "100%",
+      aspectRatio: 4 / 5,
       borderRadius: radius["2xl"],
       overflow: "hidden",
       backgroundColor: colors.hero,
       padding: space[5],
       justifyContent: "flex-end",
     },
-    feedArtworkImage: { borderRadius: radius["2xl"] },
+    feedArtworkImage: {
+      width: "100%",
+      height: "100%",
+      borderRadius: radius["2xl"],
+    },
+    feedRecordArtwork: {
+      aspectRatio: 16 / 9,
+      backgroundColor: colors.hero,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
     feedArtworkBrand: {
       position: "absolute",
       left: space[5],

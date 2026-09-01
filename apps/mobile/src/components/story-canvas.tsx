@@ -90,8 +90,9 @@ export function StoryCanvas({
       ) : showPhoto ? (
         <Image
           accessibilityLabel="스토리 배경 인증샷"
+          resizeMode="cover"
           source={resolvedPhotoSource}
-          style={StyleSheet.absoluteFill}
+          style={styles.photoBackground}
         />
       ) : (
         <View style={[StyleSheet.absoluteFill, styles.inkBackground]}>
@@ -162,6 +163,13 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
     backgroundColor: "#171719",
+  },
+  photoBackground: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
   },
   inkBackground: { backgroundColor: "#111112" },
   inkRing: {

@@ -14,6 +14,7 @@ import {
 import { ApiError, api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import { demoAvatarSources } from "../demo-avatars";
+import { TapTalkIcon } from "../components/tap-icons";
 import { type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 
@@ -145,7 +146,8 @@ export function ConnectionsScreen({ mode }: { mode: "followers" | "following" })
                     }
                     style={styles.action}
                   >
-                    <Text style={styles.actionText}>메시지</Text>
+                    <TapTalkIcon color={colors.ink} size={13} strokeWidth={1.7} />
+                    <Text style={styles.actionText}>탭톡</Text>
                   </Pressable>
                   <Pressable
                     disabled={busyId === person.id}
@@ -243,8 +245,10 @@ function createStyles(colors: ThemeColors) {
       minHeight: 36,
       borderRadius: 5,
       backgroundColor: colors.surfaceMuted,
+      flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
+      gap: 4,
     },
     actionText: { color: colors.ink, fontSize: 8, fontWeight: "900" },
     blockAction: { minWidth: 58, minHeight: 36, alignItems: "center", justifyContent: "center" },

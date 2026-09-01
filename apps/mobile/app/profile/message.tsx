@@ -32,7 +32,7 @@ export default function MessagePage() {
     try {
       setMessages(await api.messages(session.accessToken, userId));
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "메시지를 불러오지 못했습니다.");
+      setError(caught instanceof ApiError ? caught.message : "탭톡을 불러오지 못했습니다.");
     }
   }, [session, userId]);
   useFocusEffect(
@@ -49,7 +49,7 @@ export default function MessagePage() {
       setMessages((current) => [...current, message]);
       setDraft("");
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "메시지를 보내지 못했습니다.");
+      setError(caught instanceof ApiError ? caught.message : "탭톡을 보내지 못했습니다.");
     } finally {
       setSending(false);
     }
@@ -67,7 +67,7 @@ export default function MessagePage() {
             </Pressable>
             <View>
               <Text style={[styles.name, { color: colors.ink }]}>{name ?? "MOVE 멤버"}</Text>
-              <Text style={[styles.status, { color: colors.primary }]}>DIRECT MESSAGE</Text>
+              <Text style={[styles.status, { color: colors.primary }]}>TAP TALK</Text>
             </View>
           </View>
           <ScrollView contentContainerStyle={styles.messages}>
@@ -98,7 +98,7 @@ export default function MessagePage() {
               );
             })}
             {messages.length === 0 ? (
-              <Text style={[styles.empty, { color: colors.muted }]}>첫 메시지를 보내보세요.</Text>
+              <Text style={[styles.empty, { color: colors.muted }]}>첫 탭톡을 보내보세요.</Text>
             ) : null}
           </ScrollView>
           {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -107,7 +107,7 @@ export default function MessagePage() {
               value={draft}
               onChangeText={setDraft}
               onSubmitEditing={() => void send()}
-              placeholder="메시지 입력"
+              placeholder="탭톡 입력"
               placeholderTextColor={colors.muted}
               style={[styles.input, { color: colors.ink }]}
             />
