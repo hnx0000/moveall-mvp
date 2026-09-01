@@ -439,7 +439,10 @@ export default function HomeScreen() {
 
       <View style={styles.activitySection}>
         <View style={styles.activityHeading}>
-          <Text style={styles.kicker}>오늘의 활동</Text>
+          <View>
+            <Text style={styles.homeSectionEyebrow}>TODAY'S ACTIVITY</Text>
+            <Text style={styles.kicker}>오늘의 활동</Text>
+          </View>
           <Text style={styles.activityDayCount}>{todayWorkouts.length}회 기록</Text>
         </View>
         {dashboardLoading ? (
@@ -674,7 +677,10 @@ export default function HomeScreen() {
       </Modal>
 
       <View style={styles.sectionHeading}>
-        <Text style={styles.sectionTitle}>오늘의 루틴</Text>
+        <View>
+          <Text style={styles.homeSectionEyebrow}>TODAY'S ROUTINE</Text>
+          <Text style={styles.sectionTitle}>오늘의 루틴</Text>
+        </View>
       </View>
       {todayRoutines.length ? (
         <View style={styles.todayRoutineStack}>
@@ -1521,10 +1527,17 @@ function createStyles(colors: ThemeColors) {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
-    kicker: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 14 },
+    homeSectionEyebrow: {
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 8,
+      letterSpacing: 1,
+      marginBottom: 4,
+    },
+    kicker: { color: colors.ink, fontFamily: fonts.bold, fontSize: 17 },
     activityHeading: {
       flexDirection: "row",
-      alignItems: "center",
+      alignItems: "flex-end",
       justifyContent: "space-between",
     },
     activityDayCount: { color: colors.muted, fontFamily: fonts.medium, fontSize: 10 },
