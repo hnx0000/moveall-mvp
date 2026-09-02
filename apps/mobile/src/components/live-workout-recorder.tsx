@@ -27,8 +27,23 @@ import {
 } from "react-native";
 import { api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
+import {
+  clearBackgroundTrack,
+  consumeBackgroundTrack,
+  startBackgroundTrack,
+  stopBackgroundTrack,
+} from "../features/location/background-location";
 import { fonts, radius, space, type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
+import { WorkoutMap } from "./workout-map";
+import { type MapPoint } from "./workout-map.types";
+import { createGroovPulseAnimation, GroovPulseRings } from "./groov-pulse-rings";
+
+export type WorkoutTrackPreview = {
+  points: MapPoint[];
+  status: string;
+  usesGps: boolean;
+};
 
 type RecorderPhase = "setup" | "starting" | "recording" | "paused" | "review" | "saving" | "done";
 type DivingSource = "device" | "manual";
@@ -59,12 +74,16 @@ export function LiveWorkoutRecorder({
   history,
   onClose,
   onSaved,
+  onTrackChange,
+  showMap = true,
 }: {
   sport: SportType;
   routines: Routine[];
   history: WorkoutSession[];
   onClose: () => void;
   onSaved: () => void | Promise<void>;
+  onTrackChange?: (track: WorkoutTrackPreview) => void;
+  showMap?: boolean;
 }) {
   const { session } = useAuth();
   const { colors } = useAppTheme();
@@ -99,6 +118,7 @@ export function LiveWorkoutRecorder({
   const [startConfirmationOpen, setStartConfirmationOpen] = useState(!setupSports.includes(sport));
   const [countdownValue, setCountdownValue] = useState<CountdownValue | null>(null);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const pointsRef = useRef<TrackPoint[]>([]);
   const savingRef = useRef(false);
   const targetAlertKeysRef = useRef<string[]>([]);
   const elapsedBaseMsRef = useRef(0);
@@ -163,9 +183,35 @@ export function LiveWorkoutRecorder({
   const active = phase === "recording";
   const canClose = phase === "setup" || phase === "done" || phase === "starting";
 
+  useEffect(() => {
+    onTrackChange?.({
+      points,
+      status: gpsStatus,
+      usesGps: gpsSports.includes(sport) && (sport !== "swimming" || swimEnvironment === "outdoor"),
+    });
+  }, [gpsStatus, onTrackChange, points, sport, swimEnvironment]);
+
   const stopGps = useCallback(() => {
     watchRef.current?.remove();
     watchRef.current = null;
+  }, []);
+
+  const appendPoint = useCallback((point: TrackPoint, reset = false) => {
+    setPoints((existing) => {
+      const next = reset ? [point] : appendTrackPoint(existing, point);
+      pointsRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const drainBackgroundPoints = useCallback(async () => {
+    const buffered = await consumeBackgroundTrack();
+    if (buffered.length === 0) return pointsRef.current;
+    let next = pointsRef.current;
+    for (const point of buffered) next = appendTrackPoint(next, point);
+    pointsRef.current = next;
+    setPoints(next);
+    return next;
   }, []);
 
   const clearCountdown = useCallback(() => {
@@ -194,6 +240,12 @@ export function LiveWorkoutRecorder({
   }, [phase]);
 
   useEffect(() => {
+    if (phase !== "recording" || !gpsSports.includes(sport)) return undefined;
+    const drain = setInterval(() => void drainBackgroundPoints(), 5_000);
+    return () => clearInterval(drain);
+  }, [drainBackgroundPoints, phase, sport]);
+
+  useEffect(() => {
     if (!countdownValue) return undefined;
     countdownEntrance.setValue(0);
     countdownPulse.setValue(0);
@@ -205,12 +257,7 @@ export function LiveWorkoutRecorder({
         easing: Easing.out(Easing.back(2.2)),
         useNativeDriver: true,
       }),
-      Animated.timing(countdownPulse, {
-        toValue: 1,
-        duration: 650,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
+      createGroovPulseAnimation(countdownPulse),
     ]);
     animation.start();
     return () => animation.stop();
@@ -245,6 +292,7 @@ export function LiveWorkoutRecorder({
   useEffect(
     () => () => {
       stopGps();
+      void stopBackgroundTrack();
       countdownTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
     },
     [stopGps],
@@ -260,6 +308,8 @@ export function LiveWorkoutRecorder({
         timerStartedAtMsRef.current = null;
         setElapsedMilliseconds(0);
         setPoints([]);
+        pointsRef.current = [];
+        await clearBackgroundTrack();
       }
       try {
         const permission = await Location.requestForegroundPermissionsAsync();
@@ -275,9 +325,11 @@ export function LiveWorkoutRecorder({
         });
         if (finishedRef.current) return;
         const firstPoint = toTrackPoint(current);
-        setPoints((existing) => (reset ? [firstPoint] : appendTrackPoint(existing, firstPoint)));
+        appendPoint(firstPoint, reset);
         setPhase("recording");
-        setGpsStatus("GPS 기록 중");
+        setGpsStatus(describeGpsAccuracy(firstPoint.accuracy));
+        const backgroundActive = await startBackgroundTrack().catch(() => false);
+        if (!backgroundActive) setGpsStatus("GPS 기록 중 · 화면 유지 권장");
         stopGps();
         watchRef.current = await Location.watchPositionAsync(
           {
@@ -288,10 +340,8 @@ export function LiveWorkoutRecorder({
           (nextLocation) => {
             if (finishedRef.current) return;
             const nextPoint = toTrackPoint(nextLocation);
-            setPoints((existing) => appendTrackPoint(existing, nextPoint));
-            setGpsStatus(
-              nextPoint.accuracy && nextPoint.accuracy > 30 ? "GPS 신호 약함" : "GPS 기록 중",
-            );
+            appendPoint(nextPoint);
+            setGpsStatus(describeGpsAccuracy(nextPoint.accuracy));
           },
           () => {
             setGpsStatus("GPS 연결 끊김");
@@ -305,7 +355,7 @@ export function LiveWorkoutRecorder({
         setError("현재 위치를 가져오지 못했습니다. 야외에서 다시 시도해 주세요.");
       }
     },
-    [sport, stopGps],
+    [appendPoint, sport, stopGps],
   );
 
   function startCountdown(onComplete: () => void) {
@@ -365,6 +415,9 @@ export function LiveWorkoutRecorder({
   function pauseWorkout() {
     freezeTimer();
     stopGps();
+    void stopBackgroundTrack()
+      .then(() => drainBackgroundPoints())
+      .catch(() => undefined);
     setPhase("paused");
     if (gpsSports.includes(sport)) setGpsStatus("일시정지");
   }
@@ -388,6 +441,8 @@ export function LiveWorkoutRecorder({
     setStartConfirmationOpen(false);
     freezeTimer();
     stopGps();
+    await stopBackgroundTrack().catch(() => undefined);
+    await drainBackgroundPoints();
     if (sport === "diving") {
       setPhase("review");
       return;
@@ -418,6 +473,31 @@ export function LiveWorkoutRecorder({
     const endedAt = new Date();
     const recordedElapsedMs = Math.max(10, elapsedBaseMsRef.current);
     const startedAt = new Date(endedAt.getTime() - recordedElapsedMs);
+    const savedPoints = pointsRef.current;
+    const savedDistanceKm = calculateTrackDistance(savedPoints);
+    const savedDistanceM = savedDistanceKm * 1000;
+    const savedElevation = calculateElevation(savedPoints);
+    const savedElapsedSeconds = recordedElapsedMs / 1000;
+    const savedPaceSecondsPerKm = savedDistanceKm > 0 ? savedElapsedSeconds / savedDistanceKm : 0;
+    const savedAverageSpeedKmh =
+      savedElapsedSeconds > 0 ? savedDistanceKm / (savedElapsedSeconds / 3600) : 0;
+    const savedEstimatedCadence = estimateRunningCadence(savedAverageSpeedKmh, savedDistanceKm);
+    const savedEstimatedSteps =
+      sport === "hiking"
+        ? Math.round(savedDistanceKm * 1380)
+        : savedEstimatedCadence > 0
+          ? Math.round((savedElapsedSeconds / 60) * savedEstimatedCadence)
+          : 0;
+    const savedLaps =
+      swimEnvironment === "indoor" && poolLengthM > 0
+        ? Math.floor(savedDistanceM / poolLengthM)
+        : 0;
+    const savedSwimPaceSeconds =
+      savedDistanceM >= 25 ? savedElapsedSeconds / (savedDistanceM / 100) : 0;
+    const savedCalculatedSwolf =
+      savedLaps > 0 && measuredSwimStrokes
+        ? savedElapsedSeconds / savedLaps + measuredSwimStrokes / savedLaps
+        : 0;
     const allRoutineItemsCompleted =
       totalRoutineSets > 0 && completedRoutineSets.length === totalRoutineSets;
     const divingDeviceCode = divingSource === "device" ? deviceCode(divingDevice) : 0;
@@ -445,52 +525,53 @@ export function LiveWorkoutRecorder({
           ...(optionalMetric(maximumHeartRate, 30, 250) !== undefined
             ? { maximumHeartRateBpm: Math.round(optionalMetric(maximumHeartRate, 30, 250)!) }
             : {}),
-          ...(distanceKm > 0
+          ...(savedDistanceKm > 0
             ? {
-                distanceKm: Number(distanceKm.toFixed(3)),
-                distanceM: Math.round(distanceM),
+                distanceKm: Number(savedDistanceKm.toFixed(3)),
+                distanceM: Math.round(savedDistanceM),
               }
             : {}),
           ...(gpsSports.includes(sport)
             ? {
-                elevationGainM: Math.round(elevation.gain),
-                maxElevationM: Math.round(elevation.max),
-                gpsPointCount: points.length,
+                elevationGainM: Math.round(savedElevation.gain),
+                maxElevationM: Math.round(savedElevation.max),
+                gpsPointCount: savedPoints.length,
               }
             : {}),
           ...((sport === "running" || sport === "hiking") &&
-          (optionalMetric(runningSteps, 1, 200_000) !== undefined || estimatedSteps > 0)
+          (optionalMetric(runningSteps, 1, 200_000) !== undefined || savedEstimatedSteps > 0)
             ? {
-                steps: Math.round(optionalMetric(runningSteps, 1, 200_000) ?? estimatedSteps),
+                steps: Math.round(optionalMetric(runningSteps, 1, 200_000) ?? savedEstimatedSteps),
               }
             : {}),
-          ...(sport === "running" && paceSecondsPerKm > 0
+          ...(sport === "running" && savedPaceSecondsPerKm > 0
             ? {
-                paceSeconds: Number(paceSecondsPerKm.toFixed(1)),
-                ...(optionalMetric(averageCadence, 1, 300) !== undefined || estimatedCadence > 0
+                paceSeconds: Number(savedPaceSecondsPerKm.toFixed(1)),
+                ...(optionalMetric(averageCadence, 1, 300) !== undefined ||
+                savedEstimatedCadence > 0
                   ? {
                       averageCadenceSpm: Math.round(
-                        optionalMetric(averageCadence, 1, 300) ?? estimatedCadence,
+                        optionalMetric(averageCadence, 1, 300) ?? savedEstimatedCadence,
                       ),
                     }
                   : {}),
               }
             : {}),
-          ...(sport === "cycling" && distanceKm > 0
+          ...(sport === "cycling" && savedDistanceKm > 0
             ? {
-                paceSeconds: Number(paceSecondsPerKm.toFixed(1)),
-                averageSpeedKmh: Number(averageSpeedKmh.toFixed(1)),
+                paceSeconds: Number(savedPaceSecondsPerKm.toFixed(1)),
+                averageSpeedKmh: Number(savedAverageSpeedKmh.toFixed(1)),
               }
             : {}),
           ...(sport === "swimming"
             ? {
                 swimEnvironmentCode: swimEnvironment === "indoor" ? 1 : 2,
                 poolLengthM: swimEnvironment === "indoor" ? poolLengthM : 0,
-                laps,
-                swimPaceSeconds: Number(swimPaceSeconds.toFixed(1)),
+                laps: savedLaps,
+                swimPaceSeconds: Number(savedSwimPaceSeconds.toFixed(1)),
                 totalStrokes: Math.round(measuredSwimStrokes ?? 0),
                 averageSwolf: Number(
-                  (optionalMetric(swimAverageSwolf, 1, 300) ?? calculatedSwolf).toFixed(1),
+                  (optionalMetric(swimAverageSwolf, 1, 300) ?? savedCalculatedSwolf).toFixed(1),
                 ),
               }
             : {}),
@@ -570,45 +651,7 @@ export function LiveWorkoutRecorder({
         {countdownValue ? (
           <View accessibilityLiveRegion="assertive" style={styles.countdownBackdrop}>
             <View style={styles.countdownStage}>
-              <Animated.View
-                style={[
-                  styles.countdownRing,
-                  {
-                    opacity: countdownPulse.interpolate({
-                      inputRange: [0, 0.25, 1],
-                      outputRange: [0, 0.72, 0],
-                    }),
-                    transform: [
-                      {
-                        scale: countdownPulse.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.42, 1.85],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              />
-              <Animated.View
-                style={[
-                  styles.countdownRing,
-                  styles.countdownRingSecondary,
-                  {
-                    opacity: countdownPulse.interpolate({
-                      inputRange: [0, 0.4, 1],
-                      outputRange: [0, 0.35, 0],
-                    }),
-                    transform: [
-                      {
-                        scale: countdownPulse.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.28, 2.35],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              />
+              <GroovPulseRings progress={countdownPulse} color={colors.primary} />
               <Animated.View
                 style={[
                   styles.countdownCopy,
@@ -924,27 +967,42 @@ export function LiveWorkoutRecorder({
           </View>
 
           {gpsSports.includes(sport) ? (
-            <GpsMetrics
-              averageHeartRate={measuredHeartRate}
-              averageSwolf={optionalMetric(swimAverageSwolf, 1, 300) ?? calculatedSwolf}
-              maximumHeartRate={measuredMaximumHeartRate}
-              averageSpeedKmh={averageSpeedKmh}
-              calories={calories}
-              colors={colors}
-              distanceKm={distanceKm}
-              elevationGain={elevation.gain}
-              estimatedCadence={estimatedCadence}
-              estimatedSteps={estimatedSteps}
-              gpsAccuracy={gpsAccuracy}
-              gpsPointCount={points.length}
-              gpsStatus={gpsStatus}
-              laps={laps}
-              paceSecondsPerKm={paceSecondsPerKm}
-              sport={sport}
-              styles={styles}
-              swimPaceSeconds={swimPaceSeconds}
-              totalStrokes={measuredSwimStrokes ?? 0}
-            />
+            <>
+              {showMap && (sport !== "swimming" || swimEnvironment === "outdoor") ? (
+                <WorkoutMap
+                  backgroundColor={colors.map}
+                  badgeLabel={gpsStatus}
+                  compact
+                  currentPoint={points.at(-1)}
+                  height={208}
+                  minimal={false}
+                  isSample={false}
+                  points={points}
+                  primaryColor={colors.primary}
+                />
+              ) : null}
+              <GpsMetrics
+                averageHeartRate={measuredHeartRate}
+                averageSwolf={optionalMetric(swimAverageSwolf, 1, 300) ?? calculatedSwolf}
+                maximumHeartRate={measuredMaximumHeartRate}
+                averageSpeedKmh={averageSpeedKmh}
+                calories={calories}
+                colors={colors}
+                distanceKm={distanceKm}
+                elevationGain={elevation.gain}
+                estimatedCadence={estimatedCadence}
+                estimatedSteps={estimatedSteps}
+                gpsAccuracy={gpsAccuracy}
+                gpsPointCount={points.length}
+                gpsStatus={gpsStatus}
+                laps={laps}
+                paceSecondsPerKm={paceSecondsPerKm}
+                sport={sport}
+                styles={styles}
+                swimPaceSeconds={swimPaceSeconds}
+                totalStrokes={measuredSwimStrokes ?? 0}
+              />
+            </>
           ) : null}
 
           {sport === "strength" ? (
@@ -1452,11 +1510,10 @@ function GpsMetrics({
         : sport === "cycling"
           ? [
               { label: "거리", value: `${distanceKm.toFixed(2)} km` },
+              { label: "칼로리", value: `${calories} kcal` },
               { label: "평균속도", value: `${averageSpeedKmh.toFixed(1)} km/h` },
-              { label: "고도 상승", value: `${Math.round(elevationGain)} m` },
               { label: "평균 심박수", value: heartRateValue },
               { label: "최대 심박수", value: maximumHeartRateValue },
-              { label: "칼로리", value: `${calories} kcal` },
             ]
           : [
               { label: "거리", value: `${distanceKm.toFixed(2)} km` },
@@ -1588,12 +1645,18 @@ function toTrackPoint(location: Location.LocationObject): TrackPoint {
 }
 
 function appendTrackPoint(points: TrackPoint[], next: TrackPoint) {
-  if (next.accuracy !== null && next.accuracy > 60) return points;
+  if (next.accuracy !== null && next.accuracy > 120) return points;
   const previous = points.at(-1);
   if (!previous) return [next];
   const delta = haversineKm(previous, next) * 1000;
   if (delta < 1.5 || delta > 250) return points;
   return [...points, next];
+}
+
+function describeGpsAccuracy(accuracy: number | null) {
+  if (accuracy === null || accuracy <= 65) return "GPS 기록 중";
+  if (accuracy <= 120) return "GPS 정확도 보정 중";
+  return "GPS 위치 확인 중";
 }
 
 function calculateTrackDistance(points: TrackPoint[]) {
@@ -1846,20 +1909,6 @@ function createStyles(colors: ThemeColors) {
       height: 280,
       alignItems: "center",
       justifyContent: "center",
-    },
-    countdownRing: {
-      position: "absolute",
-      width: 178,
-      height: 178,
-      borderRadius: 89,
-      borderWidth: 3,
-      borderColor: colors.primary,
-    },
-    countdownRingSecondary: {
-      width: 132,
-      height: 132,
-      borderRadius: 66,
-      borderWidth: 1,
     },
     countdownCopy: {
       alignItems: "center",

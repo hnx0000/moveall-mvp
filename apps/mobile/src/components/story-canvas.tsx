@@ -7,6 +7,8 @@ import { type MapPoint } from "./workout-map.types";
 export type StoryBackground = "photo" | "map" | "ink";
 export type StoryLayer = "record" | "route" | "text" | "points";
 export type StoryLayout = "editorial" | "centered" | "split" | "low";
+export type StoryMetricKey = "distance" | "duration" | "pace";
+export type StoryScale = "compact" | "standard" | "bold";
 export type StoryVisibility = {
   distance: boolean;
   duration: boolean;
@@ -24,6 +26,7 @@ type StoryCanvasProps = {
   duration: string;
   layout?: StoryLayout;
   layers: StoryLayer[];
+  metricOrder?: StoryMetricKey[];
   moveScore: number;
   pace: string;
   photoSource?: ImageSourcePropType;
@@ -32,6 +35,7 @@ type StoryCanvasProps = {
   sportLabel: string;
   themeLabel: string;
   visibility: StoryVisibility;
+  scale?: StoryScale;
   height?: number;
 };
 
@@ -44,6 +48,7 @@ export function StoryCanvas({
   duration,
   layout = "editorial",
   layers,
+  metricOrder = ["distance", "duration", "pace"],
   moveScore,
   pace,
   photoSource,
@@ -52,6 +57,7 @@ export function StoryCanvas({
   sportLabel,
   themeLabel,
   visibility,
+  scale = "standard",
   height = 356,
 }: StoryCanvasProps) {
   const showMap = background === "map" && visibility.route;
@@ -65,11 +71,16 @@ export function StoryCanvas({
         : layout === "low"
           ? styles.customTextLow
           : styles.customTextEditorial;
-  const metrics = [
-    visibility.distance ? `${distance} ${distanceUnit}` : null,
-    visibility.duration ? duration : null,
-    visibility.pace ? pace : null,
-  ].filter(Boolean);
+  const metricValues: Record<StoryMetricKey, string> = {
+    distance: `${distance} ${distanceUnit}`,
+    duration,
+    pace,
+  };
+  const metrics = metricOrder
+    .filter((key) => visibility[key])
+    .map((key) => ({ key, value: metricValues[key] }));
+  const compact = scale === "compact";
+  const bold = scale === "bold";
 
   return (
     <View accessibilityLabel="운동 스토리 편집 미리보기" style={[styles.canvas, { height }]}>
@@ -111,7 +122,15 @@ export function StoryCanvas({
         <Text style={styles.sport}>{sportLabel}</Text>
       </View>
       {layers.includes("text") && customText.trim() ? (
-        <Text numberOfLines={3} style={[styles.customText, customTextStyle]}>
+        <Text
+          numberOfLines={3}
+          style={[
+            styles.customText,
+            customTextStyle,
+            compact && styles.customTextCompact,
+            bold && styles.customTextBold,
+          ]}
+        >
           {customText.trim()}
         </Text>
       ) : null}
@@ -127,10 +146,14 @@ export function StoryCanvas({
           <View style={[styles.metrics, layout === "centered" && styles.metricsCentered]}>
             {metrics.map((metric, index) => (
               <Text
-                key={`${metric}-${index}`}
-                style={index === 0 ? styles.metricMain : styles.metric}
+                key={metric.key}
+                style={[
+                  index === 0 ? styles.metricMain : styles.metric,
+                  compact && (index === 0 ? styles.metricMainCompact : styles.metricCompact),
+                  bold && (index === 0 ? styles.metricMainBold : styles.metricBold),
+                ]}
               >
-                {metric}
+                {metric.value}
               </Text>
             ))}
           </View>
@@ -141,6 +164,8 @@ export function StoryCanvas({
           style={[
             styles.scoreBadge,
             layout === "split" ? styles.scoreBadgeLeft : styles.scoreBadgeRight,
+            compact && styles.scoreBadgeCompact,
+            bold && styles.scoreBadgeBold,
           ]}
         >
           <Text style={styles.scoreLabel}>GROOV POINTS</Text>
@@ -226,6 +251,8 @@ const styles = StyleSheet.create({
     fontSize: 27,
     lineHeight: 33,
   },
+  customTextCompact: { fontSize: 20, lineHeight: 25 },
+  customTextBold: { fontSize: 30, lineHeight: 36 },
   bottomContent: { position: "absolute", left: 18, right: 18, bottom: 18 },
   mapBottomContent: { bottom: 36 },
   bottomContentCentered: { alignItems: "center" },
@@ -234,6 +261,10 @@ const styles = StyleSheet.create({
   metricsCentered: { justifyContent: "center" },
   metricMain: { color: "#FFFFFF", fontSize: 28, lineHeight: 32, fontWeight: "900" },
   metric: { color: "#FFFFFF", fontSize: 11, fontWeight: "800", marginBottom: 4 },
+  metricMainCompact: { fontSize: 22, lineHeight: 26 },
+  metricCompact: { fontSize: 9 },
+  metricMainBold: { fontSize: 34, lineHeight: 38 },
+  metricBold: { fontSize: 13 },
   scoreBadge: {
     position: "absolute",
     top: 56,
@@ -245,6 +276,8 @@ const styles = StyleSheet.create({
   },
   scoreBadgeRight: { right: 16 },
   scoreBadgeLeft: { left: 16 },
+  scoreBadgeCompact: { paddingHorizontal: 8, paddingVertical: 6 },
+  scoreBadgeBold: { paddingHorizontal: 13, paddingVertical: 10 },
   scoreLabel: { color: "rgba(255,255,255,0.75)", fontSize: 6, fontWeight: "900" },
   scoreValue: { color: "#FFFFFF", fontSize: 12, fontWeight: "900", marginTop: 2 },
   emptyPhoto: {

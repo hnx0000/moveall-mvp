@@ -12,6 +12,43 @@ export const sportValues = [
 export const SportTypeSchema = z.enum(sportValues);
 export type SportType = z.infer<typeof SportTypeSchema>;
 
+export const activityLevelValues = ["starter", "steady", "advanced"] as const;
+export const ActivityLevelSchema = z.enum(activityLevelValues);
+export type ActivityLevel = z.infer<typeof ActivityLevelSchema>;
+
+export const onboardingGoalValues = [
+  "consistency",
+  "fitness",
+  "strength",
+  "performance",
+  "community",
+  "weight_management",
+] as const;
+export const OnboardingGoalSchema = z.enum(onboardingGoalValues);
+export type OnboardingGoal = z.infer<typeof OnboardingGoalSchema>;
+
+export const NeighborhoodVerificationSchema = z.object({
+  neighborhood: z.string().trim().min(2).max(80),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  verifiedAt: z.iso.datetime({ offset: true }),
+});
+export type NeighborhoodVerification = z.infer<typeof NeighborhoodVerificationSchema>;
+
+export const OnboardingInputSchema = z
+  .object({
+    primarySports: z.array(SportTypeSchema).min(1).max(3),
+    activityLevel: ActivityLevelSchema,
+    goals: z.array(OnboardingGoalSchema).min(1).max(2),
+    neighborhood: NeighborhoodVerificationSchema.optional(),
+  })
+  .strict();
+export type OnboardingInput = z.infer<typeof OnboardingInputSchema>;
+
+export type OnboardingProfile = OnboardingInput & {
+  completedAt: string;
+};
+
 export const sportLabels: Record<SportType, string> = {
   strength: "근력 운동",
   running: "러닝",
@@ -49,6 +86,24 @@ export const GoogleLoginInputSchema = z.object({
   idToken: z.string().min(100).max(10_000),
 });
 export type GoogleLoginInput = z.infer<typeof GoogleLoginInputSchema>;
+
+export const AppleLoginInputSchema = z.object({
+  identityToken: z.string().min(100).max(10_000),
+  email: z
+    .email()
+    .max(254)
+    .transform((value) => value.toLowerCase())
+    .optional(),
+  displayName: z.string().trim().min(2).max(30).optional(),
+});
+export type AppleLoginInput = z.infer<typeof AppleLoginInputSchema>;
+
+export const AuthorizationCodeLoginInputSchema = z.object({
+  code: z.string().min(1).max(4_096),
+  redirectUri: z.url().max(2_048),
+  state: z.string().min(8).max(512).optional(),
+});
+export type AuthorizationCodeLoginInput = z.infer<typeof AuthorizationCodeLoginInputSchema>;
 
 const blockedNicknameFragments = [
   "admin",
@@ -159,15 +214,48 @@ export type ConsentState = ConsentUpdateInput & {
 export const MediaKindSchema = z.enum(["avatar", "post-image", "story-image", "story-video"]);
 export type MediaKind = z.infer<typeof MediaKindSchema>;
 
-export const MediaUploadRequestInputSchema = z.object({
-  kind: MediaKindSchema,
-  contentType: z.enum(["image/jpeg", "image/png", "image/webp", "video/mp4"]),
-  byteSize: z
-    .number()
-    .int()
-    .positive()
-    .max(50 * 1024 * 1024),
-});
+const imageContentTypes = ["image/jpeg", "image/png", "image/webp"] as const;
+
+export const MediaUploadRequestInputSchema = z
+  .object({
+    kind: MediaKindSchema,
+    contentType: z.enum([...imageContentTypes, "video/mp4"]),
+    byteSize: z
+      .number()
+      .int()
+      .positive()
+      .max(50 * 1024 * 1024),
+  })
+  .superRefine((value, context) => {
+    const isImage = imageContentTypes.includes(
+      value.contentType as (typeof imageContentTypes)[number],
+    );
+    if (value.kind === "story-video" && value.contentType !== "video/mp4") {
+      context.addIssue({
+        code: "custom",
+        path: ["contentType"],
+        message: "스토리 영상은 MP4 형식만 사용할 수 있습니다.",
+      });
+    }
+    if (value.kind !== "story-video" && !isImage) {
+      context.addIssue({
+        code: "custom",
+        path: ["contentType"],
+        message: "이 항목에는 JPEG, PNG 또는 WebP 이미지만 사용할 수 있습니다.",
+      });
+    }
+    const maxBytes = value.kind === "avatar" ? 5 * 1024 * 1024 : 15 * 1024 * 1024;
+    if (value.kind !== "story-video" && value.byteSize > maxBytes) {
+      context.addIssue({
+        code: "custom",
+        path: ["byteSize"],
+        message:
+          value.kind === "avatar"
+            ? "프로필 사진은 5MB 이하여야 합니다."
+            : "사진은 15MB 이하여야 합니다.",
+      });
+    }
+  });
 export type MediaUploadRequestInput = z.infer<typeof MediaUploadRequestInputSchema>;
 
 export type MediaUploadTicket = {
@@ -246,31 +334,63 @@ export const WorkoutSessionUpdateInputSchema = z
   });
 export type WorkoutSessionUpdateInput = z.infer<typeof WorkoutSessionUpdateInputSchema>;
 
+const blockedCommunityFragments = [
+  "시발",
+  "씨발",
+  "병신",
+  "fuck",
+  "nigger",
+  "강간",
+  "몰카",
+] as const;
+
+function communityText(min: number, max: number) {
+  return z
+    .string()
+    .trim()
+    .min(min)
+    .max(max)
+    .refine((value) => {
+      const normalized = value.toLowerCase().replace(/\s+/g, "");
+      return !blockedCommunityFragments.some((term) => normalized.includes(term));
+    }, "괴롭힘, 혐오, 성적 착취 또는 노골적인 비속어가 포함된 내용은 등록할 수 없습니다.");
+}
+
 export const PostCreateInputSchema = z.object({
   sport: SportTypeSchema,
-  content: z.string().trim().min(1).max(2000),
+  content: communityText(1, 2000),
   workoutSessionId: z.uuid().optional(),
+  mediaId: z.uuid().optional(),
   contentType: z.enum(["post", "story"]).optional(),
 });
 export type PostCreateInput = z.infer<typeof PostCreateInputSchema>;
 
 export const PostUpdateInputSchema = z.object({
-  content: z.string().trim().min(1).max(2000),
+  content: communityText(1, 2000),
 });
 export type PostUpdateInput = z.infer<typeof PostUpdateInputSchema>;
 
 export const DirectMessageCreateInputSchema = z.object({
-  content: z.string().trim().min(1).max(1000),
+  content: communityText(1, 1000),
 });
 export type DirectMessageCreateInput = z.infer<typeof DirectMessageCreateInputSchema>;
 
+export const PostShareInputSchema = z.object({
+  recipientIds: z
+    .array(z.uuid())
+    .min(1)
+    .max(50)
+    .transform((ids) => [...new Set(ids)]),
+});
+export type PostShareInput = z.infer<typeof PostShareInputSchema>;
+
 export const CommentCreateInputSchema = z.object({
-  content: z.string().trim().min(1).max(500),
+  content: communityText(1, 500),
 });
 export type CommentCreateInput = z.infer<typeof CommentCreateInputSchema>;
 
 export const KnowledgeFeedbackCreateInputSchema = z.object({
-  content: z.string().trim().min(2).max(500),
+  content: communityText(2, 500),
   context: z.string().trim().max(120).optional(),
 });
 export type KnowledgeFeedbackCreateInput = z.infer<typeof KnowledgeFeedbackCreateInputSchema>;
@@ -368,6 +488,8 @@ export type FeedPost = PostCreateInput & {
   shareCount?: number;
   createdAt: string;
   archivedAt?: string;
+  mediaObjectPath?: string;
+  mediaUrl?: string;
   comments: Array<{
     id: string;
     userId: string;
@@ -381,6 +503,7 @@ export type FeedPost = PostCreateInput & {
 export type PostShareResult = {
   shareCount: number;
   recipientCount: number;
+  recipientIds: string[];
 };
 
 export type DirectMessage = {
@@ -389,6 +512,7 @@ export type DirectMessage = {
   recipientId: string;
   content: string;
   createdAt: string;
+  sharedPost?: Pick<FeedPost, "id" | "authorDisplayName" | "sport" | "content"> | null;
 };
 
 export type KnowledgeArticle = {
@@ -420,3 +544,62 @@ export type KnowledgeFeedback = {
   context?: string;
   createdAt: string;
 };
+
+export const ContentReportCreateInputSchema = z.object({
+  targetType: z.enum(["post", "comment", "user"]),
+  targetId: z.string().trim().min(1).max(120),
+  reason: z.enum([
+    "spam",
+    "harassment",
+    "hate",
+    "dangerous",
+    "fraud",
+    "privacy",
+    "copyright",
+    "other",
+  ]),
+  details: z.string().trim().max(1000).optional(),
+});
+export type ContentReportCreateInput = z.infer<typeof ContentReportCreateInputSchema>;
+
+export const ModerationReportUpdateInputSchema = z.object({
+  status: z.enum(["reviewing", "resolved", "dismissed"]),
+  resolutionNote: z.string().trim().max(1000).optional(),
+});
+export type ModerationReportUpdateInput = z.infer<typeof ModerationReportUpdateInputSchema>;
+
+export type ContentReport = ContentReportCreateInput & {
+  id: string;
+  reporterId: string;
+  status: "open" | "reviewing" | "resolved" | "dismissed";
+  resolutionNote?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UserNotification = {
+  id: string;
+  kind: "follow" | "comment" | "share" | "moderation" | "system";
+  title: string;
+  body: string;
+  actorId?: string;
+  resourceType?: "post" | "comment" | "user" | "report";
+  resourceId?: string;
+  readAt?: string;
+  createdAt: string;
+};
+
+export const PushDeviceRegistrationInputSchema = z.object({
+  token: z
+    .string()
+    .trim()
+    .min(20)
+    .max(300)
+    .refine(
+      (value) => /^(Expo(nent)?PushToken\[[A-Za-z0-9_-]+\])$/.test(value),
+      "올바른 Expo 푸시 토큰이 아닙니다.",
+    ),
+  platform: z.enum(["ios", "android"]),
+  deviceName: z.string().trim().min(1).max(120).optional(),
+});
+export type PushDeviceRegistrationInput = z.infer<typeof PushDeviceRegistrationInputSchema>;

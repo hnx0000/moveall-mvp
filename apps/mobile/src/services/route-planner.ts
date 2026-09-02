@@ -27,7 +27,7 @@ export async function requestPedestrianRoute(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Client-Id": "moveall-mvp.chatgpt.site",
+        "X-Client-Id": "groov.chatgpt.site",
       },
       body: JSON.stringify({
         locations: [

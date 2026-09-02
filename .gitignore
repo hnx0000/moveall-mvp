@@ -11,3 +11,6 @@ coverage/
 .DS_Store
 Thumbs.db
 apps/mobile/web-build/
+backups/
+*.dump
+*.dump.enc

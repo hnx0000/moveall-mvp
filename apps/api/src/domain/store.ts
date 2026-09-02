@@ -1,5 +1,7 @@
 import type {
   AccountSession,
+  ContentReport,
+  ContentReportCreateInput,
   ConsentState,
   ConsentUpdateInput,
   DirectMessage,
@@ -7,7 +9,11 @@ import type {
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
   MediaKind,
+  ModerationReportUpdateInput,
+  OnboardingInput,
+  OnboardingProfile,
   PostCreateInput,
+  PushDeviceRegistrationInput,
   PostShareResult,
   PostUpdateInput,
   ProfileUpdateInput,
@@ -15,6 +21,7 @@ import type {
   Routine,
   RoutineCreateInput,
   RoutineUpdateInput,
+  UserNotification,
   WorkoutSession,
   WorkoutSessionCreateInput,
   WorkoutSessionUpdateInput,
@@ -48,14 +55,22 @@ export type StoredMediaObject = {
   createdAt: string;
 };
 
+export type StoredPushDevice = PushDeviceRegistrationInput & {
+  id: string;
+  userId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export interface AppStore {
+  healthCheck(): Promise<void>;
   findUserById(id: string): Promise<User | null>;
   findUserByEmail(email: string): Promise<User | null>;
   isDisplayNameTaken(displayName: string, excludingUserId: string): Promise<boolean>;
   updateUserProfile(userId: string, input: ProfileUpdateInput): Promise<User | null>;
   createUser(input: { email: string; displayName: string; passwordHash: string }): Promise<User>;
   findOrCreateOAuthUser(input: {
-    provider: "google";
+    provider: "google" | "apple" | "kakao" | "naver";
     subject: string;
     email: string;
     displayName: string;
@@ -78,9 +93,12 @@ export interface AppStore {
   listAuthSessions(userId: string): Promise<StoredAuthSession[]>;
   getConsent(userId: string): Promise<ConsentState | null>;
   saveConsent(userId: string, input: ConsentUpdateInput): Promise<ConsentState>;
+  getOnboarding(userId: string): Promise<OnboardingProfile | null>;
+  saveOnboarding(userId: string, input: OnboardingInput): Promise<OnboardingProfile>;
   createMediaObject(
     input: Omit<StoredMediaObject, "id" | "status" | "createdAt">,
   ): Promise<StoredMediaObject>;
+  findMediaObject(userId: string, mediaId: string): Promise<StoredMediaObject | null>;
   markMediaObjectAvailable(userId: string, mediaId: string): Promise<StoredMediaObject | null>;
   listMediaObjects(userId: string): Promise<StoredMediaObject[]>;
   createRoutine(userId: string, input: RoutineCreateInput): Promise<Routine>;
@@ -105,7 +123,7 @@ export interface AppStore {
     authorDisplayName: string,
     input: PostCreateInput,
   ): Promise<FeedPost | null>;
-  listFeed(): Promise<FeedPost[]>;
+  listFeed(viewerId?: string, postId?: string): Promise<FeedPost[]>;
   listPostsByUser(userId: string): Promise<FeedPost[]>;
   listArchivedPostsByUser(userId: string): Promise<FeedPost[]>;
   updatePost(userId: string, postId: string, input: PostUpdateInput): Promise<FeedPost | null>;
@@ -115,6 +133,21 @@ export interface AppStore {
   unfollowUser(followerId: string, followingId: string): Promise<void>;
   removeFollower(userId: string, followerId: string): Promise<void>;
   blockUser(blockerId: string, blockedId: string): Promise<boolean>;
+  createContentReport(reporterId: string, input: ContentReportCreateInput): Promise<ContentReport>;
+  listContentReports(): Promise<ContentReport[]>;
+  updateContentReport(
+    reportId: string,
+    input: ModerationReportUpdateInput,
+  ): Promise<ContentReport | null>;
+  createNotification(
+    userId: string,
+    input: Omit<UserNotification, "id" | "readAt" | "createdAt">,
+  ): Promise<UserNotification>;
+  listNotifications(userId: string): Promise<UserNotification[]>;
+  markNotificationRead(userId: string, notificationId: string): Promise<UserNotification | null>;
+  registerPushDevice(userId: string, input: PushDeviceRegistrationInput): Promise<StoredPushDevice>;
+  unregisterPushDevice(userId: string, token: string): Promise<void>;
+  listPushDeviceTokens(userId: string): Promise<string[]>;
   isFollowing(followerId: string, followingId: string): Promise<boolean>;
   listFollowers(userId: string): Promise<PublicUser[]>;
   listFollowing(userId: string): Promise<PublicUser[]>;
@@ -130,7 +163,11 @@ export interface AppStore {
     postId: string,
     content: string,
   ): Promise<FeedPost["comments"][number] | null>;
-  sharePost(userId: string, postId: string): Promise<PostShareResult | null>;
+  sharePost(
+    userId: string,
+    postId: string,
+    recipientIds: string[],
+  ): Promise<PostShareResult | null>;
   listKnowledgeFeedback(articleId: string): Promise<KnowledgeFeedback[]>;
   createKnowledgeFeedback(
     userId: string,

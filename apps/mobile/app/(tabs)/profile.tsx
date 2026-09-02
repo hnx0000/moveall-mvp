@@ -12,6 +12,7 @@ import {
   type WorkoutSession,
 } from "@moveall/contracts";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -204,24 +205,30 @@ export default function ProfileScreen() {
         ? await ImagePicker.launchCameraAsync({
             allowsEditing: true,
             aspect: [1, 1],
-            base64: true,
             quality: 0.35,
           })
         : await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ["images"],
             allowsEditing: true,
             aspect: [1, 1],
-            base64: true,
             quality: 0.35,
           });
     if (result.canceled) return;
     const asset = result.assets[0];
-    if (!asset?.base64) {
+    if (!asset?.uri) {
       setError("사진을 처리하지 못했습니다. 다른 사진을 선택해 주세요.");
       return;
     }
-    const mimeType = asset.mimeType === "image/png" ? "image/png" : "image/jpeg";
-    const avatarDataUri = `data:${mimeType};base64,${asset.base64}`;
+    const sanitized = await ImageManipulator.manipulateAsync(
+      asset.uri,
+      [{ resize: { width: 512, height: 512 } }],
+      { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+    ).catch(() => null);
+    if (!sanitized?.base64) {
+      setError("사진을 처리하지 못했습니다. 다른 사진을 선택해 주세요.");
+      return;
+    }
+    const avatarDataUri = `data:image/jpeg;base64,${sanitized.base64}`;
     setSavingProfile(true);
     try {
       const nextProfile = await api.updateProfile(session.accessToken, { avatarDataUri });

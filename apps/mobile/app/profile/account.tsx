@@ -1,6 +1,6 @@
 import type { AccountSession } from "@moveall/contracts";
 import { useRouter } from "expo-router";
-import { ChevronLeft, LockKeyhole, ShieldCheck, Trash2 } from "lucide-react-native";
+import { Activity, ChevronLeft, LockKeyhole, ShieldCheck, Trash2 } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -31,6 +31,10 @@ export default function AccountScreen() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const isAdmin = (process.env.EXPO_PUBLIC_ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .includes(session?.user.email.toLowerCase() ?? "");
 
   const loadSessions = async () => {
     if (session) setSessions(await api.accountSessions(session.accessToken));
@@ -147,6 +151,13 @@ export default function AccountScreen() {
         </Pressable>
 
         <View style={styles.linkGroup}>
+          <Pressable onPress={() => router.push("/profile/health" as never)} style={styles.linkRow}>
+            <View style={styles.linkLabel}>
+              <Activity color={colors.primary} size={17} />
+              <Text style={styles.rowTitle}>건강 앱 · 웨어러블 기록</Text>
+            </View>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
           <Pressable onPress={() => router.push("/legal/privacy")} style={styles.linkRow}>
             <Text style={styles.rowTitle}>개인정보 처리방침</Text>
             <Text style={styles.chevron}>›</Text>
@@ -159,6 +170,26 @@ export default function AccountScreen() {
             <Text style={styles.rowTitle}>동의 및 데이터 설정</Text>
             <Text style={styles.chevron}>›</Text>
           </Pressable>
+          <Pressable
+            onPress={() => router.push("/legal/account-deletion" as never)}
+            style={styles.linkRow}
+          >
+            <Text style={styles.rowTitle}>계정 삭제 안내</Text>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
+          <Pressable onPress={() => router.push("/legal/support" as never)} style={styles.linkRow}>
+            <Text style={styles.rowTitle}>지원 및 문의</Text>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
+          {isAdmin ? (
+            <Pressable
+              onPress={() => router.push("/profile/moderation" as never)}
+              style={styles.linkRow}
+            >
+              <Text style={styles.rowTitle}>운영 신고 관리</Text>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <SectionTitle
@@ -310,6 +341,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "space-between",
     },
+    linkLabel: { flexDirection: "row", alignItems: "center", gap: 9 },
     chevron: { color: colors.muted, fontSize: 22 },
     warning: { color: colors.muted, fontFamily: fonts.regular, fontSize: 11, lineHeight: 18 },
     deleteButton: {

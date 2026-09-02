@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
+import { SportLogo } from "../../src/components/sport-logo";
 import { Card, Screen, StatePanel } from "../../src/components/ui";
 import { useAsyncData } from "../../src/hooks/use-async-data";
 import {
@@ -60,55 +61,55 @@ const leagueSports: Record<SportType, { short: string; mark: string }> = {
 };
 
 const titleOptions = [
-  "새벽을 깨우는",
-  "끝까지 가는",
-  "한계를 넘는",
-  "페이스를 지키는",
-  "동네를 달구는",
-  "기록을 깨는",
-  "매일 강해지는",
-  "숨을 다스리는",
-  "고도를 정복한",
-  "물살을 가르는",
-  "철을 드는",
-  "바람을 타는",
-  "정상을 밟는",
-  "깊이를 여는",
-  "루틴을 지키는",
-  "오늘도 움직이는",
-  "끈기로 증명한",
-  "리듬을 만드는",
-  "마지막까지 버틴",
-  "가볍게 빠른",
-  "조용히 강한",
-  "땀으로 말하는",
-  "기록에 진심인",
-  "동네 대표",
-  "주말을 지배한",
-  "평일을 깨운",
-  "포기 없는",
-  "꾸준함의",
-  "PB를 노리는",
-  "회복까지 챙기는",
-  "함께 성장하는",
-  "안전하게 강한",
-  "시즌을 달리는",
-  "호흡을 믿는",
-  "폼이 살아있는",
-  "다음 기록을 향한",
+  "페이서",
+  "브레이커",
+  "스태커",
+  "피니셔",
+  "스트라이더",
+  "클라이머",
+  "라이더",
+  "아이언",
+  "리프터",
+  "웨이브",
+  "딥",
+  "앵커",
+  "루퍼",
+  "트래커",
+  "챌린저",
+  "메이커",
+  "킵고어",
+  "템포",
+  "리듬",
+  "스프린터",
+  "엔듀러",
+  "크루저",
+  "서밋",
+  "레인",
+  "프리다이버",
+  "루틴러",
+  "올라운더",
+  "로컬 에이스",
+  "시즌 헌터",
+  "PB 헌터",
+  "모닝 무버",
+  "나이트 무버",
+  "스테디",
+  "리커버러",
+  "그루버",
+  "프론트러너",
 ];
 
 const neighborhoodLeagueNames = [
-  "동네 왕복 리그",
-  "우리동네 루프",
-  "홈그라운드 서킷",
-  "동네 한바퀴",
-  "백투홈 챌린지",
-  "로컬 리턴런",
-  "우리길 기록전",
-  "홈베이스 매치",
-  "동네 귀환전",
-  "로컬 라운드",
+  "GROOV LOCAL",
+  "HOME LOOP",
+  "LOCAL CIRCUIT",
+  "GROOV GROUND",
+  "HOME RECORD",
+  "LOCAL MATCH",
+  "RETURN CLUB",
+  "GROUND RANK",
+  "NEIGHBORHOOD PB",
+  "BACK TO BASE",
 ];
 
 function seasonForDate(date = new Date()) {
@@ -246,12 +247,14 @@ function neighborhoodFromAddress(address?: Location.LocationGeocodedAddress) {
 }
 
 export default function KnowledgeScreen() {
-  const { session } = useAuth();
+  const { completeOnboarding, onboarding, session } = useAuth();
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
-  const [neighborhood, setNeighborhood] = useState("쌍문동");
-  const [verified, setVerified] = useState(true);
-  const [verificationMessage, setVerificationMessage] = useState("MVP 위치 인증 완료 · 29일 남음");
+  const [neighborhood, setNeighborhood] = useState("내 동네");
+  const [verified, setVerified] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState(
+    "동네 메달에 참여하려면 위치 인증이 필요합니다.",
+  );
   const [verifying, setVerifying] = useState(false);
   const [selectedSport, setSelectedSport] = useState<SportType>("strength");
   const [challengeOpen, setChallengeOpen] = useState(false);
@@ -268,13 +271,29 @@ export default function KnowledgeScreen() {
   useEffect(() => {
     let active = true;
     void readNeighborhoodPreferences().then((saved) => {
-      if (!active || !saved) return;
-      const valid = isNeighborhoodVerificationValid(saved.verifiedAt);
-      const daysRemaining = neighborhoodVerificationDaysRemaining(saved.verifiedAt);
-      setNeighborhood(saved.neighborhood);
+      if (!active) return;
+      const serverVerification = onboarding?.neighborhood;
+      const resolved =
+        saved ??
+        (serverVerification
+          ? {
+              neighborhood: serverVerification.neighborhood,
+              title: "그루버",
+              verifiedAt: serverVerification.verifiedAt,
+            }
+          : null);
+      if (!resolved) {
+        setNeighborhood("내 동네");
+        setVerified(false);
+        setVerificationMessage("동네 메달에 참여하려면 위치 인증이 필요합니다.");
+        return;
+      }
+      const valid = isNeighborhoodVerificationValid(resolved.verifiedAt);
+      const daysRemaining = neighborhoodVerificationDaysRemaining(resolved.verifiedAt);
+      setNeighborhood(resolved.neighborhood);
       setVerified(valid);
-      setCustomTitle(saved.title);
-      setTitleDraft(saved.title);
+      setCustomTitle(resolved.title);
+      setTitleDraft(resolved.title);
       setVerificationMessage(
         valid
           ? `GPS 위치 인증 완료 · ${daysRemaining}일 남음`
@@ -284,7 +303,7 @@ export default function KnowledgeScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [onboarding]);
 
   const knowledgeLoader = useCallback(async () => {
     if (knowledgeFilter !== "all") return api.knowledge(knowledgeFilter);
@@ -322,6 +341,19 @@ export default function KnowledgeScreen() {
       const addresses = await Location.reverseGeocodeAsync(position.coords);
       const verifiedNeighborhood = neighborhoodFromAddress(addresses[0]);
       const verifiedAt = new Date().toISOString();
+      if (onboarding) {
+        await completeOnboarding({
+          primarySports: onboarding.primarySports,
+          activityLevel: onboarding.activityLevel,
+          goals: onboarding.goals,
+          neighborhood: {
+            neighborhood: verifiedNeighborhood,
+            latitude: Number(position.coords.latitude.toFixed(2)),
+            longitude: Number(position.coords.longitude.toFixed(2)),
+            verifiedAt,
+          },
+        });
+      }
       setNeighborhood(verifiedNeighborhood);
       setVerified(true);
       setVerificationMessage("GPS 위치 인증 완료 · 30일 남음");
@@ -434,8 +466,8 @@ export default function KnowledgeScreen() {
           ) : null}
         </View>
         <Text style={styles.heroCopy}>
-          {currentSeason.range} · {currentSeason.name}. 같은 동네의 기록을 깨고 시즌의 이름을
-          가져가세요.
+          {currentSeason.range} · {currentSeason.name}. 가까운 기록일수록, 넘는 순간은 더
+          선명해집니다.
         </Text>
         <View style={styles.verificationRow}>
           <Text style={styles.verificationMessage}>{verificationMessage}</Text>
@@ -501,8 +533,8 @@ export default function KnowledgeScreen() {
 
       <View style={styles.sectionHeader}>
         <View>
-          <Text style={styles.sectionEyebrow}>TITLE MATCH</Text>
-          <Text style={styles.sectionTitle}>이번 시즌 타이틀</Text>
+          <Text style={styles.sectionEyebrow}>SEASON MATCH</Text>
+          <Text style={styles.sectionTitle}>이번 시즌의 이름</Text>
         </View>
         <Text style={styles.sectionMeta}>매주 월요일 갱신</Text>
       </View>
@@ -523,9 +555,9 @@ export default function KnowledgeScreen() {
                   pressed && styles.pressed,
                 ]}
               >
-                <Text style={[styles.sportMark, active && styles.sportMarkActive]}>
-                  {leagueSports[sport].mark}
-                </Text>
+                <View style={styles.sportLogoFrame}>
+                  <SportLogo selected={active} size={25} sport={sport} />
+                </View>
                 <Text style={[styles.sportTabText, active && styles.sportTabTextActive]}>
                   {leagueSports[sport].short}
                 </Text>
@@ -707,7 +739,7 @@ export default function KnowledgeScreen() {
       <View style={styles.sectionHeader}>
         <View>
           <Text style={styles.sectionEyebrow}>LEAGUE NAME LAB</Text>
-          <Text style={styles.sectionTitle}>동네리그 이름 후보 10</Text>
+          <Text style={styles.sectionTitle}>로컬 매치 이름 후보 10</Text>
         </View>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -974,6 +1006,7 @@ function createStyles(colors: ThemeColors) {
       gap: 5,
     },
     sportTabActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    sportLogoFrame: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
     sportMark: { color: colors.ink, fontFamily: fonts.displayExtra, fontSize: 16 },
     sportMarkActive: { color: "#FFFFFF" },
     sportTabText: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 9 },

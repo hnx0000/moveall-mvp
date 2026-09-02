@@ -1,12 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type {
+  ContentReport,
+  ContentReportCreateInput,
   ConsentState,
   ConsentUpdateInput,
   DirectMessage,
   FeedPost,
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
+  ModerationReportUpdateInput,
+  OnboardingInput,
+  OnboardingProfile,
   PostCreateInput,
+  PushDeviceRegistrationInput,
   PostShareResult,
   PostUpdateInput,
   ProfileUpdateInput,
@@ -14,11 +20,18 @@ import type {
   Routine,
   RoutineCreateInput,
   RoutineUpdateInput,
+  UserNotification,
   WorkoutSession,
   WorkoutSessionCreateInput,
   WorkoutSessionUpdateInput,
 } from "@moveall/contracts";
-import type { AppStore, StoredAuthSession, StoredMediaObject, User } from "../domain/store.js";
+import type {
+  AppStore,
+  StoredAuthSession,
+  StoredMediaObject,
+  StoredPushDevice,
+  User,
+} from "../domain/store.js";
 
 export class MemoryStore implements AppStore {
   private readonly users = new Map<string, User>();
@@ -26,14 +39,28 @@ export class MemoryStore implements AppStore {
   private readonly workouts: WorkoutSession[] = [];
   private readonly posts: FeedPost[] = [];
   private readonly knowledgeFeedback: KnowledgeFeedback[] = [];
+
+  async healthCheck(): Promise<void> {}
   private readonly oauthIdentities = new Map<string, string>();
   private readonly follows = new Set<string>();
   private readonly blocks = new Set<string>();
   private readonly messages: DirectMessage[] = [];
-  private readonly postShares = new Set<string>();
+  private readonly postShares = new Map<
+    string,
+    {
+      postId: string;
+      sharerId: string;
+      recipientId: string;
+      createdAt: string;
+    }
+  >();
   private readonly authSessions = new Map<string, StoredAuthSession>();
   private readonly consents = new Map<string, ConsentState>();
+  private readonly onboardingProfiles = new Map<string, OnboardingProfile>();
   private readonly mediaObjects = new Map<string, StoredMediaObject>();
+  private readonly contentReports: ContentReport[] = [];
+  private readonly notifications: Array<UserNotification & { userId: string }> = [];
+  private readonly pushDevices: StoredPushDevice[] = [];
 
   constructor(options: { seedDemo?: boolean } = {}) {
     if (options.seedDemo) this.seedDemoFeed();
@@ -91,7 +118,7 @@ export class MemoryStore implements AppStore {
   }
 
   async findOrCreateOAuthUser(input: {
-    provider: "google";
+    provider: "google" | "apple" | "kakao" | "naver";
     subject: string;
     email: string;
     displayName: string;
@@ -131,11 +158,25 @@ export class MemoryStore implements AppStore {
     this.removeWhere(this.routines, (item) => item.userId === userId);
     this.removeWhere(this.workouts, (item) => item.userId === userId);
     this.removeWhere(this.posts, (item) => item.userId === userId);
+    for (const [key, share] of this.postShares) {
+      if (
+        share.sharerId === userId ||
+        share.recipientId === userId ||
+        !this.posts.some((post) => post.id === share.postId)
+      )
+        this.postShares.delete(key);
+    }
     this.removeWhere(this.knowledgeFeedback, (item) => item.userId === userId);
     this.removeWhere(
       this.messages,
       (item) => item.senderId === userId || item.recipientId === userId,
     );
+    this.removeWhere(this.contentReports, (item) => item.reporterId === userId);
+    this.removeWhere(
+      this.notifications,
+      (item) => item.userId === userId || item.actorId === userId,
+    );
+    this.removeWhere(this.pushDevices, (item) => item.userId === userId);
     for (const [key, linkedUserId] of this.oauthIdentities) {
       if (linkedUserId === userId) this.oauthIdentities.delete(key);
     }
@@ -148,6 +189,7 @@ export class MemoryStore implements AppStore {
       if (media.userId === userId) this.mediaObjects.delete(id);
     }
     this.consents.delete(userId);
+    this.onboardingProfiles.delete(userId);
     return true;
   }
 
@@ -220,6 +262,20 @@ export class MemoryStore implements AppStore {
     return { ...consent };
   }
 
+  async getOnboarding(userId: string): Promise<OnboardingProfile | null> {
+    const profile = this.onboardingProfiles.get(userId);
+    return profile ? structuredClone(profile) : null;
+  }
+
+  async saveOnboarding(userId: string, input: OnboardingInput): Promise<OnboardingProfile> {
+    const profile: OnboardingProfile = {
+      ...structuredClone(input),
+      completedAt: new Date().toISOString(),
+    };
+    this.onboardingProfiles.set(userId, profile);
+    return structuredClone(profile);
+  }
+
   async createMediaObject(
     input: Omit<StoredMediaObject, "id" | "status" | "createdAt">,
   ): Promise<StoredMediaObject> {
@@ -241,6 +297,11 @@ export class MemoryStore implements AppStore {
     if (!media || media.userId !== userId || media.status !== "pending") return null;
     media.status = "available";
     return { ...media };
+  }
+
+  async findMediaObject(userId: string, mediaId: string): Promise<StoredMediaObject | null> {
+    const media = this.mediaObjects.get(mediaId);
+    return media?.userId === userId ? { ...media } : null;
   }
 
   async listMediaObjects(userId: string): Promise<StoredMediaObject[]> {
@@ -372,11 +433,17 @@ export class MemoryStore implements AppStore {
       return null;
     }
 
+    const media = input.mediaId ? this.mediaObjects.get(input.mediaId) : undefined;
+    if (input.mediaId && (!media || media.userId !== userId || media.status !== "available")) {
+      return null;
+    }
+
     const post: FeedPost = {
       id: randomUUID(),
       userId,
       authorDisplayName,
       ...input,
+      ...(media ? { mediaObjectPath: media.objectPath } : {}),
       contentType: input.contentType ?? "post",
       likeCount: 0,
       shareCount: 0,
@@ -387,12 +454,24 @@ export class MemoryStore implements AppStore {
     return this.clonePost(post);
   }
 
-  async listFeed(): Promise<FeedPost[]> {
-    return this.posts.filter((post) => !post.archivedAt).map((post) => this.clonePost(post));
+  async listFeed(viewerId?: string, postId?: string): Promise<FeedPost[]> {
+    return this.posts
+      .filter((post) => !postId || post.id === postId)
+      .filter((post) => !post.archivedAt)
+      .filter((post) => !viewerId || !this.isBlockedPair(viewerId, post.userId))
+      .map((post) => {
+        const cloned = this.clonePost(post);
+        if (viewerId) {
+          cloned.comments = cloned.comments.filter(
+            (comment) => !this.isBlockedPair(viewerId, comment.userId),
+          );
+        }
+        return cloned;
+      });
   }
 
   async listPostsByUser(userId: string): Promise<FeedPost[]> {
-    const feed = await this.listFeed();
+    const feed = await this.listFeed(userId);
     return feed.filter((post) => post.userId === userId);
   }
 
@@ -429,6 +508,8 @@ export class MemoryStore implements AppStore {
     const index = this.posts.findIndex((item) => item.id === postId && item.userId === userId);
     if (index < 0) return false;
     this.posts.splice(index, 1);
+    for (const [key, share] of this.postShares)
+      if (share.postId === postId) this.postShares.delete(key);
     return true;
   }
 
@@ -460,6 +541,137 @@ export class MemoryStore implements AppStore {
     return true;
   }
 
+  private isBlockedPair(leftId: string, rightId: string): boolean {
+    return (
+      this.blocks.has(this.followKey(leftId, rightId)) ||
+      this.blocks.has(this.followKey(rightId, leftId))
+    );
+  }
+
+  async createContentReport(
+    reporterId: string,
+    input: ContentReportCreateInput,
+  ): Promise<ContentReport> {
+    const now = new Date().toISOString();
+    const existing = this.contentReports.find(
+      (report) =>
+        report.reporterId === reporterId &&
+        report.targetType === input.targetType &&
+        report.targetId === input.targetId,
+    );
+    if (existing) {
+      Object.assign(existing, input, {
+        status: "open" as const,
+        resolutionNote: undefined,
+        updatedAt: now,
+      });
+      return { ...existing };
+    }
+    const report: ContentReport = {
+      id: randomUUID(),
+      reporterId,
+      ...input,
+      status: "open",
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.contentReports.push(report);
+    return { ...report };
+  }
+
+  async listContentReports(): Promise<ContentReport[]> {
+    return [...this.contentReports]
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+      .map((report) => ({ ...report }));
+  }
+
+  async updateContentReport(
+    reportId: string,
+    input: ModerationReportUpdateInput,
+  ): Promise<ContentReport | null> {
+    const report = this.contentReports.find((candidate) => candidate.id === reportId);
+    if (!report) return null;
+    report.status = input.status;
+    if (input.resolutionNote === undefined) {
+      delete report.resolutionNote;
+    } else {
+      report.resolutionNote = input.resolutionNote;
+    }
+    report.updatedAt = new Date().toISOString();
+    return { ...report };
+  }
+
+  async createNotification(
+    userId: string,
+    input: Omit<UserNotification, "id" | "readAt" | "createdAt">,
+  ): Promise<UserNotification> {
+    const notification: UserNotification = {
+      id: randomUUID(),
+      ...input,
+      createdAt: new Date().toISOString(),
+    };
+    this.notifications.push({ ...notification, userId });
+    return { ...notification };
+  }
+
+  async listNotifications(userId: string): Promise<UserNotification[]> {
+    return this.notifications
+      .filter((notification) => notification.userId === userId)
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+      .map(({ userId: _userId, ...notification }) => ({ ...notification }));
+  }
+
+  async markNotificationRead(
+    userId: string,
+    notificationId: string,
+  ): Promise<UserNotification | null> {
+    const notification = this.notifications.find(
+      (candidate) => candidate.id === notificationId && candidate.userId === userId,
+    );
+    if (!notification) return null;
+    notification.readAt ??= new Date().toISOString();
+    const { userId: _userId, ...result } = notification;
+    return { ...result };
+  }
+
+  async registerPushDevice(
+    userId: string,
+    input: PushDeviceRegistrationInput,
+  ): Promise<StoredPushDevice> {
+    const now = new Date().toISOString();
+    const existing = this.pushDevices.find((device) => device.token === input.token);
+    if (existing) {
+      existing.userId = userId;
+      existing.platform = input.platform;
+      if (input.deviceName === undefined) delete existing.deviceName;
+      else existing.deviceName = input.deviceName;
+      existing.updatedAt = now;
+      return { ...existing };
+    }
+    const device: StoredPushDevice = {
+      id: randomUUID(),
+      userId,
+      ...input,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.pushDevices.push(device);
+    return { ...device };
+  }
+
+  async unregisterPushDevice(userId: string, token: string): Promise<void> {
+    this.removeWhere(
+      this.pushDevices,
+      (device) => device.userId === userId && device.token === token,
+    );
+  }
+
+  async listPushDeviceTokens(userId: string): Promise<string[]> {
+    return this.pushDevices
+      .filter((device) => device.userId === userId)
+      .map((device) => device.token);
+  }
+
   async isFollowing(followerId: string, followingId: string): Promise<boolean> {
     return this.follows.has(this.followKey(followerId, followingId));
   }
@@ -473,7 +685,29 @@ export class MemoryStore implements AppStore {
   }
 
   async listMessages(userId: string, peerId: string): Promise<DirectMessage[]> {
-    return this.messages
+    if (this.isBlockedPair(userId, peerId)) return [];
+    const shares: DirectMessage[] = [...this.postShares.entries()].map(([id, share]) => {
+      const post = this.posts.find(
+        (item) =>
+          item.id === share.postId && !item.archivedAt && !this.isBlockedPair(userId, item.userId),
+      );
+      return {
+        id: `share:${id}`,
+        senderId: share.sharerId,
+        recipientId: share.recipientId,
+        content: "피드를 공유했습니다.",
+        createdAt: share.createdAt,
+        sharedPost: post
+          ? {
+              id: post.id,
+              authorDisplayName: this.users.get(post.userId)?.displayName ?? post.authorDisplayName,
+              sport: post.sport,
+              content: post.content,
+            }
+          : null,
+      };
+    });
+    return [...this.messages, ...shares]
       .filter(
         (message) =>
           (message.senderId === userId && message.recipientId === peerId) ||
@@ -527,23 +761,44 @@ export class MemoryStore implements AppStore {
     return this.clonePost(post).comments.find((item) => item.id === comment.id) ?? null;
   }
 
-  async sharePost(userId: string, postId: string): Promise<PostShareResult | null> {
-    if (!this.posts.some((post) => post.id === postId)) return null;
-    const recipientIds = [...this.follows]
-      .filter((key) => key.startsWith(`${userId}:`))
-      .map((key) => key.slice(userId.length + 1))
-      .filter((recipientId) => recipientId !== userId && this.users.has(recipientId));
-    recipientIds.forEach((recipientId) =>
-      this.postShares.add(`${postId}:${userId}:${recipientId}`),
+  async sharePost(
+    userId: string,
+    postId: string,
+    selectedIds: string[],
+  ): Promise<PostShareResult | null> {
+    const post = this.posts.find(
+      (item) => item.id === postId && !item.archivedAt && !this.isBlockedPair(userId, item.userId),
+    );
+    const recipientIds = [...new Set(selectedIds)];
+    if (
+      !post ||
+      !recipientIds.length ||
+      recipientIds.some(
+        (id) =>
+          id === userId ||
+          !this.users.has(id) ||
+          !this.follows.has(this.followKey(userId, id)) ||
+          this.isBlockedPair(userId, id) ||
+          this.isBlockedPair(post.userId, id),
+      )
+    )
+      return null;
+    const sentIds = recipientIds.filter((id) => !this.postShares.has(`${postId}:${userId}:${id}`));
+    sentIds.forEach((recipientId) =>
+      this.postShares.set(`${postId}:${userId}:${recipientId}`, {
+        postId,
+        sharerId: userId,
+        recipientId,
+        createdAt: new Date().toISOString(),
+      }),
     );
     const sharers = new Set(
-      [...this.postShares]
-        .filter((key) => key.startsWith(`${postId}:`))
-        .map((key) => key.slice(postId.length + 1).split(":")[0]),
+      [...this.postShares.values()]
+        .filter((share) => share.postId === postId)
+        .map((share) => share.sharerId),
     );
-    const post = this.posts.find((candidate) => candidate.id === postId)!;
     post.shareCount = sharers.size;
-    return { shareCount: sharers.size, recipientCount: recipientIds.length };
+    return { shareCount: sharers.size, recipientCount: sentIds.length, recipientIds: sentIds };
   }
 
   async listKnowledgeFeedback(articleId: string): Promise<KnowledgeFeedback[]> {

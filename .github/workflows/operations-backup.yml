@@ -1,0 +1,43 @@
+name: GROOV encrypted backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 18 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    if: github.event_name == 'workflow_dispatch' || vars.GROOV_BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Create encrypted database backup
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_OUTPUT_DIR: ${{ github.workspace }}/backups
+          DATABASE_SSL_CA_FILE: ${{ vars.DATABASE_SSL_CA_FILE }}
+        run: pnpm --filter @moveall/api operations:backup
+      - name: Upload encrypted backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: groov-database-${{ github.run_id }}
+          path: backups/*.enc
+          if-no-files-found: error
+          retention-days: 30

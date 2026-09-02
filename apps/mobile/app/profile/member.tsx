@@ -11,6 +11,7 @@ import { Lock } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   SafeAreaView,
@@ -39,6 +40,8 @@ export default function MemberProfilePage() {
   const [following, setFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [followBusy, setFollowBusy] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<MemberTab>("records");
 
@@ -86,6 +89,68 @@ export default function MemberProfilePage() {
     } finally {
       setFollowBusy(false);
     }
+  }
+
+  function reportProfile() {
+    if (!session || !userId || reportBusy) return;
+    Alert.alert(
+      "프로필 신고",
+      "괴롭힘, 사칭, 개인정보 침해 등 운영팀의 확인이 필요한 계정만 신고해 주세요.",
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "신고 접수",
+          style: "destructive",
+          onPress: () => {
+            setReportBusy(true);
+            void api
+              .createReport(session.accessToken, {
+                targetType: "user",
+                targetId: userId,
+                reason: "other",
+                details: "사용자 프로필에서 접수한 신고",
+              })
+              .then(() => Alert.alert("신고 접수 완료", "운영팀이 내용을 확인하겠습니다."))
+              .catch((caught) =>
+                setError(
+                  caught instanceof ApiError ? caught.message : "신고를 접수하지 못했습니다.",
+                ),
+              )
+              .finally(() => setReportBusy(false));
+          },
+        },
+      ],
+    );
+  }
+
+  function blockProfile() {
+    if (!session || !userId || blockBusy) return;
+    Alert.alert(
+      "이 사용자를 차단할까요?",
+      "서로의 프로필·팔로우·탭톡이 제한되고 기존 팔로우 관계가 해제됩니다.",
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "차단하기",
+          onPress: () => {
+            setBlockBusy(true);
+            void api
+              .blockUser(session.accessToken, userId)
+              .then(() => {
+                Alert.alert("차단 완료", "이 사용자의 활동을 더 이상 표시하지 않습니다.", [
+                  { text: "확인", onPress: () => router.back() },
+                ]);
+              })
+              .catch((caught) =>
+                setError(
+                  caught instanceof ApiError ? caught.message : "사용자를 차단하지 못했습니다.",
+                ),
+              )
+              .finally(() => setBlockBusy(false));
+          },
+        },
+      ],
+    );
   }
 
   const earnedMedals = profile?.medals.filter((medal) => medal.earned) ?? [];
@@ -168,6 +233,22 @@ export default function MemberProfilePage() {
               >
                 <TapTalkIcon color={colors.ink} size={15} strokeWidth={1.8} />
                 <Text style={styles.messageText}>탭톡</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={reportBusy}
+                onPress={reportProfile}
+                style={styles.reportButton}
+              >
+                <Text style={styles.reportText}>{reportBusy ? "…" : "신고"}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={blockBusy}
+                onPress={blockProfile}
+                style={styles.reportButton}
+              >
+                <Text style={styles.reportText}>{blockBusy ? "…" : "차단"}</Text>
               </Pressable>
             </View>
 
@@ -480,6 +561,16 @@ function createStyles(colors: ThemeColors) {
       gap: 7,
     },
     messageText: { color: colors.ink, fontSize: 10, fontFamily: fonts.bold },
+    reportButton: {
+      minWidth: 58,
+      minHeight: 42,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    reportText: { color: colors.primary, fontSize: 9, fontFamily: fonts.bold },
     statsRow: {
       flexDirection: "row",
       borderTopWidth: 1,

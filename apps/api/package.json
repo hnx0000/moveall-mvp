@@ -10,7 +10,14 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate": "tsx scripts/migrate.ts",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "storage:setup": "tsx scripts/setup-storage.ts",
+    "storage:cleanup": "tsx scripts/cleanup-media.ts",
+    "operations:backup": "tsx scripts/backup-database.ts",
+    "operations:restore-test": "tsx scripts/restore-rehearsal.ts",
+    "operations:health": "tsx scripts/monitor-health.ts",
+    "production:verify": "tsx scripts/verify-production.ts",
+    "production:smoke": "tsx scripts/smoke-production.ts"
   },
   "dependencies": {
     "@fastify/cors": "11.3.0",

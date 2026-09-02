@@ -3,16 +3,23 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import {
   AccountDeletionInputSchema,
+  AppleLoginInputSchema,
+  AuthorizationCodeLoginInputSchema,
   CommentCreateInputSchema,
+  ContentReportCreateInputSchema,
   ConsentUpdateInputSchema,
   DirectMessageCreateInputSchema,
   GoogleLoginInputSchema,
   KnowledgeFeedbackCreateInputSchema,
   LoginInputSchema,
   MediaUploadRequestInputSchema,
+  ModerationReportUpdateInputSchema,
+  OnboardingInputSchema,
   PasswordChangeInputSchema,
   PostCreateInputSchema,
+  PostShareInputSchema,
   PostUpdateInputSchema,
+  PushDeviceRegistrationInputSchema,
   ProfileUpdateInputSchema,
   RegisterInputSchema,
   RefreshSessionInputSchema,
@@ -31,9 +38,19 @@ import type { AppConfig } from "./config.js";
 import { AppError } from "./domain/errors.js";
 import type { AppStore, User } from "./domain/store.js";
 import { DisabledMediaStorage, type MediaStorage } from "./infrastructure/media-storage.js";
+import { DisabledPushSender, type PushSender } from "./infrastructure/push-sender.js";
 import { knowledgeArticles, sports } from "./knowledge.js";
 import { medalsFor } from "./medals.js";
+import { verifyAppleIdentityToken, type AppleTokenVerifier } from "./security/apple-identity.js";
 import { verifyGoogleIdToken, type GoogleTokenVerifier } from "./security/google-identity.js";
+import {
+  exchangeKakaoAuthorizationCode,
+  type KakaoCodeExchanger,
+} from "./security/kakao-identity.js";
+import {
+  exchangeNaverAuthorizationCode,
+  type NaverCodeExchanger,
+} from "./security/naver-identity.js";
 import { hashPassword, verifyPassword } from "./security/password.js";
 import { TokenService } from "./security/token.js";
 
@@ -42,7 +59,11 @@ type AppDependencies = {
   store: AppStore;
   logger?: boolean | Record<string, unknown>;
   googleTokenVerifier?: GoogleTokenVerifier;
+  appleTokenVerifier?: AppleTokenVerifier;
+  kakaoCodeExchanger?: KakaoCodeExchanger;
+  naverCodeExchanger?: NaverCodeExchanger;
   mediaStorage?: MediaStorage;
+  pushSender?: PushSender;
 };
 
 function success<T>(data: T): ApiSuccess<T> {
@@ -56,12 +77,40 @@ export async function createApp(dependencies: AppDependencies) {
   });
   const tokenService = new TokenService(dependencies.config.authSecret);
   const googleTokenVerifier = dependencies.googleTokenVerifier ?? verifyGoogleIdToken;
+  const appleTokenVerifier = dependencies.appleTokenVerifier ?? verifyAppleIdentityToken;
+  const kakaoCodeExchanger = dependencies.kakaoCodeExchanger ?? exchangeKakaoAuthorizationCode;
+  const naverCodeExchanger = dependencies.naverCodeExchanger ?? exchangeNaverAuthorizationCode;
   const mediaStorage = dependencies.mediaStorage ?? new DisabledMediaStorage();
+  const pushSender = dependencies.pushSender ?? new DisabledPushSender();
+
+  async function notifyUser(userId: string, input: Parameters<AppStore["createNotification"]>[1]) {
+    const notification = await dependencies.store.createNotification(userId, input);
+    const tokens = await dependencies.store.listPushDeviceTokens(userId);
+    if (tokens.length > 0) {
+      try {
+        await pushSender.send(tokens, notification);
+      } catch (error) {
+        app.log.warn({ err: error, userId }, "push delivery failed");
+      }
+    }
+    return notification;
+  }
+
+  async function attachMediaUrl<T extends { mediaObjectPath?: string }>(post: T): Promise<T> {
+    if (!post.mediaObjectPath) return post;
+    const mediaUrl = await mediaStorage.createDownloadUrl(post.mediaObjectPath);
+    return mediaUrl ? { ...post, mediaUrl } : post;
+  }
+
+  async function attachMediaUrls<T extends { mediaObjectPath?: string }>(posts: T[]): Promise<T[]> {
+    return Promise.all(posts.map(attachMediaUrl));
+  }
 
   await app.register(helmet);
   await app.register(cors, {
     origin: dependencies.config.corsOrigins,
     credentials: false,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   });
   await app.register(rateLimit, {
     max: 100,
@@ -92,6 +141,18 @@ export async function createApp(dependencies: AppDependencies) {
 
   async function currentUser(request: FastifyRequest): Promise<User> {
     return (await currentIdentity(request)).user;
+  }
+
+  async function optionalCurrentUser(request: FastifyRequest): Promise<User | null> {
+    return request.headers.authorization ? currentUser(request) : null;
+  }
+
+  async function currentAdmin(request: FastifyRequest): Promise<User> {
+    const user = await currentUser(request);
+    if (!dependencies.config.adminEmails.includes(user.email.toLowerCase())) {
+      throw new AppError(403, "ADMIN_REQUIRED", "관리자 권한이 필요합니다.");
+    }
+    return user;
   }
 
   async function issueSession(user: User) {
@@ -281,6 +342,21 @@ export async function createApp(dependencies: AppDependencies) {
     }),
   );
 
+  app.get("/ready", async () => {
+    try {
+      await dependencies.store.healthCheck();
+      return success({
+        status: "ready",
+        service: "groov-api",
+        database: "connected",
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      app.log.error({ err: error }, "readiness check failed");
+      throw new AppError(503, "SERVICE_NOT_READY", "데이터베이스 연결을 확인해 주세요.");
+    }
+  });
+
   app.post(
     "/v1/auth/register",
     { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
@@ -311,6 +387,70 @@ export async function createApp(dependencies: AppDependencies) {
       );
       const user = await dependencies.store.findOrCreateOAuthUser({
         provider: "google",
+        ...identity,
+      });
+      return success(await issueSession(user));
+    },
+  );
+
+  app.post(
+    "/v1/auth/apple",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request) => {
+      const input = AppleLoginInputSchema.parse(request.body);
+      const identity = await appleTokenVerifier(
+        input.identityToken,
+        dependencies.config.appleClientIds,
+      );
+      if (input.email && input.email !== identity.email) {
+        throw new AppError(401, "APPLE_EMAIL_MISMATCH", "Apple 계정 정보가 일치하지 않습니다.");
+      }
+      const fallbackDisplayName =
+        identity.email
+          .split("@")[0]!
+          .replace(/[^A-Za-z0-9._]/g, "")
+          .slice(0, 30) || "GROOV 사용자";
+      const user = await dependencies.store.findOrCreateOAuthUser({
+        provider: "apple",
+        ...identity,
+        displayName:
+          input.displayName ??
+          (fallbackDisplayName.length >= 2 ? fallbackDisplayName : "GROOV 사용자"),
+      });
+      return success(await issueSession(user));
+    },
+  );
+
+  app.post(
+    "/v1/auth/kakao",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request) => {
+      const input = AuthorizationCodeLoginInputSchema.parse(request.body);
+      const identity = await kakaoCodeExchanger(
+        input,
+        dependencies.config.kakaoRestApiKey,
+        dependencies.config.kakaoClientSecret,
+      );
+      const user = await dependencies.store.findOrCreateOAuthUser({
+        provider: "kakao",
+        ...identity,
+      });
+      return success(await issueSession(user));
+    },
+  );
+
+  app.post(
+    "/v1/auth/naver",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request) => {
+      const input = AuthorizationCodeLoginInputSchema.parse(request.body);
+      const identity = await naverCodeExchanger(
+        input,
+        dependencies.config.naverClientId,
+        dependencies.config.naverClientSecret,
+      );
+      const user = await dependencies.store.findOrCreateOAuthUser({
+        provider: "naver",
         ...identity,
       });
       return success(await issueSession(user));
@@ -407,9 +547,33 @@ export async function createApp(dependencies: AppDependencies) {
     });
   });
 
+  app.get("/v1/users/me/onboarding", async (request) => {
+    const user = await currentUser(request);
+    return success(await dependencies.store.getOnboarding(user.id));
+  });
+
+  app.put("/v1/users/me/onboarding", async (request) => {
+    const user = await currentUser(request);
+    const input = OnboardingInputSchema.parse(request.body);
+    const privacySafeInput = input.neighborhood
+      ? {
+          ...input,
+          neighborhood: {
+            ...input.neighborhood,
+            latitude: Number(input.neighborhood.latitude.toFixed(2)),
+            longitude: Number(input.neighborhood.longitude.toFixed(2)),
+          },
+        }
+      : input;
+    return success(await dependencies.store.saveOnboarding(user.id, privacySafeInput));
+  });
+
   app.get("/v1/auth/providers", async () =>
     success({
       google: dependencies.config.googleClientIds.length > 0,
+      apple: dependencies.config.appleClientIds.length > 0,
+      kakao: Boolean(dependencies.config.kakaoRestApiKey),
+      naver: Boolean(dependencies.config.naverClientId && dependencies.config.naverClientSecret),
       development:
         dependencies.config.nodeEnv === "development" && dependencies.config.devAuthBypass,
     }),
@@ -522,6 +686,25 @@ export async function createApp(dependencies: AppDependencies) {
   app.post("/v1/media/:mediaId/complete", async (request) => {
     const user = await currentUser(request);
     const parameters = z.object({ mediaId: z.uuid() }).parse(request.params);
+    const pending = await dependencies.store.findMediaObject(user.id, parameters.mediaId);
+    if (!pending || pending.status !== "pending") {
+      throw new AppError(404, "MEDIA_NOT_FOUND", "업로드 항목을 찾을 수 없습니다.");
+    }
+    const uploaded = await mediaStorage.inspectObject(pending.objectPath);
+    if (
+      !uploaded ||
+      uploaded.byteSize === null ||
+      uploaded.contentType === null ||
+      uploaded.byteSize !== pending.byteSize ||
+      uploaded.contentType !== pending.contentType
+    ) {
+      if (uploaded) await mediaStorage.removeObject(pending.objectPath);
+      throw new AppError(
+        400,
+        "MEDIA_VALIDATION_FAILED",
+        "업로드한 파일의 형식 또는 크기가 요청 내용과 일치하지 않습니다.",
+      );
+    }
     const media = await dependencies.store.markMediaObjectAvailable(user.id, parameters.mediaId);
     if (!media) throw new AppError(404, "MEDIA_NOT_FOUND", "업로드 항목을 찾을 수 없습니다.");
     return success({ id: media.id, status: media.status, objectPath: media.objectPath });
@@ -646,7 +829,19 @@ export async function createApp(dependencies: AppDependencies) {
     return success(medalsFor(await dependencies.store.listWorkoutSessions(user.id)));
   });
 
-  app.get("/v1/feed", async () => success(await dependencies.store.listFeed()));
+  app.get("/v1/feed", async (request) => {
+    const viewer = await optionalCurrentUser(request);
+    return success(await attachMediaUrls(await dependencies.store.listFeed(viewer?.id)));
+  });
+
+  app.get("/v1/posts/:postId", async (request) => {
+    const viewer = request.headers.authorization ? await currentUser(request) : null;
+    const { postId } = z.object({ postId: z.uuid() }).parse(request.params);
+    const [post] = await dependencies.store.listFeed(viewer?.id, postId);
+    if (!post)
+      throw new AppError(404, "POST_NOT_FOUND", "삭제·보관되었거나 볼 수 없는 피드입니다.");
+    return success(await attachMediaUrl(post));
+  });
 
   app.post("/v1/posts", async (request, reply) => {
     const user = await currentUser(request);
@@ -659,17 +854,19 @@ export async function createApp(dependencies: AppDependencies) {
         "본인의 운동 기록만 게시물에 연결할 수 있습니다.",
       );
     }
-    return reply.status(201).send(success(post));
+    return reply.status(201).send(success(await attachMediaUrl(post)));
   });
 
   app.get("/v1/posts/me", async (request) => {
     const user = await currentUser(request);
-    return success(await dependencies.store.listPostsByUser(user.id));
+    return success(await attachMediaUrls(await dependencies.store.listPostsByUser(user.id)));
   });
 
   app.get("/v1/posts/me/archive", async (request) => {
     const user = await currentUser(request);
-    return success(await dependencies.store.listArchivedPostsByUser(user.id));
+    return success(
+      await attachMediaUrls(await dependencies.store.listArchivedPostsByUser(user.id)),
+    );
   });
 
   app.patch("/v1/posts/:postId", async (request) => {
@@ -678,7 +875,7 @@ export async function createApp(dependencies: AppDependencies) {
     const input = PostUpdateInputSchema.parse(request.body);
     const post = await dependencies.store.updatePost(user.id, parameters.postId, input);
     if (!post) throw new AppError(404, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다.");
-    return success(post);
+    return success(await attachMediaUrl(post));
   });
 
   app.post("/v1/posts/:postId/archive", async (request) => {
@@ -686,7 +883,7 @@ export async function createApp(dependencies: AppDependencies) {
     const parameters = z.object({ postId: z.string().uuid() }).parse(request.params);
     const post = await dependencies.store.setPostArchived(user.id, parameters.postId, true);
     if (!post) throw new AppError(404, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다.");
-    return success(post);
+    return success(await attachMediaUrl(post));
   });
 
   app.delete("/v1/posts/:postId/archive", async (request) => {
@@ -694,7 +891,7 @@ export async function createApp(dependencies: AppDependencies) {
     const parameters = z.object({ postId: z.string().uuid() }).parse(request.params);
     const post = await dependencies.store.setPostArchived(user.id, parameters.postId, false);
     if (!post) throw new AppError(404, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다.");
-    return success(post);
+    return success(await attachMediaUrl(post));
   });
 
   app.delete("/v1/posts/:postId", async (request) => {
@@ -717,7 +914,7 @@ export async function createApp(dependencies: AppDependencies) {
         displayName: profile.displayName,
         ...(profile.avatarDataUri ? { avatarDataUri: profile.avatarDataUri } : {}),
       },
-      posts: await dependencies.store.listPostsByUser(profile.id),
+      posts: await attachMediaUrls(await dependencies.store.listPostsByUser(profile.id)),
     });
   });
 
@@ -741,7 +938,7 @@ export async function createApp(dependencies: AppDependencies) {
       isPrivate: false,
       followersCount: followers.length,
       followingCount: following.length,
-      posts,
+      posts: await attachMediaUrls(posts),
       workouts,
       medals: medalsFor(workouts),
     });
@@ -777,6 +974,14 @@ export async function createApp(dependencies: AppDependencies) {
     if (!(await dependencies.store.followUser(user.id, parameters.userId))) {
       throw new AppError(400, "FOLLOW_NOT_ALLOWED", "이 사용자를 팔로우할 수 없습니다.");
     }
+    await notifyUser(parameters.userId, {
+      kind: "follow",
+      title: "새 팔로워",
+      body: `${user.displayName}님이 회원님을 팔로우하기 시작했습니다.`,
+      actorId: user.id,
+      resourceType: "user",
+      resourceId: user.id,
+    });
     return reply.status(201).send(success({ following: true }));
   });
 
@@ -803,6 +1008,90 @@ export async function createApp(dependencies: AppDependencies) {
     return success({ blocked: true });
   });
 
+  app.post("/v1/reports", async (request, reply) => {
+    const user = await currentUser(request);
+    const input = ContentReportCreateInputSchema.parse(request.body);
+    const report = await dependencies.store.createContentReport(user.id, input);
+    await Promise.all(
+      dependencies.config.adminEmails.map(async (email) => {
+        const admin = await dependencies.store.findUserByEmail(email);
+        if (!admin) return;
+        await notifyUser(admin.id, {
+          kind: "moderation",
+          title: "새 신고 접수",
+          body: `${input.targetType} 콘텐츠 신고가 접수되었습니다.`,
+          actorId: user.id,
+          resourceType: "report",
+          resourceId: report.id,
+        });
+      }),
+    );
+    return reply.status(201).send(success(report));
+  });
+
+  app.get("/v1/notifications", async (request) => {
+    const user = await currentUser(request);
+    return success(await dependencies.store.listNotifications(user.id));
+  });
+
+  app.put("/v1/notifications/push-device", async (request) => {
+    const user = await currentUser(request);
+    const input = PushDeviceRegistrationInputSchema.parse(request.body);
+    const device = await dependencies.store.registerPushDevice(user.id, input);
+    return success({
+      id: device.id,
+      platform: device.platform,
+      ...(device.deviceName ? { deviceName: device.deviceName } : {}),
+      registeredAt: device.updatedAt,
+    });
+  });
+
+  app.delete("/v1/notifications/push-device", async (request) => {
+    const user = await currentUser(request);
+    const { token } = PushDeviceRegistrationInputSchema.pick({ token: true }).parse(request.body);
+    await dependencies.store.unregisterPushDevice(user.id, token);
+    return success({ unregistered: true });
+  });
+
+  app.patch("/v1/notifications/:notificationId/read", async (request) => {
+    const user = await currentUser(request);
+    const parameters = z.object({ notificationId: z.string().uuid() }).parse(request.params);
+    const notification = await dependencies.store.markNotificationRead(
+      user.id,
+      parameters.notificationId,
+    );
+    if (!notification) {
+      throw new AppError(404, "NOTIFICATION_NOT_FOUND", "알림을 찾을 수 없습니다.");
+    }
+    return success(notification);
+  });
+
+  app.get("/v1/admin/reports", async (request) => {
+    await currentAdmin(request);
+    return success(await dependencies.store.listContentReports());
+  });
+
+  app.patch("/v1/admin/reports/:reportId", async (request) => {
+    await currentAdmin(request);
+    const parameters = z.object({ reportId: z.string().uuid() }).parse(request.params);
+    const input = ModerationReportUpdateInputSchema.parse(request.body);
+    const report = await dependencies.store.updateContentReport(parameters.reportId, input);
+    if (!report) throw new AppError(404, "REPORT_NOT_FOUND", "신고를 찾을 수 없습니다.");
+    await notifyUser(report.reporterId, {
+      kind: "moderation",
+      title: "신고 처리 상태 변경",
+      body:
+        input.status === "resolved"
+          ? "신고하신 내용을 확인하고 조치했습니다."
+          : input.status === "dismissed"
+            ? "신고하신 내용을 검토했습니다."
+            : "운영팀이 신고 내용을 검토 중입니다.",
+      resourceType: "report",
+      resourceId: report.id,
+    });
+    return success(report);
+  });
+
   app.get("/v1/messages/:userId", async (request) => {
     const user = await currentUser(request);
     const parameters = z.object({ userId: z.string().uuid() }).parse(request.params);
@@ -821,6 +1110,14 @@ export async function createApp(dependencies: AppDependencies) {
     if (!message) {
       throw new AppError(400, "MESSAGE_NOT_ALLOWED", "이 사용자에게 메시지를 보낼 수 없습니다.");
     }
+    await notifyUser(parameters.userId, {
+      kind: "system",
+      title: "새 탭톡",
+      body: `${user.displayName}님이 메시지를 보냈습니다.`,
+      actorId: user.id,
+      resourceType: "user",
+      resourceId: user.id,
+    });
     return reply.status(201).send(success(message));
   });
 
@@ -841,8 +1138,40 @@ export async function createApp(dependencies: AppDependencies) {
   app.post("/v1/posts/:postId/share", async (request, reply) => {
     const user = await currentUser(request);
     const parameters = z.object({ postId: z.string().uuid() }).parse(request.params);
-    const result = await dependencies.store.sharePost(user.id, parameters.postId);
-    if (!result) throw new AppError(404, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다.");
+    const input = PostShareInputSchema.parse(request.body);
+    const following = new Set(
+      (await dependencies.store.listFollowing(user.id)).map((peer) => peer.id),
+    );
+    if (input.recipientIds.some((id) => id === user.id || !following.has(id))) {
+      throw new AppError(
+        400,
+        "SHARE_RECIPIENT_NOT_ALLOWED",
+        "공유 대상은 현재 팔로잉 중인 사람만 선택할 수 있습니다. 목록을 새로 불러와 주세요.",
+      );
+    }
+    const result = await dependencies.store.sharePost(
+      user.id,
+      parameters.postId,
+      input.recipientIds,
+    );
+    if (!result)
+      throw new AppError(
+        404,
+        "SHARE_NOT_ALLOWED",
+        "공유할 피드나 대상을 확인할 수 없습니다. 삭제·보관·차단 상태를 확인해 주세요.",
+      );
+    await Promise.allSettled(
+      result.recipientIds.map((recipientId) =>
+        notifyUser(recipientId, {
+          kind: "share",
+          title: "새 탭톡 · 피드 공유",
+          body: `${user.displayName}님이 피드를 공유했습니다.`,
+          actorId: user.id,
+          resourceType: "user",
+          resourceId: user.id,
+        }),
+      ),
+    );
     return reply.status(201).send(success(result));
   });
 

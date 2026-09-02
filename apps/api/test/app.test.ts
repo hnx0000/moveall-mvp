@@ -12,6 +12,8 @@ const config: AppConfig = {
   databaseSsl: false,
   authSecret: "test-secret-that-is-at-least-32-characters",
   googleClientIds: ["test-google-client.apps.googleusercontent.com"],
+  appleClientIds: ["com.longrun0000.groov"],
+  adminEmails: ["admin@groov.test"],
   devAuthBypass: false,
   mediaStorage: "disabled",
   supabaseMediaBucket: "groov-media",
@@ -30,6 +32,106 @@ describe("GROOV API", () => {
     const response = await app.inject({ method: "GET", url: "/health" });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ ok: true, data: { status: "ok" } });
+    await app.close();
+  });
+
+  it("reports database readiness separately from process health", async () => {
+    const app = await createApp({ config, store });
+    const response = await app.inject({ method: "GET", url: "/ready" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      ok: true,
+      data: { status: "ready", database: "connected" },
+    });
+    await app.close();
+  });
+
+  it("persists a compact onboarding profile for the signed-in account", async () => {
+    const app = await createApp({ config, store });
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "onboarding@example.com",
+        password: "very-secure-1234",
+        displayName: "온보딩러너",
+      },
+    });
+    const token = registration.json().data.accessToken as string;
+
+    const empty = await app.inject({
+      method: "GET",
+      url: "/v1/users/me/onboarding",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(empty.json().data).toBeNull();
+
+    const saved = await app.inject({
+      method: "PUT",
+      url: "/v1/users/me/onboarding",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        primarySports: ["running", "strength"],
+        activityLevel: "steady",
+        goals: ["consistency", "performance"],
+        neighborhood: {
+          neighborhood: "쌍문동",
+          latitude: 37.651234,
+          longitude: 127.034567,
+          verifiedAt: "2026-09-02T07:00:00.000Z",
+        },
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().data).toMatchObject({
+      primarySports: ["running", "strength"],
+      activityLevel: "steady",
+      goals: ["consistency", "performance"],
+      neighborhood: { neighborhood: "쌍문동", latitude: 37.65, longitude: 127.03 },
+    });
+
+    const restored = await app.inject({
+      method: "GET",
+      url: "/v1/users/me/onboarding",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(restored.json().data.completedAt).toEqual(expect.any(String));
+
+    const weightManagement = await app.inject({
+      method: "PUT",
+      url: "/v1/users/me/onboarding",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        primarySports: ["running"],
+        activityLevel: "steady",
+        goals: ["consistency", "weight_management"],
+      },
+    });
+    expect(weightManagement.statusCode).toBe(200);
+    const updated = await app.inject({
+      method: "GET",
+      url: "/v1/users/me/onboarding",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(updated.json().data.goals).toEqual(["consistency", "weight_management"]);
+    await app.close();
+  });
+
+  it("allows browser clients to call mutating API methods", async () => {
+    const app = await createApp({ config, store });
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/workout-sessions/test-session",
+      headers: {
+        origin: "http://localhost:8081",
+        "access-control-request-method": "DELETE",
+        "access-control-request-headers": "authorization,content-type",
+      },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-methods"]).toContain("DELETE");
+    expect(response.headers["access-control-allow-methods"]).toContain("PATCH");
     await app.close();
   });
 
@@ -184,6 +286,160 @@ describe("GROOV API", () => {
       ok: true,
       data: { email: "runner@gmail.com", displayName: "구글 러너" },
     });
+    await app.close();
+  });
+
+  it("verifies an Apple identity and links it to a GROOV account", async () => {
+    const app = await createApp({
+      config,
+      store,
+      appleTokenVerifier: async (_identityToken, clientIds) => {
+        expect(clientIds).toEqual(config.appleClientIds);
+        return {
+          subject: "apple-subject-123",
+          email: "runner@privaterelay.appleid.com",
+        };
+      },
+    });
+    const login = await app.inject({
+      method: "POST",
+      url: "/v1/auth/apple",
+      payload: {
+        identityToken: "a".repeat(120),
+        email: "runner@privaterelay.appleid.com",
+        displayName: "애플 러너",
+      },
+    });
+    expect(login.statusCode).toBe(200);
+    expect(login.json()).toMatchObject({
+      ok: true,
+      data: { user: { email: "runner@privaterelay.appleid.com", displayName: "애플 러너" } },
+    });
+    await app.close();
+  });
+
+  it("exchanges Kakao and Naver authorization codes for GROOV sessions", async () => {
+    const app = await createApp({
+      config: {
+        ...config,
+        kakaoRestApiKey: "test-kakao-rest-api-key",
+        naverClientId: "test-naver-client-id",
+        naverClientSecret: "test-naver-client-secret",
+      },
+      store,
+      kakaoCodeExchanger: async (input, clientId) => {
+        expect(input.redirectUri).toBe("groov://oauthredirect");
+        expect(clientId).toBe("test-kakao-rest-api-key");
+        return {
+          subject: "kakao-user-1",
+          email: "kakao@groov.test",
+          displayName: "카카오 러너",
+        };
+      },
+      naverCodeExchanger: async (input, clientId, clientSecret) => {
+        expect(input.state).toBe("naver-state-1234");
+        expect(clientId).toBe("test-naver-client-id");
+        expect(clientSecret).toBe("test-naver-client-secret");
+        return {
+          subject: "naver-user-1",
+          email: "naver@groov.test",
+          displayName: "네이버 러너",
+        };
+      },
+    });
+
+    const kakao = await app.inject({
+      method: "POST",
+      url: "/v1/auth/kakao",
+      payload: {
+        code: "kakao-authorization-code",
+        redirectUri: "groov://oauthredirect",
+      },
+    });
+    expect(kakao.statusCode).toBe(200);
+    expect(kakao.json()).toMatchObject({
+      ok: true,
+      data: { user: { email: "kakao@groov.test", displayName: "카카오 러너" } },
+    });
+
+    const naver = await app.inject({
+      method: "POST",
+      url: "/v1/auth/naver",
+      payload: {
+        code: "naver-authorization-code",
+        redirectUri: "groov://oauthredirect",
+        state: "naver-state-1234",
+      },
+    });
+    expect(naver.statusCode).toBe(200);
+    expect(naver.json()).toMatchObject({
+      ok: true,
+      data: { user: { email: "naver@groov.test", displayName: "네이버 러너" } },
+    });
+    await app.close();
+  });
+
+  it("accepts reports, limits the moderation queue to admins, and delivers status notifications", async () => {
+    const app = await createApp({ config, store });
+    const reporter = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "reporter@groov.test",
+        password: "very-secure-1234",
+        displayName: "신고테스터",
+      },
+    });
+    const admin = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "admin@groov.test",
+        password: "very-secure-1234",
+        displayName: "운영테스터",
+      },
+    });
+    const reporterHeaders = {
+      authorization: `Bearer ${reporter.json().data.accessToken as string}`,
+    };
+    const adminHeaders = { authorization: `Bearer ${admin.json().data.accessToken as string}` };
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/reports",
+      headers: reporterHeaders,
+      payload: {
+        targetType: "user",
+        targetId: "demo-user",
+        reason: "harassment",
+        details: "반복적인 괴롭힘 메시지",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(
+      (await app.inject({ method: "GET", url: "/v1/admin/reports", headers: reporterHeaders }))
+        .statusCode,
+    ).toBe(403);
+    const queue = await app.inject({
+      method: "GET",
+      url: "/v1/admin/reports",
+      headers: adminHeaders,
+    });
+    expect(queue.json().data).toHaveLength(1);
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/v1/admin/reports/${created.json().data.id as string}`,
+      headers: adminHeaders,
+      payload: { status: "resolved", resolutionNote: "계정 경고 완료" },
+    });
+    expect(updated.json()).toMatchObject({ ok: true, data: { status: "resolved" } });
+    const notifications = await app.inject({
+      method: "GET",
+      url: "/v1/notifications",
+      headers: reporterHeaders,
+    });
+    expect(notifications.json().data).toContainEqual(
+      expect.objectContaining({ kind: "moderation", resourceType: "report" }),
+    );
     await app.close();
   });
 
@@ -369,12 +625,43 @@ describe("GROOV API", () => {
       method: "POST",
       url: `/v1/posts/${postId}/share`,
       headers: { authorization: `Bearer ${token}` },
+      payload: { recipientIds: [secondId] },
     });
     expect(shared.statusCode).toBe(201);
     expect(shared.json()).toMatchObject({
       ok: true,
       data: { shareCount: 1, recipientCount: 1 },
     });
+    const sharedMessages = await app.inject({
+      method: "GET",
+      url: `/v1/messages/${first.json().data.user.id as string}`,
+      headers: { authorization: `Bearer ${secondToken}` },
+    });
+    expect(sharedMessages.json().data).toContainEqual(
+      expect.objectContaining({
+        senderId: first.json().data.user.id,
+        recipientId: secondId,
+        sharedPost: expect.objectContaining({ id: postId, content: "#5K 오늘의 러닝 기록" }),
+      }),
+    );
+    const duplicateShare = await app.inject({
+      method: "POST",
+      url: `/v1/posts/${postId}/share`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { recipientIds: [secondId] },
+    });
+    expect(duplicateShare.json()).toMatchObject({ data: { shareCount: 1, recipientCount: 0 } });
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: `/v1/messages/${first.json().data.user.id as string}`,
+          headers: { authorization: `Bearer ${secondToken}` },
+        })
+      )
+        .json()
+        .data.filter((message: { sharedPost?: unknown }) => message.sharedPost !== undefined),
+    ).toHaveLength(1);
     expect((await app.inject({ method: "GET", url: "/v1/feed" })).json().data).toContainEqual(
       expect.objectContaining({ id: postId, shareCount: 1 }),
     );
@@ -410,6 +697,169 @@ describe("GROOV API", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(remainingWorkouts.json().data).toHaveLength(0);
+    await app.close();
+  });
+
+  it("removes blocked users and their comments from the authenticated feed", async () => {
+    const app = await createApp({ config, store });
+    const author = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "blocked-author@example.com",
+        password: "very-secure-1234",
+        displayName: "차단 대상",
+      },
+    });
+    const viewer = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "blocking-viewer@example.com",
+        password: "very-secure-1234",
+        displayName: "피드 사용자",
+      },
+    });
+    const authorToken = author.json().data.accessToken as string;
+    const authorId = author.json().data.user.id as string;
+    const viewerToken = viewer.json().data.accessToken as string;
+    const post = await app.inject({
+      method: "POST",
+      url: "/v1/posts",
+      headers: { authorization: `Bearer ${authorToken}` },
+      payload: { sport: "running", content: "차단 전 게시물" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/v1/users/${authorId}/block`,
+      headers: { authorization: `Bearer ${viewerToken}` },
+    });
+    const feed = await app.inject({
+      method: "GET",
+      url: "/v1/feed",
+      headers: { authorization: `Bearer ${viewerToken}` },
+    });
+    expect(feed.statusCode).toBe(200);
+    expect(feed.json().data).not.toContainEqual(
+      expect.objectContaining({ id: post.json().data.id }),
+    );
+    await app.close();
+  });
+
+  it("delivers shares only to selected following, rejects invalid recipients, and hides archived originals", async () => {
+    const app = await createApp({ config, store });
+    const accounts = await Promise.all(
+      ["sender", "selected-a", "selected-b", "not-selected"].map(async (name) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/auth/register",
+          payload: { email: `${name}@share.test`, password: "very-secure-1234", displayName: name },
+        });
+        expect(response.statusCode).toBe(201);
+        return response.json().data as { user: { id: string }; accessToken: string };
+      }),
+    );
+    const [sender, first, second, outsider] = accounts;
+    const headers = { authorization: `Bearer ${sender!.accessToken}` };
+    for (const peer of [first!, second!, outsider!])
+      await store.followUser(sender!.user.id, peer.user.id);
+    const post = await store.createPost(sender!.user.id, "sender", {
+      sport: "cycling",
+      content: "오늘의 라이딩을 공유합니다.",
+    });
+    if (!post) throw new Error("Expected shared post fixture");
+    const endpoint = `/v1/posts/${post.id}/share`;
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: endpoint,
+          payload: { recipientIds: [first!.user.id] },
+        })
+      ).statusCode,
+    ).toBe(401);
+    for (const payload of [{}, { recipientIds: [] }]) {
+      expect(
+        (await app.inject({ method: "POST", url: endpoint, headers, payload })).statusCode,
+      ).toBe(400);
+    }
+    const response = await app.inject({
+      method: "POST",
+      url: endpoint,
+      headers,
+      payload: { recipientIds: [first!.user.id, second!.user.id, first!.user.id] },
+    });
+    expect(response.json()).toMatchObject({ data: { recipientCount: 2, shareCount: 1 } });
+    for (const peer of [first!, second!]) {
+      const received = await app.inject({
+        method: "GET",
+        url: `/v1/messages/${sender!.user.id}`,
+        headers: { authorization: `Bearer ${peer.accessToken}` },
+      });
+      expect(received.json().data).toEqual([
+        expect.objectContaining({
+          recipientId: peer.user.id,
+          sharedPost: expect.objectContaining({ id: post.id }),
+        }),
+      ]);
+      expect(await store.listNotifications(peer.user.id)).toContainEqual(
+        expect.objectContaining({ kind: "share", actorId: sender!.user.id }),
+      );
+    }
+    expect(await store.listMessages(outsider!.user.id, sender!.user.id)).toEqual([]);
+    expect(await store.listNotifications(outsider!.user.id)).toEqual([]);
+    expect(
+      (await app.inject({ method: "GET", url: `/v1/posts/${post.id}`, headers })).json(),
+    ).toMatchObject({ data: { id: post.id } });
+
+    await store.unfollowUser(sender!.user.id, outsider!.user.id);
+    const invalid = await app.inject({
+      method: "POST",
+      url: endpoint,
+      headers,
+      payload: { recipientIds: [first!.user.id, outsider!.user.id] },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: endpoint,
+          headers,
+          payload: { recipientIds: [sender!.user.id] },
+        })
+      ).statusCode,
+    ).toBe(400);
+
+    await store.setPostArchived(sender!.user.id, post.id, true);
+    expect(
+      (await app.inject({ method: "GET", url: `/v1/posts/${post.id}`, headers })).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: endpoint,
+          headers,
+          payload: { recipientIds: [second!.user.id] },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(await store.listMessages(first!.user.id, sender!.user.id)).toEqual([
+      expect.objectContaining({ sharedPost: null }),
+    ]);
+    await store.blockUser(first!.user.id, sender!.user.id);
+    expect(await store.listMessages(first!.user.id, sender!.user.id)).toEqual([]);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: endpoint,
+          headers,
+          payload: { recipientIds: [first!.user.id] },
+        })
+      ).statusCode,
+    ).toBe(400);
     await app.close();
   });
 
@@ -674,6 +1124,8 @@ describe("GROOV API", () => {
           signedUploadUrl: "https://storage.example/upload?token=signed",
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
         }),
+        createDownloadUrl: async (objectPath) => `https://storage.example/${objectPath}`,
+        inspectObject: async () => ({ contentType: "image/jpeg", byteSize: 2048 }),
         removeObject: async () => undefined,
       },
     });
@@ -709,6 +1161,88 @@ describe("GROOV API", () => {
       headers,
     });
     expect(completed.json()).toMatchObject({ ok: true, data: { status: "available" } });
+    const post = await app.inject({
+      method: "POST",
+      url: "/v1/posts",
+      headers,
+      payload: {
+        sport: "running",
+        content: "저장소 연결 테스트",
+        mediaId: ticket.json().data.mediaId as string,
+      },
+    });
+    expect(post.statusCode).toBe(201);
+    expect(post.json()).toMatchObject({
+      ok: true,
+      data: {
+        mediaId: ticket.json().data.mediaId,
+        mediaUrl: expect.stringContaining("https://storage.example/"),
+      },
+    });
+    const feed = await app.inject({ method: "GET", url: "/v1/feed" });
+    expect(feed.json().data[0]).toMatchObject({
+      mediaId: ticket.json().data.mediaId,
+      mediaUrl: expect.stringContaining("https://storage.example/"),
+    });
+    await app.close();
+  });
+
+  it("registers a phone push token and delivers a social notification", async () => {
+    const deliveries: Array<{ tokens: string[]; title: string }> = [];
+    const app = await createApp({
+      config,
+      store,
+      pushSender: {
+        send: async (tokens, notification) => {
+          deliveries.push({ tokens, title: notification.title });
+        },
+      },
+    });
+    const recipient = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "push-recipient@example.com",
+        password: "very-secure-1234",
+        displayName: "푸시받는사람",
+      },
+    });
+    const follower = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "push-follower@example.com",
+        password: "very-secure-1234",
+        displayName: "푸시보내는사람",
+      },
+    });
+    const recipientToken = recipient.json().data.accessToken as string;
+    const recipientId = recipient.json().data.user.id as string;
+    const pushToken = "ExponentPushToken[groov-test-device-123456789]";
+    const registered = await app.inject({
+      method: "PUT",
+      url: "/v1/notifications/push-device",
+      headers: { authorization: `Bearer ${recipientToken}` },
+      payload: { token: pushToken, platform: "android", deviceName: "테스트폰" },
+    });
+    expect(registered.statusCode).toBe(200);
+
+    const followed = await app.inject({
+      method: "POST",
+      url: `/v1/users/${recipientId}/follow`,
+      headers: { authorization: `Bearer ${follower.json().data.accessToken as string}` },
+    });
+    expect(followed.statusCode).toBe(201);
+    expect(deliveries).toEqual([{ tokens: [pushToken], title: "새 팔로워" }]);
+
+    const unregistered = await app.inject({
+      method: "DELETE",
+      url: "/v1/notifications/push-device",
+      headers: { authorization: `Bearer ${recipientToken}` },
+      payload: { token: pushToken },
+    });
+    expect(unregistered.json()).toMatchObject({ ok: true, data: { unregistered: true } });
+    expect(await store.listPushDeviceTokens(recipientId)).toEqual([]);
     await app.close();
   });
 });

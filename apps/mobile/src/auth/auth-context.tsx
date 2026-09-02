@@ -1,7 +1,11 @@
 import {
   AuthSessionSchema,
+  type AppleLoginInput,
+  type AuthorizationCodeLoginInput,
   type AuthSession,
   type LoginInput,
+  type OnboardingInput,
+  type OnboardingProfile,
   type RegisterInput,
 } from "@moveall/contracts";
 import * as SecureStore from "expo-secure-store";
@@ -23,11 +27,17 @@ const authenticationBypass = process.env.EXPO_PUBLIC_LOGIN_REQUIRED !== "true";
 type AuthContextValue = {
   session: AuthSession | null;
   restoring: boolean;
+  onboarding: OnboardingProfile | null;
+  onboardingLoading: boolean;
   login(input: LoginInput): Promise<void>;
   register(input: RegisterInput): Promise<void>;
   loginWithGoogle(idToken: string): Promise<void>;
+  loginWithApple(input: AppleLoginInput): Promise<void>;
+  loginWithKakao(input: AuthorizationCodeLoginInput): Promise<void>;
+  loginWithNaver(input: AuthorizationCodeLoginInput): Promise<void>;
   replaceSession(session: AuthSession): Promise<void>;
   updateUser(user: AuthSession["user"]): Promise<void>;
+  completeOnboarding(input: OnboardingInput): Promise<void>;
   logout(): Promise<void>;
 };
 
@@ -60,6 +70,8 @@ async function writeSession(session: AuthSession | null): Promise<void> {
 export function AuthProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [restoring, setRestoring] = useState(true);
+  const [onboarding, setOnboarding] = useState<OnboardingProfile | null>(null);
+  const [onboardingLoading, setOnboardingLoading] = useState(true);
   const persist = useCallback(async (nextSession: AuthSession | null) => {
     setSession(nextSession);
     await writeSession(nextSession);
@@ -99,6 +111,34 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    if (!session) {
+      setOnboarding(null);
+      setOnboardingLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setOnboardingLoading(true);
+    void api
+      .onboarding(session.accessToken)
+      .then((profile) => {
+        if (active) setOnboarding(profile);
+      })
+      .catch(() => {
+        if (active) setOnboarding(null);
+      })
+      .finally(() => {
+        if (active) setOnboardingLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [session?.accessToken, session?.user.id]);
+
+  useEffect(() => {
     if (!session) return;
     const refreshIn = Math.max(
       5_000,
@@ -117,20 +157,29 @@ export function AuthProvider({ children }: PropsWithChildren) {
     () => ({
       session,
       restoring,
+      onboarding,
+      onboardingLoading,
       login: async (input) => persist(await api.login(input)),
       register: async (input) => persist(await api.register(input)),
       loginWithGoogle: async (idToken) => persist(await api.googleLogin({ idToken })),
+      loginWithApple: async (input) => persist(await api.appleLogin(input)),
+      loginWithKakao: async (input) => persist(await api.kakaoLogin(input)),
+      loginWithNaver: async (input) => persist(await api.naverLogin(input)),
       replaceSession: async (nextSession) => persist(nextSession),
       updateUser: async (user) => {
         if (!session) return;
         await persist({ ...session, user });
+      },
+      completeOnboarding: async (input) => {
+        if (!session) return;
+        setOnboarding(await api.saveOnboarding(session.accessToken, input));
       },
       logout: async () => {
         if (session) await api.logout(session.accessToken).catch(() => undefined);
         await persist(null);
       },
     }),
-    [persist, restoring, session],
+    [onboarding, onboardingLoading, persist, restoring, session],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,14 +1,16 @@
 {
   "expo": {
     "name": "GROOV",
-    "slug": "moveall",
+    "slug": "groov",
     "version": "0.1.0",
     "orientation": "portrait",
-    "scheme": "moveall",
+    "scheme": "groov",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.moveall",
+      "bundleIdentifier": "com.longrun0000.groov",
+      "buildNumber": "1",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSHealthShareUsageDescription": "GROOV가 사용자가 선택한 운동, 심박, 걸음, 거리와 칼로리 기록을 가져오기 위해 건강 데이터 접근이 필요합니다.",
         "NSHealthUpdateUsageDescription": "GROOV에서 완료한 운동을 사용자가 허용한 경우 건강 앱에 저장하기 위해 접근이 필요합니다."
@@ -18,7 +20,8 @@
       }
     },
     "android": {
-      "package": "com.example.moveall",
+      "package": "com.longrun0000.groov",
+      "versionCode": 1,
       "permissions": [
         "android.permission.health.READ_EXERCISE",
         "android.permission.health.READ_EXERCISE_ROUTES",
@@ -26,7 +29,10 @@
         "android.permission.health.READ_STEPS",
         "android.permission.health.READ_DISTANCE",
         "android.permission.health.READ_TOTAL_CALORIES_BURNED",
-        "android.permission.health.READ_ELEVATION_GAINED"
+        "android.permission.health.READ_ELEVATION_GAINED",
+        "android.permission.health.WRITE_EXERCISE",
+        "android.permission.health.WRITE_DISTANCE",
+        "android.permission.health.WRITE_TOTAL_CALORIES_BURNED"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#ECFDF5"
@@ -38,11 +44,36 @@
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
+      "expo-notifications",
       "expo-secure-store",
+      "react-native-health-connect",
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "GROOV가 사용자가 선택한 운동, 심박, 걸음, 거리와 칼로리 기록을 가져오기 위해 건강 데이터 접근이 필요합니다.",
+          "NSHealthUpdateUsageDescription": "GROOV에서 완료한 운동을 사용자가 허용한 경우 건강 앱에 저장하기 위해 접근이 필요합니다.",
+          "background": false
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26,
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35
+          }
+        }
+      ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "GROOV가 운동 경로와 거리를 기록하려면 현재 위치 접근이 필요합니다."
+          "locationWhenInUsePermission": "GROOV가 운동 경로와 거리를 기록하려면 현재 위치 접근이 필요합니다.",
+          "locationAlwaysAndWhenInUsePermission": "GROOV가 화면이 꺼지거나 다른 앱을 사용하는 동안에도 운동 경로와 거리를 기록하려면 항상 위치 접근이 필요합니다.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       [

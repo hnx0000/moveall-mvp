@@ -1,4 +1,6 @@
 import * as Google from "expo-auth-session/providers/google";
+import * as AuthSession from "expo-auth-session";
+import * as AppleAuthentication from "expo-apple-authentication";
 import * as WebBrowser from "expo-web-browser";
 import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -10,6 +12,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { ApiError } from "../src/api/client";
@@ -22,20 +25,28 @@ WebBrowser.maybeCompleteAuthSession();
 const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 const androidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+const kakaoClientId = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY;
+const naverClientId = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID;
 const placeholderClientId = "google-oauth-client-not-configured.apps.googleusercontent.com";
 const demoMode = process.env.EXPO_PUBLIC_LOGIN_REQUIRED !== "true";
 
 export default function LoginScreen() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const { loginWithGoogle } = useAuth();
+  const { login, register, loginWithApple, loginWithGoogle, loginWithKakao, loginWithNaver } =
+    useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailMode, setEmailMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const configuredClientId = Platform.select({
     ios: iosClientId,
     android: androidClientId,
     default: webClientId,
   });
+  const redirectUri = AuthSession.makeRedirectUri({ scheme: "groov", path: "oauthredirect" });
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest(
     {
       webClientId: webClientId ?? placeholderClientId,
@@ -43,7 +54,7 @@ export default function LoginScreen() {
       androidClientId: androidClientId ?? placeholderClientId,
       selectAccount: true,
     },
-    { scheme: "moveall", path: "oauthredirect" },
+    { scheme: "groov", path: "oauthredirect" },
   );
 
   useEffect(() => {
@@ -70,7 +81,7 @@ export default function LoginScreen() {
   }, [loginWithGoogle, response]);
 
   const startGoogleLogin = async () => {
-    if (!configuredClientId) {
+    if (!configuredClientId || !request) {
       setError("이 실행 환경의 Google OAuth 클라이언트 ID가 아직 설정되지 않았습니다.");
       return;
     }
@@ -78,56 +89,299 @@ export default function LoginScreen() {
     await promptAsync();
   };
 
+  const startRegionalLogin = async (provider: "kakao" | "naver") => {
+    const clientId = provider === "kakao" ? kakaoClientId : naverClientId;
+    if (!clientId) {
+      setError(
+        provider === "kakao"
+          ? "카카오 로그인 키가 아직 등록되지 않았습니다."
+          : "네이버 로그인 키가 아직 등록되지 않았습니다.",
+      );
+      return;
+    }
+
+    setError(null);
+    const authRequest = new AuthSession.AuthRequest({
+      clientId,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: provider === "kakao" ? ["profile_nickname", "account_email"] : [],
+      usePKCE: false,
+    });
+    const discovery: AuthSession.DiscoveryDocument =
+      provider === "kakao"
+        ? {
+            authorizationEndpoint: "https://kauth.kakao.com/oauth/authorize",
+            tokenEndpoint: "https://kauth.kakao.com/oauth/token",
+          }
+        : {
+            authorizationEndpoint: "https://nid.naver.com/oauth2.0/authorize",
+            tokenEndpoint: "https://nid.naver.com/oauth2.0/token",
+          };
+
+    try {
+      const result = await authRequest.promptAsync(discovery);
+      if (result.type === "dismiss" || result.type === "cancel") return;
+      if (result.type !== "success" || !result.params.code) {
+        throw new Error(`${provider} authorization code missing`);
+      }
+      setSubmitting(true);
+      const input = {
+        code: result.params.code,
+        redirectUri,
+        ...(result.params.state ? { state: result.params.state } : {}),
+      };
+      if (provider === "kakao") await loginWithKakao(input);
+      else await loginWithNaver(input);
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? caught.message
+          : provider === "kakao"
+            ? "카카오 계정으로 로그인하지 못했습니다. 다시 시도해 주세요."
+            : "네이버 계정으로 로그인하지 못했습니다. 다시 시도해 주세요.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitEmail = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      if (emailMode === "register") {
+        await register({ email, password, displayName });
+      } else {
+        await login({ email, password });
+      }
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? caught.message
+          : emailMode === "register"
+            ? "회원가입을 완료하지 못했습니다. 입력 내용을 확인해 주세요."
+            : "로그인하지 못했습니다. 이메일과 비밀번호를 확인해 주세요.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const signInWithApple = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      if (!credential.identityToken) {
+        throw new Error("Apple identity token missing");
+      }
+      const displayName = [credential.fullName?.givenName, credential.fullName?.familyName]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      await loginWithApple({
+        identityToken: credential.identityToken,
+        ...(credential.email ? { email: credential.email } : {}),
+        ...(displayName.length >= 2 ? { displayName } : {}),
+      });
+    } catch (caught) {
+      if (
+        caught &&
+        typeof caught === "object" &&
+        "code" in caught &&
+        caught.code === "ERR_REQUEST_CANCELED"
+      ) {
+        return;
+      }
+      setError("Apple 계정으로 로그인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.topBar}>
           <Text style={styles.brand}>GROOV</Text>
-          <View style={styles.securePill}>
-            <View style={styles.secureDot} />
-            <Text style={styles.secureText}>SECURE SIGN IN</Text>
-          </View>
+          <Text style={styles.edition}>GROOV 2.0</Text>
         </View>
 
         <View style={styles.hero}>
-          <Text style={styles.kicker}>MOVE. KEEP. SHARE.</Text>
-          <Text style={styles.title}>운동을 시키기보다,{"\n"}계속하고 싶게.</Text>
-          <Text style={styles.description}>
-            한 번의 계정 연결로 기록, 메달, 피드와 팔로우가 모든 기기에서 이어집니다.
-          </Text>
+          <Text style={styles.kicker}>YOUR MOVE, YOUR GROOV.</Text>
+          <Text style={styles.title}>움직임이 쌓여,{"\n"}나를 만든다.</Text>
+          <Text style={styles.description}>기록하고, 나누고, 다시 움직이는 운동의 리듬.</Text>
         </View>
 
-        <View style={styles.artwork}>
-          <View style={styles.orbitLarge} />
-          <View style={styles.orbitSmall} />
-          <View style={styles.routeLine} />
-          <View style={[styles.routePoint, styles.routeStart]} />
-          <View style={[styles.routePoint, styles.routeFinish]} />
-          <Text style={styles.artworkNumber}>5.24</Text>
-          <Text style={styles.artworkUnit}>KM · TODAY</Text>
+        <View style={styles.groovLoop}>
+          <View style={styles.loopHeader}>
+            <Text style={styles.loopEyebrow}>THE GROOV LOOP</Text>
+            <View style={styles.loopPulse} />
+          </View>
+          <View style={styles.loopSteps}>
+            <View style={styles.loopStep}>
+              <Text style={styles.loopIndex}>01</Text>
+              <Text style={styles.loopTitle}>기록</Text>
+              <Text style={styles.loopCaption}>오늘의 움직임</Text>
+            </View>
+            <View style={styles.loopConnector} />
+            <View style={styles.loopStep}>
+              <Text style={styles.loopIndex}>02</Text>
+              <Text style={styles.loopTitle}>연결</Text>
+              <Text style={styles.loopCaption}>함께하는 리듬</Text>
+            </View>
+            <View style={styles.loopConnector} />
+            <View style={styles.loopStep}>
+              <Text style={styles.loopIndex}>03</Text>
+              <Text style={styles.loopTitle}>도전</Text>
+              <Text style={styles.loopCaption}>다음의 나</Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.loginCard}>
-          <Text style={styles.loginTitle}>계정 연결</Text>
-          <Text style={styles.loginCaption}>별도 회원가입 없이 Google 계정으로 시작합니다.</Text>
+          <View style={styles.loginHeading}>
+            <Text style={styles.loginTitle}>GROOV 시작하기</Text>
+            <Text style={styles.loginCaption}>오늘의 움직임을 내 기록으로 남겨보세요.</Text>
+          </View>
+          <View style={styles.socialButtons}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Google 계정으로 계속"
+              disabled={submitting}
+              onPress={() => void startGoogleLogin()}
+              style={({ pressed }) => [
+                styles.googleButton,
+                pressed && styles.googleButtonPressed,
+                submitting && styles.buttonDisabled,
+              ]}
+            >
+              <Text style={styles.googleMark}>G</Text>
+              <Text style={styles.googleText}>Google 계정으로 계속</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="카카오 계정으로 계속"
+              disabled={submitting}
+              onPress={() => void startRegionalLogin("kakao")}
+              style={({ pressed }) => [
+                styles.googleButton,
+                pressed && styles.googleButtonPressed,
+                submitting && styles.buttonDisabled,
+              ]}
+            >
+              <View style={styles.providerMarkBox}>
+                <Text style={styles.providerMark}>K</Text>
+              </View>
+              <Text style={styles.googleText}>카카오 계정으로 계속</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="네이버 계정으로 계속"
+              disabled={submitting}
+              onPress={() => void startRegionalLogin("naver")}
+              style={({ pressed }) => [
+                styles.googleButton,
+                pressed && styles.googleButtonPressed,
+                submitting && styles.buttonDisabled,
+              ]}
+            >
+              <View style={styles.providerMarkBox}>
+                <Text style={styles.providerMark}>N</Text>
+              </View>
+              <Text style={styles.googleText}>네이버 계정으로 계속</Text>
+            </Pressable>
+          </View>
+          {Platform.OS === "ios" ? (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+              cornerRadius={10}
+              onPress={() => void signInWithApple()}
+              style={styles.appleButton}
+            />
+          ) : null}
+          <View style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>또는 이메일</Text>
+            <View style={styles.dividerLine} />
+          </View>
+          <View style={styles.modeRow}>
+            {(["login", "register"] as const).map((mode) => (
+              <Pressable
+                key={mode}
+                onPress={() => {
+                  setEmailMode(mode);
+                  setError(null);
+                }}
+                style={[styles.modeButton, emailMode === mode && styles.modeButtonActive]}
+              >
+                <Text style={[styles.modeText, emailMode === mode && styles.modeTextActive]}>
+                  {mode === "login" ? "로그인" : "새 계정"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {emailMode === "register" ? (
+            <TextInput
+              autoComplete="name"
+              placeholder="닉네임 · 2~30자"
+              placeholderTextColor={colors.muted}
+              value={displayName}
+              onChangeText={setDisplayName}
+              style={styles.input}
+            />
+          ) : null}
+          <TextInput
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            placeholder="이메일"
+            placeholderTextColor={colors.muted}
+            value={email}
+            onChangeText={setEmail}
+            style={styles.input}
+          />
+          <TextInput
+            autoCapitalize="none"
+            autoComplete={emailMode === "register" ? "new-password" : "current-password"}
+            secureTextEntry
+            placeholder="비밀번호 · 12자 이상, 영문+숫자"
+            placeholderTextColor={colors.muted}
+            value={password}
+            onChangeText={setPassword}
+            style={styles.input}
+          />
           <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Google 계정으로 계속"
-            disabled={!request || submitting}
-            onPress={() => void startGoogleLogin()}
+            disabled={
+              submitting ||
+              !email.includes("@") ||
+              password.length < 12 ||
+              (emailMode === "register" && displayName.trim().length < 2)
+            }
+            onPress={() => void submitEmail()}
             style={({ pressed }) => [
-              styles.googleButton,
+              styles.emailButton,
               pressed && styles.googleButtonPressed,
-              (!request || submitting) && styles.buttonDisabled,
+              (submitting ||
+                !email.includes("@") ||
+                password.length < 12 ||
+                (emailMode === "register" && displayName.trim().length < 2)) &&
+                styles.buttonDisabled,
             ]}
           >
             {submitting ? (
-              <ActivityIndicator color="#151515" />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <>
-                <Text style={styles.googleMark}>G</Text>
-                <Text style={styles.googleText}>Google 계정으로 계속</Text>
-              </>
+              <Text style={styles.emailButtonText}>
+                {emailMode === "login" ? "이메일로 로그인" : "GROOV 계정 만들기"}
+              </Text>
             )}
           </Pressable>
           {demoMode ? (
@@ -140,20 +394,8 @@ export default function LoginScreen() {
             </Pressable>
           ) : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          {!configuredClientId ? (
-            <View style={styles.configNotice}>
-              <Text style={styles.configTitle}>OAuth 설정 필요</Text>
-              <Text style={styles.configText}>
-                앱의 환경변수와 API의 GOOGLE_CLIENT_IDS에 동일한 Google 클라이언트 ID를 등록하면
-                실제 계정 연결이 활성화됩니다.
-              </Text>
-            </View>
-          ) : null}
           <View style={styles.legalBlock}>
-            <Text style={styles.legal}>
-              계속하면 필수 정책에 동의하게 됩니다. Google 비밀번호는 GROOV 서버에 전달되거나
-              저장되지 않습니다.
-            </Text>
+            <Text style={styles.legal}>계속하면 GROOV의 필수 정책에 동의합니다.</Text>
             <View style={styles.legalLinks}>
               <Link href="/legal/terms" style={styles.legalLink}>
                 이용약관
@@ -178,9 +420,9 @@ function createStyles(colors: ThemeColors) {
       maxWidth: 448,
       alignSelf: "center",
       paddingHorizontal: 24,
-      paddingTop: 24,
-      paddingBottom: 36,
-      gap: 28,
+      paddingTop: 22,
+      paddingBottom: 34,
+      gap: 24,
     },
     topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     brand: {
@@ -190,80 +432,61 @@ function createStyles(colors: ThemeColors) {
       fontStyle: "italic",
       letterSpacing: -0.8,
     },
-    securePill: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 20,
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-    },
-    secureDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary },
-    secureText: { color: colors.muted, fontSize: 7, fontWeight: "900", letterSpacing: 0.8 },
-    hero: { gap: 12, paddingTop: 10 },
-    kicker: { color: colors.primary, fontSize: 10, fontWeight: "900", letterSpacing: 1.6 },
+    edition: { color: colors.muted, fontSize: 8, fontWeight: "900", letterSpacing: 1.2 },
+    hero: { gap: 10, paddingTop: 18, paddingBottom: 4 },
+    kicker: { color: colors.primary, fontSize: 9, fontWeight: "900", letterSpacing: 1.8 },
     title: {
       color: colors.ink,
-      fontSize: 38,
-      lineHeight: 47,
+      fontSize: 40,
+      lineHeight: 48,
       fontWeight: "900",
-      letterSpacing: -2,
+      letterSpacing: -2.2,
     },
-    description: { color: colors.muted, fontSize: 13, lineHeight: 21, maxWidth: 390 },
-    artwork: {
-      height: 188,
-      overflow: "hidden",
-      borderRadius: 14,
-      backgroundColor: colors.ink,
-      padding: 24,
-      justifyContent: "flex-end",
-    },
-    orbitLarge: {
-      position: "absolute",
-      width: 210,
-      height: 210,
-      borderRadius: 105,
+    description: { color: colors.muted, fontSize: 13, lineHeight: 20 },
+    groovLoop: {
       borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.18)",
-      right: -25,
-      top: -65,
+      borderColor: colors.border,
+      borderRadius: 18,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 18,
+      paddingVertical: 16,
+      gap: 18,
     },
-    orbitSmall: {
-      position: "absolute",
-      width: 112,
-      height: 112,
-      borderRadius: 56,
-      borderWidth: 1,
-      borderColor: colors.primary,
-      right: 26,
-      top: -16,
+    loopHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
     },
-    routeLine: {
-      position: "absolute",
-      width: 170,
-      height: 50,
-      borderTopWidth: 4,
-      borderRightWidth: 4,
-      borderColor: colors.primary,
-      transform: [{ rotate: "-12deg" }],
-      right: 32,
-      top: 70,
+    loopEyebrow: { color: colors.primary, fontSize: 8, fontWeight: "900", letterSpacing: 1.4 },
+    loopPulse: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.primary },
+    loopSteps: { flexDirection: "row", alignItems: "center" },
+    loopStep: { flex: 1, gap: 4 },
+    loopIndex: { color: colors.primary, fontSize: 8, fontWeight: "900", letterSpacing: 0.8 },
+    loopTitle: { color: colors.ink, fontSize: 15, fontWeight: "900" },
+    loopCaption: { color: colors.muted, fontSize: 8, lineHeight: 12 },
+    loopConnector: {
+      width: 18,
+      height: 1,
+      marginHorizontal: 5,
+      backgroundColor: colors.border,
     },
-    routePoint: { position: "absolute", width: 10, height: 10, borderRadius: 5 },
-    routeStart: { right: 195, top: 91, backgroundColor: "#FFFFFF" },
-    routeFinish: { right: 28, top: 65, backgroundColor: colors.primary },
-    artworkNumber: { color: "#FFFFFF", fontSize: 45, fontWeight: "900", letterSpacing: -2 },
-    artworkUnit: { color: colors.primary, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
-    loginCard: { gap: 12 },
-    loginTitle: { color: colors.ink, fontSize: 19, fontWeight: "900" },
-    loginCaption: { color: colors.muted, fontSize: 11, marginBottom: 4 },
+    loginCard: {
+      gap: 12,
+      borderTopWidth: 2,
+      borderTopColor: colors.primary,
+      borderRadius: 18,
+      backgroundColor: colors.surface,
+      padding: 18,
+    },
+    loginHeading: { gap: 5, marginBottom: 4 },
+    loginTitle: { color: colors.ink, fontSize: 20, fontWeight: "900", letterSpacing: -0.5 },
+    loginCaption: { color: colors.muted, fontSize: 10, lineHeight: 16 },
+    socialButtons: { gap: 8 },
     googleButton: {
       minHeight: 54,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 8,
+      borderRadius: 12,
       backgroundColor: "#FFFFFF",
       flexDirection: "row",
       alignItems: "center",
@@ -274,19 +497,57 @@ function createStyles(colors: ThemeColors) {
     buttonDisabled: { opacity: 0.55 },
     googleMark: { color: colors.primary, fontSize: 18, fontWeight: "900" },
     googleText: { color: "#151515", fontSize: 13, fontWeight: "900" },
+    providerMarkBox: {
+      width: 21,
+      height: 21,
+      borderRadius: 11,
+      backgroundColor: "#151515",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    providerMark: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" },
+    appleButton: { width: "100%", height: 52 },
+    dividerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 2 },
+    dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
+    dividerText: { color: colors.muted, fontSize: 8, fontWeight: "800" },
+    modeRow: {
+      flexDirection: "row",
+      padding: 3,
+      borderRadius: 10,
+      backgroundColor: colors.background,
+    },
+    modeButton: {
+      flex: 1,
+      minHeight: 38,
+      borderRadius: 8,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    modeButtonActive: { backgroundColor: colors.surface },
+    modeText: { color: colors.muted, fontSize: 11, fontWeight: "800" },
+    modeTextActive: { color: colors.primary },
+    input: {
+      minHeight: 50,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      backgroundColor: colors.background,
+      color: colors.ink,
+      fontSize: 12,
+      paddingHorizontal: 14,
+    },
+    emailButton: {
+      minHeight: 52,
+      borderRadius: 12,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    emailButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
     error: { color: colors.primary, fontSize: 11, lineHeight: 17, fontWeight: "700" },
     demoButton: { minHeight: 42, alignItems: "center", justifyContent: "center" },
     demoButtonText: { color: colors.muted, fontSize: 9, fontWeight: "800" },
-    configNotice: {
-      borderLeftWidth: 3,
-      borderLeftColor: colors.primary,
-      backgroundColor: colors.surfaceMuted,
-      padding: 12,
-      gap: 4,
-    },
-    configTitle: { color: colors.ink, fontSize: 10, fontWeight: "900" },
-    configText: { color: colors.muted, fontSize: 9, lineHeight: 15 },
-    legalBlock: { gap: 8, marginTop: 2 },
+    legalBlock: { gap: 7, marginTop: 4 },
     legal: { color: colors.muted, fontSize: 8, lineHeight: 14 },
     legalLinks: { flexDirection: "row", gap: 14 },
     legalLink: { color: colors.primary, fontSize: 9, fontWeight: "800" },

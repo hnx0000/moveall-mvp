@@ -1,11 +1,17 @@
 import type {
+  ContentReport,
+  ContentReportCreateInput,
   ConsentState,
   ConsentUpdateInput,
   DirectMessage,
   FeedPost,
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
+  ModerationReportUpdateInput,
+  OnboardingInput,
+  OnboardingProfile,
   PostCreateInput,
+  PushDeviceRegistrationInput,
   PostShareResult,
   PostUpdateInput,
   ProfileUpdateInput,
@@ -14,12 +20,19 @@ import type {
   RoutineCreateInput,
   RoutineUpdateInput,
   SportType,
+  UserNotification,
   WorkoutSession,
   WorkoutSessionCreateInput,
   WorkoutSessionUpdateInput,
 } from "@moveall/contracts";
 import { Pool, type QueryResultRow } from "pg";
-import type { AppStore, StoredAuthSession, StoredMediaObject, User } from "../domain/store.js";
+import type {
+  AppStore,
+  StoredAuthSession,
+  StoredMediaObject,
+  StoredPushDevice,
+  User,
+} from "../domain/store.js";
 
 type UserRow = QueryResultRow & {
   id: string;
@@ -62,6 +75,8 @@ type PostRow = QueryResultRow & {
   sport: SportType;
   content: string;
   workout_session_id: string | null;
+  media_id: string | null;
+  media_object_path: string | null;
   content_type: "post" | "story";
   like_count: number;
   share_count?: number;
@@ -119,6 +134,17 @@ type ConsentRow = QueryResultRow & {
   accepted_at: Date;
 };
 
+type OnboardingRow = QueryResultRow & {
+  primary_sports: OnboardingProfile["primarySports"];
+  activity_level: OnboardingProfile["activityLevel"];
+  goals: OnboardingProfile["goals"];
+  neighborhood: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  neighborhood_verified_at: Date | null;
+  completed_at: Date;
+};
+
 type MediaObjectRow = QueryResultRow & {
   id: string;
   user_id: string;
@@ -132,22 +158,66 @@ type MediaObjectRow = QueryResultRow & {
   created_at: Date;
 };
 
+type ContentReportRow = QueryResultRow & {
+  id: string;
+  reporter_id: string;
+  target_type: ContentReport["targetType"];
+  target_id: string;
+  reason: ContentReport["reason"];
+  details: string | null;
+  status: ContentReport["status"];
+  resolution_note: string | null;
+  created_at: Date;
+  updated_at: Date;
+};
+
+type NotificationRow = QueryResultRow & {
+  id: string;
+  kind: UserNotification["kind"];
+  title: string;
+  body: string;
+  actor_id: string | null;
+  resource_type: UserNotification["resourceType"] | null;
+  resource_id: string | null;
+  read_at: Date | null;
+  created_at: Date;
+};
+
+type PushDeviceRow = QueryResultRow & {
+  id: string;
+  user_id: string;
+  token: string;
+  platform: "ios" | "android";
+  device_name: string | null;
+  created_at: Date;
+  updated_at: Date;
+};
+
 export class PostgresStore implements AppStore {
   private readonly pool: Pool;
 
   constructor(
     databaseUrl: string,
-    options: { maxConnections: number; ssl: boolean } = { maxConnections: 5, ssl: true },
+    options: { maxConnections: number; ssl: boolean; sslCa?: string } = {
+      maxConnections: 5,
+      ssl: true,
+    },
   ) {
     this.pool = new Pool({
       connectionString: databaseUrl,
       max: options.maxConnections,
-      ssl: options.ssl ? { rejectUnauthorized: true } : false,
+      ssl: options.ssl
+        ? { rejectUnauthorized: true, ...(options.sslCa ? { ca: options.sslCa } : {}) }
+        : false,
       application_name: "groov-api",
       connectionTimeoutMillis: 5_000,
       idleTimeoutMillis: 30_000,
       statement_timeout: 10_000,
     });
+  }
+
+  async healthCheck(): Promise<void> {
+    await this.pool.query("SELECT 1");
   }
 
   async findUserById(id: string): Promise<User | null> {
@@ -202,7 +272,7 @@ export class PostgresStore implements AppStore {
   }
 
   async findOrCreateOAuthUser(input: {
-    provider: "google";
+    provider: "google" | "apple" | "kakao" | "naver";
     subject: string;
     email: string;
     displayName: string;
@@ -354,6 +424,31 @@ export class PostgresStore implements AppStore {
     return this.mapConsent(result.rows[0]!);
   }
 
+  async getOnboarding(userId: string): Promise<OnboardingProfile | null> {
+    const result = await this.pool.query<OnboardingRow>(
+      "SELECT primary_sports, activity_level, goals, neighborhood, latitude, longitude, neighborhood_verified_at, completed_at FROM user_onboarding WHERE user_id = $1",
+      [userId],
+    );
+    return result.rows[0] ? this.mapOnboarding(result.rows[0]) : null;
+  }
+
+  async saveOnboarding(userId: string, input: OnboardingInput): Promise<OnboardingProfile> {
+    const result = await this.pool.query<OnboardingRow>(
+      "INSERT INTO user_onboarding (user_id, primary_sports, activity_level, goals, neighborhood, latitude, longitude, neighborhood_verified_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (user_id) DO UPDATE SET primary_sports = EXCLUDED.primary_sports, activity_level = EXCLUDED.activity_level, goals = EXCLUDED.goals, neighborhood = EXCLUDED.neighborhood, latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, neighborhood_verified_at = EXCLUDED.neighborhood_verified_at, completed_at = now(), updated_at = now() RETURNING primary_sports, activity_level, goals, neighborhood, latitude, longitude, neighborhood_verified_at, completed_at",
+      [
+        userId,
+        input.primarySports,
+        input.activityLevel,
+        input.goals,
+        input.neighborhood?.neighborhood ?? null,
+        input.neighborhood?.latitude ?? null,
+        input.neighborhood?.longitude ?? null,
+        input.neighborhood?.verifiedAt ?? null,
+      ],
+    );
+    return this.mapOnboarding(result.rows[0]!);
+  }
+
   async createMediaObject(
     input: Omit<StoredMediaObject, "id" | "status" | "createdAt">,
   ): Promise<StoredMediaObject> {
@@ -378,6 +473,14 @@ export class PostgresStore implements AppStore {
   ): Promise<StoredMediaObject | null> {
     const result = await this.pool.query<MediaObjectRow>(
       "UPDATE media_objects SET status = 'available', available_at = now() WHERE id = $2 AND user_id = $1 AND status = 'pending' RETURNING *",
+      [userId, mediaId],
+    );
+    return result.rows[0] ? this.mapMediaObject(result.rows[0]) : null;
+  }
+
+  async findMediaObject(userId: string, mediaId: string): Promise<StoredMediaObject | null> {
+    const result = await this.pool.query<MediaObjectRow>(
+      "SELECT * FROM media_objects WHERE user_id = $1 AND id = $2",
       [userId, mediaId],
     );
     return result.rows[0] ? this.mapMediaObject(result.rows[0]) : null;
@@ -535,12 +638,13 @@ export class PostgresStore implements AppStore {
     input: PostCreateInput,
   ): Promise<FeedPost | null> {
     const result = await this.pool.query<PostRow>(
-      "INSERT INTO posts (user_id, sport, content, workout_session_id, content_type) SELECT $1, $2, $3, $4, $5 WHERE $4::uuid IS NULL OR EXISTS (SELECT 1 FROM workout_sessions WHERE id = $4 AND user_id = $1) RETURNING id, user_id, $6::text AS display_name, (SELECT avatar_data_uri FROM users WHERE id = $1) AS avatar_data_uri, sport, content, workout_session_id, content_type, like_count, archived_at, created_at",
+      "WITH inserted AS (INSERT INTO posts (user_id, sport, content, workout_session_id, media_id, content_type) SELECT $1, $2, $3, $4, $5, $6 WHERE ($4::uuid IS NULL OR EXISTS (SELECT 1 FROM workout_sessions WHERE id = $4 AND user_id = $1)) AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM media_objects WHERE id = $5 AND user_id = $1 AND status = 'available')) RETURNING *) SELECT i.id, i.user_id, $7::text AS display_name, u.avatar_data_uri, i.sport, i.content, i.workout_session_id, i.media_id, mo.object_path AS media_object_path, i.content_type, i.like_count, i.archived_at, i.created_at FROM inserted i JOIN users u ON u.id = i.user_id LEFT JOIN media_objects mo ON mo.id = i.media_id",
       [
         userId,
         input.sport,
         input.content,
         input.workoutSessionId ?? null,
+        input.mediaId ?? null,
         input.contentType ?? "post",
         authorDisplayName,
       ],
@@ -549,15 +653,16 @@ export class PostgresStore implements AppStore {
     return row ? this.mapPost(row, []) : null;
   }
 
-  async listFeed(): Promise<FeedPost[]> {
+  async listFeed(viewerId?: string, postId?: string): Promise<FeedPost[]> {
     const posts = await this.pool.query<PostRow>(
-      "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.moderation_status = 'visible' AND p.archived_at IS NULL ORDER BY p.created_at DESC LIMIT 100",
+      "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.media_id, mo.object_path AS media_object_path, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN media_objects mo ON mo.id = p.media_id WHERE ($2::uuid IS NULL OR p.id = $2) AND p.moderation_status = 'visible' AND p.archived_at IS NULL AND ($1::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id) OR (b.blocker_id = p.user_id AND b.blocked_id = $1))) ORDER BY p.created_at DESC LIMIT 100",
+      [viewerId ?? null, postId ?? null],
     );
     if (posts.rows.length === 0) return [];
 
     const comments = await this.pool.query<CommentRow>(
-      "SELECT c.id, c.user_id, u.display_name, u.avatar_data_uri, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) ORDER BY c.created_at ASC",
-      [posts.rows.map((post) => post.id)],
+      "SELECT c.id, c.user_id, u.display_name, u.avatar_data_uri, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) AND ($2::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = $2 AND b.blocked_id = c.user_id) OR (b.blocker_id = c.user_id AND b.blocked_id = $2))) ORDER BY c.created_at ASC",
+      [posts.rows.map((post) => post.id), viewerId ?? null],
     );
 
     return posts.rows.map((post) =>
@@ -570,7 +675,7 @@ export class PostgresStore implements AppStore {
 
   async listPostsByUser(userId: string): Promise<FeedPost[]> {
     const posts = await this.pool.query<PostRow>(
-      "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = $1 AND p.moderation_status = 'visible' AND p.archived_at IS NULL ORDER BY p.created_at DESC LIMIT 100",
+      "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.media_id, mo.object_path AS media_object_path, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN media_objects mo ON mo.id = p.media_id WHERE p.user_id = $1 AND p.moderation_status = 'visible' AND p.archived_at IS NULL ORDER BY p.created_at DESC LIMIT 100",
       [userId],
     );
     if (posts.rows.length === 0) return [];
@@ -588,7 +693,7 @@ export class PostgresStore implements AppStore {
 
   async listArchivedPostsByUser(userId: string): Promise<FeedPost[]> {
     const posts = await this.pool.query<PostRow>(
-      "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = $1 AND p.archived_at IS NOT NULL ORDER BY p.archived_at DESC LIMIT 100",
+      "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.media_id, mo.object_path AS media_object_path, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN media_objects mo ON mo.id = p.media_id WHERE p.user_id = $1 AND p.archived_at IS NOT NULL ORDER BY p.archived_at DESC LIMIT 100",
       [userId],
     );
     if (posts.rows.length === 0) return [];
@@ -610,7 +715,7 @@ export class PostgresStore implements AppStore {
     input: PostUpdateInput,
   ): Promise<FeedPost | null> {
     const result = await this.pool.query<PostRow>(
-      "UPDATE posts p SET content = $3 FROM users u WHERE p.id = $2 AND p.user_id = $1 AND u.id = p.user_id RETURNING p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, p.archived_at, p.created_at",
+      "UPDATE posts p SET content = $3 FROM users u WHERE p.id = $2 AND p.user_id = $1 AND u.id = p.user_id RETURNING p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.media_id, (SELECT object_path FROM media_objects WHERE id = p.media_id) AS media_object_path, p.content_type, p.like_count, p.archived_at, p.created_at",
       [userId, postId, input.content],
     );
     return result.rows[0] ? this.mapPost(result.rows[0], []) : null;
@@ -622,7 +727,7 @@ export class PostgresStore implements AppStore {
     archived: boolean,
   ): Promise<FeedPost | null> {
     const result = await this.pool.query<PostRow>(
-      "UPDATE posts p SET archived_at = CASE WHEN $3::boolean THEN now() ELSE NULL END FROM users u WHERE p.id = $2 AND p.user_id = $1 AND u.id = p.user_id RETURNING p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.content_type, p.like_count, p.archived_at, p.created_at",
+      "UPDATE posts p SET archived_at = CASE WHEN $3::boolean THEN now() ELSE NULL END FROM users u WHERE p.id = $2 AND p.user_id = $1 AND u.id = p.user_id RETURNING p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.media_id, (SELECT object_path FROM media_objects WHERE id = p.media_id) AS media_object_path, p.content_type, p.like_count, p.archived_at, p.created_at",
       [userId, postId, archived],
     );
     return result.rows[0] ? this.mapPost(result.rows[0], []) : null;
@@ -682,6 +787,99 @@ export class PostgresStore implements AppStore {
     }
   }
 
+  async createContentReport(
+    reporterId: string,
+    input: ContentReportCreateInput,
+  ): Promise<ContentReport> {
+    const result = await this.pool.query<ContentReportRow>(
+      "INSERT INTO content_reports (reporter_id, target_type, target_id, reason, details) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (reporter_id, target_type, target_id) DO UPDATE SET reason = EXCLUDED.reason, details = EXCLUDED.details, status = 'open', resolution_note = NULL, updated_at = now() RETURNING *",
+      [reporterId, input.targetType, input.targetId, input.reason, input.details ?? null],
+    );
+    return this.mapContentReport(result.rows[0]!);
+  }
+
+  async listContentReports(): Promise<ContentReport[]> {
+    const result = await this.pool.query<ContentReportRow>(
+      "SELECT * FROM content_reports ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'reviewing' THEN 1 ELSE 2 END, created_at DESC LIMIT 500",
+    );
+    return result.rows.map((row) => this.mapContentReport(row));
+  }
+
+  async updateContentReport(
+    reportId: string,
+    input: ModerationReportUpdateInput,
+  ): Promise<ContentReport | null> {
+    const result = await this.pool.query<ContentReportRow>(
+      "UPDATE content_reports SET status = $2, resolution_note = $3, updated_at = now() WHERE id = $1 RETURNING *",
+      [reportId, input.status, input.resolutionNote ?? null],
+    );
+    return result.rows[0] ? this.mapContentReport(result.rows[0]) : null;
+  }
+
+  async createNotification(
+    userId: string,
+    input: Omit<UserNotification, "id" | "readAt" | "createdAt">,
+  ): Promise<UserNotification> {
+    const result = await this.pool.query<NotificationRow>(
+      "INSERT INTO notifications (user_id, kind, title, body, actor_id, resource_type, resource_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, kind, title, body, actor_id, resource_type, resource_id, read_at, created_at",
+      [
+        userId,
+        input.kind,
+        input.title,
+        input.body,
+        input.actorId ?? null,
+        input.resourceType ?? null,
+        input.resourceId ?? null,
+      ],
+    );
+    return this.mapNotification(result.rows[0]!);
+  }
+
+  async listNotifications(userId: string): Promise<UserNotification[]> {
+    const result = await this.pool.query<NotificationRow>(
+      "SELECT id, kind, title, body, actor_id, resource_type, resource_id, read_at, created_at FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100",
+      [userId],
+    );
+    return result.rows.map((row) => this.mapNotification(row));
+  }
+
+  async markNotificationRead(
+    userId: string,
+    notificationId: string,
+  ): Promise<UserNotification | null> {
+    const result = await this.pool.query<NotificationRow>(
+      "UPDATE notifications SET read_at = COALESCE(read_at, now()) WHERE id = $1 AND user_id = $2 RETURNING id, kind, title, body, actor_id, resource_type, resource_id, read_at, created_at",
+      [notificationId, userId],
+    );
+    return result.rows[0] ? this.mapNotification(result.rows[0]) : null;
+  }
+
+  async registerPushDevice(
+    userId: string,
+    input: PushDeviceRegistrationInput,
+  ): Promise<StoredPushDevice> {
+    const result = await this.pool.query<PushDeviceRow>(
+      "INSERT INTO push_devices (user_id, token, platform, device_name) VALUES ($1, $2, $3, $4) ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, platform = EXCLUDED.platform, device_name = EXCLUDED.device_name, updated_at = now() RETURNING id, user_id, token, platform, device_name, created_at, updated_at",
+      [userId, input.token, input.platform, input.deviceName ?? null],
+    );
+    return this.mapPushDevice(result.rows[0]!);
+  }
+
+  async unregisterPushDevice(userId: string, token: string): Promise<void> {
+    await this.pool.query("DELETE FROM push_devices WHERE user_id = $1 AND token = $2", [
+      userId,
+      token,
+    ]);
+  }
+
+  async listPushDeviceTokens(userId: string): Promise<string[]> {
+    const result = await this.pool.query<QueryResultRow & { token: string }>(
+      "SELECT token FROM push_devices WHERE user_id = $1 ORDER BY updated_at DESC",
+      [userId],
+    );
+    return result.rows.map((row) => row.token);
+  }
+
   async isFollowing(followerId: string, followingId: string): Promise<boolean> {
     const result = await this.pool.query(
       "SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = $2",
@@ -707,11 +905,36 @@ export class PostgresStore implements AppStore {
   }
 
   async listMessages(userId: string, peerId: string): Promise<DirectMessage[]> {
-    const result = await this.pool.query<MessageRow>(
-      "SELECT id, sender_id, recipient_id, content, created_at FROM direct_messages WHERE (sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1) ORDER BY created_at ASC LIMIT 200",
+    const blocked = await this.pool.query(
+      "SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)",
       [userId, peerId],
     );
-    return result.rows.map((row) => this.mapMessage(row));
+    if (blocked.rowCount) return [];
+    const result = await this.pool.query<MessageRow>(
+      "SELECT id, sender_id, recipient_id, content, created_at FROM direct_messages WHERE (sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1) ORDER BY created_at DESC LIMIT 200",
+      [userId, peerId],
+    );
+    const shares = await this.pool.query<MessageRow & { shared_post: DirectMessage["sharedPost"] }>(
+      `SELECT 'share:' || ps.post_id || ':' || ps.sharer_id || ':' || ps.recipient_id AS id,
+        ps.sharer_id AS sender_id, ps.recipient_id, ps.created_at, '피드를 공유했습니다.' AS content,
+        CASE WHEN p.moderation_status = 'visible' AND p.archived_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id) OR (b.blocker_id = p.user_id AND b.blocked_id = $1))
+        THEN json_build_object('id', p.id, 'authorDisplayName', u.display_name, 'sport', p.sport, 'content', p.content)
+        ELSE NULL END AS shared_post
+        FROM post_shares ps JOIN posts p ON p.id = ps.post_id JOIN users u ON u.id = p.user_id
+        WHERE (ps.sharer_id = $1 AND ps.recipient_id = $2) OR (ps.sharer_id = $2 AND ps.recipient_id = $1)
+        ORDER BY ps.created_at DESC LIMIT 200`,
+      [userId, peerId],
+    );
+    return [
+      ...result.rows.map((row) => this.mapMessage(row)),
+      ...shares.rows.map((row) => ({
+        ...this.mapMessage(row),
+        sharedPost: row.shared_post ?? null,
+      })),
+    ]
+      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+      .slice(-200);
   }
 
   async createMessage(
@@ -740,22 +963,58 @@ export class PostgresStore implements AppStore {
     return row ? this.mapComment(row) : null;
   }
 
-  async sharePost(userId: string, postId: string): Promise<PostShareResult | null> {
-    const exists = await this.pool.query(
-      "SELECT 1 FROM posts WHERE id = $1 AND moderation_status = 'visible'",
-      [postId],
-    );
-    if ((exists.rowCount ?? 0) === 0) return null;
-
-    await this.pool.query(
-      "INSERT INTO post_shares (post_id, sharer_id, recipient_id) SELECT $2, $1, following_id FROM follows WHERE follower_id = $1 AND following_id <> $1 ON CONFLICT DO NOTHING",
-      [userId, postId],
-    );
-    const counts = await this.pool.query<QueryResultRow & PostShareResult>(
-      'SELECT count(DISTINCT sharer_id)::int AS "shareCount", count(*) FILTER (WHERE sharer_id = $1)::int AS "recipientCount" FROM post_shares WHERE post_id = $2',
-      [userId, postId],
-    );
-    return counts.rows[0] ?? { shareCount: 0, recipientCount: 0 };
+  async sharePost(
+    userId: string,
+    postId: string,
+    selectedIds: string[],
+  ): Promise<PostShareResult | null> {
+    const recipientIds = [...new Set(selectedIds)];
+    if (!recipientIds.length) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const source = await client.query<{ user_id: string }>(
+        `SELECT p.user_id FROM posts p WHERE p.id = $2 AND p.moderation_status = 'visible' AND p.archived_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id) OR (b.blocker_id = p.user_id AND b.blocked_id = $1)) FOR SHARE OF p`,
+        [userId, postId],
+      );
+      if (!source.rows[0]) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      const eligible = await client.query<{ following_id: string }>(
+        `SELECT f.following_id FROM follows f WHERE f.follower_id = $1 AND f.following_id = ANY($2::uuid[]) AND f.following_id <> $1
+          AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE
+            (b.blocker_id = ANY(ARRAY[$1::uuid, $3::uuid]) AND b.blocked_id = f.following_id)
+            OR (b.blocker_id = f.following_id AND b.blocked_id = ANY(ARRAY[$1::uuid, $3::uuid])))`,
+        [userId, recipientIds, source.rows[0].user_id],
+      );
+      if (eligible.rows.length !== recipientIds.length) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      // One durable delivery per recipient; retries never duplicate a Tap Talk card.
+      const sent = await client.query<{ recipient_id: string }>(
+        "INSERT INTO post_shares (post_id, sharer_id, recipient_id) SELECT $2, $1, id FROM unnest($3::uuid[]) AS target(id) ON CONFLICT DO NOTHING RETURNING recipient_id",
+        [userId, postId, recipientIds],
+      );
+      const count = await client.query<{ count: number }>(
+        "SELECT count(DISTINCT sharer_id)::int AS count FROM post_shares WHERE post_id = $1",
+        [postId],
+      );
+      await client.query("COMMIT");
+      const sentIds = sent.rows.map((row) => row.recipient_id);
+      return {
+        shareCount: count.rows[0]?.count ?? 0,
+        recipientCount: sentIds.length,
+        recipientIds: sentIds,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listKnowledgeFeedback(articleId: string): Promise<KnowledgeFeedback[]> {
@@ -820,6 +1079,28 @@ export class PostgresStore implements AppStore {
     };
   }
 
+  private mapOnboarding(row: OnboardingRow): OnboardingProfile {
+    return {
+      primarySports: row.primary_sports,
+      activityLevel: row.activity_level,
+      goals: row.goals,
+      ...(row.neighborhood &&
+      row.latitude !== null &&
+      row.longitude !== null &&
+      row.neighborhood_verified_at
+        ? {
+            neighborhood: {
+              neighborhood: row.neighborhood,
+              latitude: row.latitude,
+              longitude: row.longitude,
+              verifiedAt: row.neighborhood_verified_at.toISOString(),
+            },
+          }
+        : {}),
+      completedAt: row.completed_at.toISOString(),
+    };
+  }
+
   private mapMediaObject(row: MediaObjectRow): StoredMediaObject {
     return {
       id: row.id,
@@ -875,6 +1156,8 @@ export class PostgresStore implements AppStore {
       likeCount: row.like_count,
       shareCount: Number(row.share_count ?? 0),
       ...(row.workout_session_id ? { workoutSessionId: row.workout_session_id } : {}),
+      ...(row.media_id ? { mediaId: row.media_id } : {}),
+      ...(row.media_object_path ? { mediaObjectPath: row.media_object_path } : {}),
       createdAt: row.created_at.toISOString(),
       ...(row.archived_at ? { archivedAt: row.archived_at.toISOString() } : {}),
       comments: comments.map((comment) => this.mapComment(comment)),
@@ -911,6 +1194,47 @@ export class PostgresStore implements AppStore {
       recipientId: row.recipient_id,
       content: row.content,
       createdAt: row.created_at.toISOString(),
+    };
+  }
+
+  private mapContentReport(row: ContentReportRow): ContentReport {
+    return {
+      id: row.id,
+      reporterId: row.reporter_id,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      reason: row.reason,
+      ...(row.details ? { details: row.details } : {}),
+      status: row.status,
+      ...(row.resolution_note ? { resolutionNote: row.resolution_note } : {}),
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+    };
+  }
+
+  private mapNotification(row: NotificationRow): UserNotification {
+    return {
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      body: row.body,
+      ...(row.actor_id ? { actorId: row.actor_id } : {}),
+      ...(row.resource_type ? { resourceType: row.resource_type } : {}),
+      ...(row.resource_id ? { resourceId: row.resource_id } : {}),
+      ...(row.read_at ? { readAt: row.read_at.toISOString() } : {}),
+      createdAt: row.created_at.toISOString(),
+    };
+  }
+
+  private mapPushDevice(row: PushDeviceRow): StoredPushDevice {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      token: row.token,
+      platform: row.platform,
+      ...(row.device_name ? { deviceName: row.device_name } : {}),
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
     };
   }
 }

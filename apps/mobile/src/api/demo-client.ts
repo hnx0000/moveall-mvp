@@ -4,7 +4,11 @@ import {
   type AuthSession,
   type AccountDeletionInput,
   type AccountSession,
+  type AppleLoginInput,
+  type AuthorizationCodeLoginInput,
   type CommentCreateInput,
+  type ContentReport,
+  type ContentReportCreateInput,
   type ConsentState,
   type ConsentUpdateInput,
   type DirectMessage,
@@ -18,6 +22,9 @@ import {
   type Medal,
   type MediaUploadRequestInput,
   type MediaUploadTicket,
+  type ModerationReportUpdateInput,
+  type OnboardingInput,
+  type OnboardingProfile,
   type PasswordChangeInput,
   type PostCreateInput,
   type PostShareResult,
@@ -33,6 +40,7 @@ import {
   type SocialSummary,
   type SportSummary,
   type SportType,
+  type UserNotification,
   type WorkoutSession,
   type WorkoutSessionCreateInput,
   type WorkoutSessionUpdateInput,
@@ -580,7 +588,10 @@ const followingIds = new Set<string>(readStored<string[]>("groov-demo-following-
 const postShareRecipients = new Map<string, Set<string>>();
 const archived: FeedPost[] = [];
 const messages: DirectMessage[] = [];
+const demoReports: ContentReport[] = [];
+const demoNotifications: UserNotification[] = [];
 let avatarDataUri = readStored<string | undefined>("groov-demo-avatar-v1", undefined);
+let demoOnboarding = readStored<OnboardingProfile | null>("groov-demo-onboarding-v1", null);
 
 let activeSession: AuthSession = sessionFor("mvp@groov.demo", "MVP 점검자");
 let activeConsent: ConsentState | null = null;
@@ -588,6 +599,8 @@ let activeConsent: ConsentState | null = null;
 export const demoApi = {
   register: async (input: RegisterInput) => {
     activeSession = sessionFor(input.email, input.displayName);
+    demoOnboarding = null;
+    persistDemoOnboarding();
     return activeSession;
   },
   login: async (input: LoginInput) => {
@@ -595,6 +608,9 @@ export const demoApi = {
     return activeSession;
   },
   googleLogin: async (_input: GoogleLoginInput) => activeSession,
+  appleLogin: async (_input: AppleLoginInput) => activeSession,
+  kakaoLogin: async (_input: AuthorizationCodeLoginInput) => activeSession,
+  naverLogin: async (_input: AuthorizationCodeLoginInput) => activeSession,
   devLogin: async () => activeSession,
   refreshSession: async (_input: RefreshSessionInput) => {
     activeSession = sessionFor(activeSession.user.email, activeSession.user.displayName);
@@ -602,7 +618,13 @@ export const demoApi = {
   },
   logout: async (_token: string) => ({ loggedOut: true as const }),
   me: async (_token: string) => activeSession.user,
-  authProviders: async () => ({ google: true, development: true }),
+  authProviders: async () => ({
+    google: true,
+    apple: true,
+    kakao: true,
+    naver: true,
+    development: true,
+  }),
   profile: async (_token: string) => ({
     ...activeSession.user,
     ...(avatarDataUri ? { avatarDataUri } : {}),
@@ -622,6 +644,12 @@ export const demoApi = {
       ...activeSession.user,
       ...(avatarDataUri ? { avatarDataUri } : {}),
     };
+  },
+  onboarding: async (_token: string) => demoOnboarding,
+  saveOnboarding: async (_token: string, input: OnboardingInput) => {
+    demoOnboarding = { ...input, completedAt: new Date().toISOString() };
+    persistDemoOnboarding();
+    return demoOnboarding;
   },
   accountSessions: async (_token: string): Promise<AccountSession[]> => [
     {
@@ -677,7 +705,12 @@ export const demoApi = {
     articleSeeds.find((article) => article.id === articleId)?.feedback.push(item);
     return item;
   },
-  feed: async () => posts.map((post) => decorateDemoPost(post)),
+  feed: async (_token?: string) => posts.map((post) => decorateDemoPost(post)),
+  post: async (postId: string, _token?: string) => {
+    const post = posts.find((item) => item.id === postId && !item.archivedAt);
+    if (!post) throw new Error("삭제·보관되었거나 볼 수 없는 피드입니다.");
+    return decorateDemoPost(post);
+  },
   routines: async (_token: string) => routines,
   createRoutine: async (_token: string, input: RoutineCreateInput) => {
     routines.forEach((routine) => {
@@ -745,14 +778,40 @@ export const demoApi = {
     post.comments.push(comment);
     return decorateDemoPost(post).comments.find((item) => item.id === comment.id)!;
   },
-  sharePost: async (_token: string, postId: string): Promise<PostShareResult> => {
-    const post = posts.find((candidate) => candidate.id === postId);
+  sharePost: async (
+    _token: string,
+    postId: string,
+    selectedIds: string[],
+  ): Promise<PostShareResult> => {
+    const post = posts.find((candidate) => candidate.id === postId && !candidate.archivedAt);
     if (!post) throw new Error("게시물을 찾을 수 없습니다.");
+    const selected = [...new Set(selectedIds)];
+    if (
+      !selected.length ||
+      selected.some((id) => id === activeSession.user.id || !followingIds.has(id))
+    )
+      throw new Error("현재 팔로잉 중인 사람을 선택해 주세요.");
     const recipients = postShareRecipients.get(postId) ?? new Set<string>();
-    followingIds.forEach((userId) => recipients.add(userId));
+    const sentIds = selected.filter((id) => !recipients.has(id));
+    sentIds.forEach((userId) => {
+      recipients.add(userId);
+      messages.push({
+        id: makeId("share"),
+        senderId: activeSession.user.id,
+        recipientId: userId,
+        content: "피드를 공유했습니다.",
+        createdAt: new Date().toISOString(),
+        sharedPost: {
+          id: post.id,
+          authorDisplayName: post.authorDisplayName,
+          sport: post.sport,
+          content: post.content,
+        },
+      });
+    });
     postShareRecipients.set(postId, recipients);
     post.shareCount = Math.max(post.shareCount ?? 0, recipients.size > 0 ? 1 : 0);
-    return { shareCount: post.shareCount, recipientCount: recipients.size };
+    return { shareCount: post.shareCount, recipientCount: sentIds.length, recipientIds: sentIds };
   },
   workouts: async (_token: string) =>
     workouts.map((workout) => ({ ...workout, metrics: { ...workout.metrics } })),
@@ -881,12 +940,73 @@ export const demoApi = {
     persistDemoFollowing();
     return { blocked: true as const };
   },
+  createReport: async (_token: string, input: ContentReportCreateInput) => {
+    const timestamp = new Date().toISOString();
+    const report: ContentReport = {
+      id: makeId("report"),
+      reporterId: activeSession.user.id,
+      ...input,
+      status: "open",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    demoReports.unshift(report);
+    return report;
+  },
+  notifications: async (_token: string) => [...demoNotifications],
+  registerPushDevice: async (_token: string, input: { platform: "ios" | "android" }) => ({
+    id: "demo-push-device",
+    platform: input.platform,
+    registeredAt: new Date().toISOString(),
+  }),
+  unregisterPushDevice: async (_token: string, _pushToken: string) => ({
+    unregistered: true as const,
+  }),
+  markNotificationRead: async (_token: string, notificationId: string) => {
+    const notification = demoNotifications.find((item) => item.id === notificationId);
+    if (!notification) throw new Error("notification not found");
+    notification.readAt ??= new Date().toISOString();
+    return { ...notification };
+  },
+  moderationReports: async (_token: string) => [...demoReports],
+  updateModerationReport: async (
+    _token: string,
+    reportId: string,
+    input: ModerationReportUpdateInput,
+  ) => {
+    const report = demoReports.find((item) => item.id === reportId);
+    if (!report) throw new Error("report not found");
+    report.status = input.status;
+    if (input.resolutionNote === undefined) {
+      delete report.resolutionNote;
+    } else {
+      report.resolutionNote = input.resolutionNote;
+    }
+    report.updatedAt = new Date().toISOString();
+    return { ...report };
+  },
   messages: async (_token: string, userId: string) =>
-    messages.filter(
-      (message) =>
-        (message.senderId === activeSession.user.id && message.recipientId === userId) ||
-        (message.senderId === userId && message.recipientId === activeSession.user.id),
-    ),
+    messages
+      .filter(
+        (message) =>
+          (message.senderId === activeSession.user.id && message.recipientId === userId) ||
+          (message.senderId === userId && message.recipientId === activeSession.user.id),
+      )
+      .map((message) => {
+        if (message.sharedPost === undefined) return { ...message };
+        const post = posts.find((item) => item.id === message.sharedPost?.id && !item.archivedAt);
+        return {
+          ...message,
+          sharedPost: post
+            ? {
+                id: post.id,
+                authorDisplayName: post.authorDisplayName,
+                sport: post.sport,
+                content: post.content,
+              }
+            : null,
+        };
+      }),
   sendMessage: async (_token: string, userId: string, input: DirectMessageCreateInput) => {
     const message: DirectMessage = {
       id: makeId("message"),
@@ -1156,6 +1276,19 @@ function persistDemoAvatar() {
     else globalThis.localStorage.removeItem("groov-demo-avatar-v1");
   } catch {
     // 저장소를 사용할 수 없는 환경에서는 현재 세션의 프로필 사진을 유지합니다.
+  }
+}
+
+function persistDemoOnboarding() {
+  try {
+    if (!("localStorage" in globalThis)) return;
+    if (demoOnboarding) {
+      globalThis.localStorage.setItem("groov-demo-onboarding-v1", JSON.stringify(demoOnboarding));
+    } else {
+      globalThis.localStorage.removeItem("groov-demo-onboarding-v1");
+    }
+  } catch {
+    // 저장소를 사용할 수 없는 환경에서는 현재 세션의 온보딩 상태를 유지합니다.
   }
 }
 

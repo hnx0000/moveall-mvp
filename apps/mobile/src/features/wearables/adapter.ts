@@ -24,20 +24,35 @@ export type WearableAvailability = {
   reason?: "unsupported-platform" | "native-build-required" | "provider-not-installed";
 };
 
+export type WearableCapabilities = {
+  importWorkouts: boolean;
+  exportWorkouts: boolean;
+  automaticSync: boolean;
+  liveMetrics: boolean;
+};
+
 export interface WearableAdapter {
   readonly provider: HealthProvider;
+  readonly capabilities: WearableCapabilities;
   availability(): Promise<WearableAvailability>;
   requestPermission(permissions?: HealthPermission[]): Promise<boolean>;
   startSession(sport: SportType): AsyncIterable<LiveMetricSample>;
   stopSession(): Promise<void>;
   importRecentWorkouts(since: Date): Promise<WorkoutSessionCreateInput[]>;
+  exportWorkout(workout: WorkoutSessionCreateInput): Promise<boolean>;
 }
 
 export class MockWearableAdapter implements WearableAdapter {
   readonly provider = "mock" as const;
+  readonly capabilities = {
+    importWorkouts: false,
+    exportWorkouts: false,
+    automaticSync: false,
+    liveMetrics: false,
+  } as const;
 
   async availability(): Promise<WearableAvailability> {
-    return { available: true };
+    return { available: false, reason: "unsupported-platform" };
   }
 
   async requestPermission(): Promise<boolean> {
@@ -52,5 +67,9 @@ export class MockWearableAdapter implements WearableAdapter {
 
   async importRecentWorkouts(): Promise<WorkoutSessionCreateInput[]> {
     return [];
+  }
+
+  async exportWorkout(): Promise<boolean> {
+    return false;
   }
 }

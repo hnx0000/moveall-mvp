@@ -83,14 +83,14 @@ export default function ConsentScreen() {
         />
         <ConsentRow
           label="운동·건강정보"
-          description="심박, 걸음, 운동 세션 동기화"
+          description="심박, 걸음, 완료 운동 양방향 동기화"
           enabled={options.healthDataAccepted}
           onPress={() => setOptions((v) => ({ ...v, healthDataAccepted: !v.healthDataAccepted }))}
           styles={styles}
         />
         <ConsentRow
           label="운동 중 위치"
-          description="GPS 경로·거리·고도 기록"
+          description="운동 중 GPS 경로·거리·고도, 백그라운드 기록"
           enabled={options.locationAccepted}
           onPress={() => setOptions((v) => ({ ...v, locationAccepted: !v.locationAccepted }))}
           styles={styles}

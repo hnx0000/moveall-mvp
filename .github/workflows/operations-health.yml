@@ -1,0 +1,31 @@
+name: GROOV service health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    if: github.event_name == 'workflow_dispatch' || vars.GROOV_HEALTH_MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check API and database readiness
+        env:
+          GROOV_API_HEALTH_URL: ${{ vars.GROOV_API_HEALTH_URL }}
+        run: pnpm --filter @moveall/api operations:health

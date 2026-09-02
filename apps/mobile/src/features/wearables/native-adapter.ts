@@ -12,9 +12,16 @@ export class NativeHealthAdapter implements WearableAdapter {
   private activeSessionId: string | null = null;
   private stopped = false;
   private readonly bridge: NativeHealthBridge | null;
+  readonly capabilities;
 
   constructor(readonly provider: "apple-health" | "health-connect") {
     this.bridge = nativeHealthBridge(provider);
+    this.capabilities = {
+      importWorkouts: Boolean(this.bridge),
+      exportWorkouts: Boolean(this.bridge),
+      automaticSync: Boolean(this.bridge),
+      liveMetrics: Boolean(this.bridge?.supportsLiveMetrics),
+    };
   }
 
   async availability(): Promise<WearableAvailability> {
@@ -32,6 +39,11 @@ export class NativeHealthAdapter implements WearableAdapter {
 
   async *startSession(sport: SportType): AsyncIterable<LiveMetricSample> {
     if (!this.bridge) throw new Error("Health provider native build is required");
+    if (!this.bridge.supportsLiveMetrics) {
+      throw new Error(
+        "Health hub imports completed workouts; live watch metrics require a watch app",
+      );
+    }
     this.stopped = false;
     this.activeSessionId = await this.bridge.startWorkout(sport);
     while (!this.stopped && this.activeSessionId) {
@@ -51,5 +63,10 @@ export class NativeHealthAdapter implements WearableAdapter {
   async importRecentWorkouts(since: Date): Promise<WorkoutSessionCreateInput[]> {
     if (!this.bridge || !(await this.bridge.isAvailable())) return [];
     return this.bridge.readWorkouts(since.toISOString(), new Date().toISOString());
+  }
+
+  async exportWorkout(workout: WorkoutSessionCreateInput): Promise<boolean> {
+    if (!this.bridge || !(await this.bridge.isAvailable())) return false;
+    return this.bridge.writeWorkout(workout);
   }
 }

@@ -1,4 +1,4 @@
-import type { DirectMessage } from "@moveall/contracts";
+import { sportLabels, type DirectMessage } from "@moveall/contracts";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -16,6 +16,7 @@ import {
 import { ApiError, api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { useAppTheme } from "../../src/theme-context";
+import { TapShareIcon } from "../../src/components/tap-icons";
 
 export default function MessagePage() {
   const { userId, name } = useLocalSearchParams<{ userId: string; name?: string }>();
@@ -30,6 +31,7 @@ export default function MessagePage() {
   const load = useCallback(async () => {
     if (!session || !userId) return;
     try {
+      setError(null);
       setMessages(await api.messages(session.accessToken, userId));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "탭톡을 불러오지 못했습니다.");
@@ -83,9 +85,47 @@ export default function MessagePage() {
                       : { backgroundColor: colors.surfaceMuted, alignSelf: "flex-start" },
                   ]}
                 >
-                  <Text style={[styles.messageText, { color: mine ? "#FFFFFF" : colors.ink }]}>
-                    {message.content}
-                  </Text>
+                  {message.sharedPost !== undefined ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        message.sharedPost
+                          ? `${message.sharedPost.authorDisplayName}님의 공유 피드 보기`
+                          : "공유 피드를 볼 수 없음"
+                      }
+                      disabled={!message.sharedPost}
+                      onPress={() => {
+                        if (message.sharedPost)
+                          router.push({ pathname: "/", params: { post: message.sharedPost.id } });
+                      }}
+                      style={styles.sharedCard}
+                    >
+                      <View style={styles.sharedHeading}>
+                        <TapShareIcon color={colors.primary} size={20} />
+                        <Text style={styles.sharedLabel}>공유한 피드</Text>
+                      </View>
+                      {message.sharedPost ? (
+                        <>
+                          <Text style={styles.sharedAuthor}>
+                            {message.sharedPost.authorDisplayName} ·{" "}
+                            {sportLabels[message.sharedPost.sport]}
+                          </Text>
+                          <Text numberOfLines={4} style={styles.sharedContent}>
+                            {message.sharedPost.content}
+                          </Text>
+                          <Text style={styles.sharedOpen}>피드 보기 →</Text>
+                        </>
+                      ) : (
+                        <Text style={styles.sharedContent}>
+                          삭제·보관되었거나 볼 수 없는 피드입니다.
+                        </Text>
+                      )}
+                    </Pressable>
+                  ) : (
+                    <Text style={[styles.messageText, { color: mine ? "#FFFFFF" : colors.ink }]}>
+                      {message.content}
+                    </Text>
+                  )}
                   <Text
                     style={[styles.time, { color: mine ? "rgba(255,255,255,0.72)" : colors.muted }]}
                   >
@@ -148,6 +188,18 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     messages: { paddingVertical: 14, gap: 8 },
     bubble: { maxWidth: "78%", padding: 12, borderRadius: 12, gap: 4 },
     mine: { alignSelf: "flex-end", backgroundColor: colors.primary },
+    sharedCard: {
+      minWidth: 180,
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      padding: 12,
+      gap: 8,
+    },
+    sharedHeading: { flexDirection: "row", gap: 6, alignItems: "center" },
+    sharedLabel: { color: colors.primary, fontSize: 11, fontWeight: "700" },
+    sharedAuthor: { color: colors.ink, fontSize: 12, fontWeight: "700" },
+    sharedContent: { color: colors.muted, fontSize: 12, lineHeight: 19 },
+    sharedOpen: { color: colors.primary, fontSize: 11, fontWeight: "700" },
     messageText: { fontSize: 11, lineHeight: 17 },
     time: { fontSize: 6 },
     empty: { textAlign: "center", paddingVertical: 70, fontSize: 10 },

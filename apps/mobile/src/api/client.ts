@@ -1,10 +1,14 @@
 import type {
   AccountDeletionInput,
   AccountSession,
+  AppleLoginInput,
+  AuthorizationCodeLoginInput,
   ApiFailure,
   ApiSuccess,
   AuthSession,
   CommentCreateInput,
+  ContentReport,
+  ContentReportCreateInput,
   ConsentState,
   ConsentUpdateInput,
   DirectMessage,
@@ -19,6 +23,9 @@ import type {
   Medal,
   MediaUploadRequestInput,
   MediaUploadTicket,
+  ModerationReportUpdateInput,
+  OnboardingInput,
+  OnboardingProfile,
   PasswordChangeInput,
   PostCreateInput,
   PostShareResult,
@@ -26,6 +33,7 @@ import type {
   ProfileUpdateInput,
   PublicMemberProfile,
   PublicUser,
+  PushDeviceRegistrationInput,
   RegisterInput,
   RefreshSessionInput,
   Routine,
@@ -36,6 +44,7 @@ import type {
   SportSummary,
   SportType,
   UserProfile,
+  UserNotification,
   WorkoutSession,
   WorkoutSessionCreateInput,
   WorkoutSessionUpdateInput,
@@ -95,6 +104,21 @@ const liveApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  appleLogin: (input: AppleLoginInput) =>
+    request<AuthSession>("/v1/auth/apple", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  kakaoLogin: (input: AuthorizationCodeLoginInput) =>
+    request<AuthSession>("/v1/auth/kakao", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  naverLogin: (input: AuthorizationCodeLoginInput) =>
+    request<AuthSession>("/v1/auth/naver", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   devLogin: () =>
     request<AuthSession>("/v1/auth/development", {
       method: "POST",
@@ -108,12 +132,27 @@ const liveApi = {
   logout: (token: string) =>
     request<{ loggedOut: true }>("/v1/auth/logout", { token, method: "POST" }),
   me: (token: string) => request<AuthSession["user"]>("/v1/auth/me", { token }),
-  authProviders: () => request<{ google: boolean; development: boolean }>("/v1/auth/providers"),
+  authProviders: () =>
+    request<{
+      google: boolean;
+      apple: boolean;
+      kakao: boolean;
+      naver: boolean;
+      development: boolean;
+    }>("/v1/auth/providers"),
   profile: (token: string) => request<UserProfile>("/v1/users/me/profile", { token }),
   updateProfile: (token: string, input: ProfileUpdateInput) =>
     request<UserProfile>("/v1/users/me/profile", {
       token,
       method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  onboarding: (token: string) =>
+    request<OnboardingProfile | null>("/v1/users/me/onboarding", { token }),
+  saveOnboarding: (token: string, input: OnboardingInput) =>
+    request<OnboardingProfile>("/v1/users/me/onboarding", {
+      token,
+      method: "PUT",
       body: JSON.stringify(input),
     }),
   accountSessions: (token: string) => request<AccountSession[]>("/v1/account/sessions", { token }),
@@ -164,7 +203,9 @@ const liveApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  feed: () => request<FeedPost[]>("/v1/feed"),
+  feed: (token?: string) => request<FeedPost[]>("/v1/feed", token ? { token } : undefined),
+  post: (postId: string, token?: string) =>
+    request<FeedPost>(`/v1/posts/${postId}`, token ? { token } : undefined),
   routines: (token: string) => request<Routine[]>("/v1/routines/me", { token }),
   createRoutine: (token: string, input: RoutineCreateInput) =>
     request<Routine>("/v1/routines", {
@@ -201,8 +242,12 @@ const liveApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  sharePost: (token: string, postId: string) =>
-    request<PostShareResult>(`/v1/posts/${postId}/share`, { token, method: "POST" }),
+  sharePost: (token: string, postId: string, recipientIds: string[]) =>
+    request<PostShareResult>(`/v1/posts/${postId}/share`, {
+      token,
+      method: "POST",
+      body: JSON.stringify({ recipientIds }),
+    }),
   workouts: (token: string) => request<WorkoutSession[]>("/v1/workout-sessions/me", { token }),
   createWorkoutSession: (token: string, input: WorkoutSessionCreateInput) =>
     request<WorkoutSession>("/v1/workout-sessions", {
@@ -262,6 +307,36 @@ const liveApi = {
     request<{ blocked: true }>(`/v1/users/${userId}/block`, {
       token,
       method: "POST",
+    }),
+  createReport: (token: string, input: ContentReportCreateInput) =>
+    request<ContentReport>("/v1/reports", {
+      token,
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  notifications: (token: string) => request<UserNotification[]>("/v1/notifications", { token }),
+  markNotificationRead: (token: string, notificationId: string) =>
+    request<UserNotification>(`/v1/notifications/${notificationId}/read`, {
+      token,
+      method: "PATCH",
+    }),
+  registerPushDevice: (token: string, input: PushDeviceRegistrationInput) =>
+    request<{ id: string; platform: "ios" | "android"; registeredAt: string }>(
+      "/v1/notifications/push-device",
+      { token, method: "PUT", body: JSON.stringify(input) },
+    ),
+  unregisterPushDevice: (token: string, pushToken: string) =>
+    request<{ unregistered: true }>("/v1/notifications/push-device", {
+      token,
+      method: "DELETE",
+      body: JSON.stringify({ token: pushToken }),
+    }),
+  moderationReports: (token: string) => request<ContentReport[]>("/v1/admin/reports", { token }),
+  updateModerationReport: (token: string, reportId: string, input: ModerationReportUpdateInput) =>
+    request<ContentReport>(`/v1/admin/reports/${reportId}`, {
+      token,
+      method: "PATCH",
+      body: JSON.stringify(input),
     }),
   messages: (token: string, userId: string) =>
     request<DirectMessage[]>(`/v1/messages/${userId}`, { token }),
