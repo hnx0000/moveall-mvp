@@ -7,6 +7,19 @@ const FALLBACK_CENTER: MapPoint = { latitude: 37.5284, longitude: 126.9343 };
 const EMPTY_PLACES: MapPlace[] = [];
 const EMPTY_POINTS: MapPoint[] = [];
 
+const SIMPLIFIED_MAP_STYLE = [
+  { elementType: "geometry", stylers: [{ saturation: -65 }] },
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] },
+  { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+  { featureType: "road", elementType: "labels.text", stylers: [{ visibility: "on" }] },
+  {
+    featureType: "administrative.locality",
+    elementType: "labels.text",
+    stylers: [{ visibility: "on" }],
+  },
+];
+
 const MINIMAL_MAP_STYLE = [
   { elementType: "geometry", stylers: [{ color: "#E8E7E2" }] },
   { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
@@ -35,6 +48,7 @@ export function WorkoutMap({
   compact = false,
   height,
   minimal = true,
+  simplified = false,
   staticMode = false,
   showBadge = true,
   backgroundColor = "#E8E7E2",
@@ -87,7 +101,11 @@ export function WorkoutMap({
         style={styles.map}
         toolbarEnabled={false}
         zoomEnabled={!staticMode}
-        {...(minimal ? { customMapStyle: MINIMAL_MAP_STYLE } : {})}
+        {...(simplified
+          ? { customMapStyle: SIMPLIFIED_MAP_STYLE }
+          : minimal
+            ? { customMapStyle: MINIMAL_MAP_STYLE }
+            : {})}
         {...(onReady ? { onMapReady: onReady } : {})}
         {...(onPointPress && !staticMode
           ? { onPress: (event) => onPointPress(event.nativeEvent.coordinate) }
@@ -119,6 +137,11 @@ export function WorkoutMap({
             strokeColor={primaryColor}
             strokeWidth={6}
           />
+        ) : null}
+        {!points.length && currentPoint ? (
+          <Marker coordinate={currentPoint} title="현재 위치">
+            <Endpoint color={primaryColor} label="●" />
+          </Marker>
         ) : null}
         {points[0] ? (
           <Marker coordinate={points[0]}>

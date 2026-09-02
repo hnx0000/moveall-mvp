@@ -20,6 +20,7 @@ import {
 } from "react";
 import { Platform } from "react-native";
 import { api } from "../api/client";
+import { isOnboardingPending } from "./onboarding-readiness";
 
 const storageKey = "moveall-auth-session";
 const authenticationBypass = process.env.EXPO_PUBLIC_LOGIN_REQUIRED !== "true";
@@ -72,6 +73,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [restoring, setRestoring] = useState(true);
   const [onboarding, setOnboarding] = useState<OnboardingProfile | null>(null);
   const [onboardingLoading, setOnboardingLoading] = useState(true);
+  const [onboardingResolvedFor, setOnboardingResolvedFor] = useState<string | null>(null);
+  const onboardingSessionKey = session ? `${session.user.id}:${session.accessToken}` : null;
+  // A restored/changed session must not redirect before its own onboarding request settles.
+  const awaitingOnboarding = isOnboardingPending(
+    onboardingLoading,
+    onboardingResolvedFor,
+    onboardingSessionKey,
+  );
   const persist = useCallback(async (nextSession: AuthSession | null) => {
     setSession(nextSession);
     await writeSession(nextSession);
@@ -114,6 +123,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     let active = true;
     if (!session) {
       setOnboarding(null);
+      setOnboardingResolvedFor(null);
       setOnboardingLoading(false);
       return () => {
         active = false;
@@ -130,7 +140,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (active) setOnboarding(null);
       })
       .finally(() => {
-        if (active) setOnboardingLoading(false);
+        if (active) {
+          setOnboardingResolvedFor(`${session.user.id}:${session.accessToken}`);
+          setOnboardingLoading(false);
+        }
       });
 
     return () => {
@@ -158,7 +171,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       session,
       restoring,
       onboarding,
-      onboardingLoading,
+      onboardingLoading: awaitingOnboarding,
       login: async (input) => persist(await api.login(input)),
       register: async (input) => persist(await api.register(input)),
       loginWithGoogle: async (idToken) => persist(await api.googleLogin({ idToken })),
@@ -179,7 +192,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         await persist(null);
       },
     }),
-    [onboarding, onboardingLoading, persist, restoring, session],
+    [onboarding, awaitingOnboarding, persist, restoring, session],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

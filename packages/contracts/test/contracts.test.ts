@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CommentCreateInputSchema,
   KnowledgeFeedbackCreateInputSchema,
   MediaUploadRequestInputSchema,
   NicknameSchema,
@@ -13,6 +14,59 @@ import {
 } from "../src/index.js";
 
 describe("shared API contracts", () => {
+  it("validates bounded GPS coordinates without requiring routes on historical/manual workouts", () => {
+    const workout = {
+      sport: "running",
+      startedAt: "2026-09-03T00:00:00Z",
+      endedAt: "2026-09-03T01:00:00Z",
+      perceivedExertion: 5,
+    };
+    expect(WorkoutSessionCreateInputSchema.safeParse(workout).success).toBe(true);
+    const point = {
+      latitude: 37.5,
+      longitude: 127,
+      timestamp: 1000,
+      accuracy: 5,
+      altitude: null,
+      breakBefore: true,
+    };
+    expect(
+      WorkoutSessionCreateInputSchema.parse({ ...workout, routePoints: [point] }).routePoints,
+    ).toEqual([point]);
+    for (const invalid of [
+      { ...point, latitude: 100 },
+      { ...point, longitude: -181 },
+      { ...point, timestamp: -1 },
+      { ...point, accuracy: -5 },
+    ]) {
+      expect(
+        WorkoutSessionCreateInputSchema.safeParse({ ...workout, routePoints: [invalid] }).success,
+      ).toBe(false);
+    }
+    expect(
+      WorkoutSessionCreateInputSchema.safeParse({
+        ...workout,
+        routePoints: Array.from({ length: 30001 }, () => point),
+      }).success,
+    ).toBe(false);
+  });
+  it("accepts comments and replies, rejects empty content and invalid parent IDs", () => {
+    expect(CommentCreateInputSchema.parse({ content: "  멋져요!  " })).toEqual({
+      content: "멋져요!",
+    });
+    expect(
+      CommentCreateInputSchema.safeParse({
+        content: "답글",
+        parentCommentId: "bb7a5c2d-b8f8-4aa2-b287-a1b027e545de",
+      }).success,
+    ).toBe(true);
+    expect(
+      CommentCreateInputSchema.safeParse({ content: "답글", parentCommentId: "invalid" }).success,
+    ).toBe(false);
+    expect(CommentCreateInputSchema.safeParse({ content: "   " }).success).toBe(false);
+    expect(CommentCreateInputSchema.safeParse({ content: "a".repeat(501) }).success).toBe(false);
+  });
+
   it("accepts a valid routine", () => {
     const result = RoutineCreateInputSchema.safeParse({
       title: "주 3회 전신",

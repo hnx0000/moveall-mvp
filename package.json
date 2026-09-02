@@ -15,7 +15,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "pnpm --filter @moveall/contracts build && pnpm --filter @moveall/api typecheck && pnpm --filter @moveall/mobile typecheck",
-    "test": "pnpm --filter @moveall/contracts test && pnpm --filter @moveall/api test",
+    "test": "pnpm --filter @moveall/contracts test && pnpm --filter @moveall/api test && pnpm --filter @moveall/mobile test",
     "build": "pnpm --filter @moveall/contracts build && pnpm --filter @moveall/api build && pnpm --filter @moveall/mobile build",
     "build:site": "node scripts/build-site.mjs",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm security:secrets",

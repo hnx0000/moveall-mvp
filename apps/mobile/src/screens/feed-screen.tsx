@@ -1,21 +1,7 @@
-import {
-  sportLabels,
-  sportValues,
-  type FeedPost,
-  type SportType,
-  type WorkoutSession,
-} from "@moveall/contracts";
-import * as ImagePicker from "expo-image-picker";
+import { sportLabels, type FeedPost, type SportType } from "@moveall/contracts";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import {
-  BarChart3,
-  Bookmark,
-  Camera,
-  Heart,
-  Image as ImageIcon,
-  MessageCircle,
-} from "lucide-react-native";
+import { Bookmark, Heart, MessageCircle } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -23,7 +9,6 @@ import {
   ImageBackground,
   Modal,
   PanResponder,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -53,30 +38,21 @@ import taeoStory01 from "../../assets/images/people/taeo/story-01.jpg";
 import yunaStory01 from "../../assets/images/people/yuna/story-01.jpg";
 import { api } from "../../src/api/client";
 import { TapShareSheet } from "../components/tap-share-sheet";
+import { PostComments } from "../components/post-comments";
 import { useAuth } from "../../src/auth/auth-context";
 import { demoAvatarSources } from "../../src/demo-avatars";
-import {
-  BellButton,
-  Card,
-  CenterDialog,
-  PrimaryButton,
-  Screen,
-  StatePanel,
-} from "../../src/components/ui";
+import { BellButton, CenterDialog, Screen, StatePanel } from "../../src/components/ui";
 import {
   StoryCanvas,
   type StoryBackground,
-  type StoryLayer,
   type StoryLayout,
-  type StoryMetricKey,
-  type StoryScale,
-  type StoryVisibility,
 } from "../../src/components/story-canvas";
 import { type MapPoint } from "../../src/components/workout-map.types";
 import { TapShareIcon } from "../../src/components/tap-icons";
 import { saveRecordGoal } from "../../src/goals";
 import { useAsyncData } from "../../src/hooks/use-async-data";
-import { uploadMediaAsset } from "../../src/media/upload";
+import { RecordStudio } from "../components/record-studio";
+import { PostArtwork } from "../components/post-artwork";
 import { fonts, gradients, radius, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
@@ -466,11 +442,7 @@ export default function FeedScreen() {
         : api.feed(session?.accessToken),
     [session?.accessToken, sharedPostId],
   );
-  const { data: posts, error, loading, reload } = useAsyncData(loader);
-  const [content, setContent] = useState("");
-  const [sport, setSport] = useState<SportType>("running");
-  const [posting, setPosting] = useState(false);
-  const [postError, setPostError] = useState<string | null>(null);
+  const { data: posts, setData: setPosts, error, loading, reload } = useAsyncData(loader);
   const [selectedStoryOwnerId, setSelectedStoryOwnerId] = useState<string | null>(null);
   const [storyIndex, setStoryIndex] = useState(0);
   const [storyCanvasWidth, setStoryCanvasWidth] = useState(0);
@@ -493,15 +465,17 @@ export default function FeedScreen() {
       }),
     [],
   );
-  const [composerOpen, setComposerOpen] = useState(false);
   const [cheeredPosts, setCheeredPosts] = useState<string[]>([]);
   const [openComments, setOpenComments] = useState<string[]>([]);
   const [bookmarkedPosts, setBookmarkedPosts] = useState<string[]>([]);
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
-  const [commentBusyIds, setCommentBusyIds] = useState<string[]>([]);
+  const [deleteTargetPost, setDeleteTargetPost] = useState<FeedPost | null>(null);
+  const [deletingPost, setDeletingPost] = useState(false);
+  const deleteBusyRef = useRef(false);
   const [sharedCounts, setSharedCounts] = useState<Record<string, number>>({});
   const [shareTargetPost, setShareTargetPost] = useState<FeedPost | null>(null);
   const [feedNotice, setFeedNotice] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshBusyRef = useRef(false);
   const [hashtagSearch, setHashtagSearch] = useState("");
   const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
   const [goalPost, setGoalPost] = useState<FeedPost | null>(null);
@@ -511,34 +485,40 @@ export default function FeedScreen() {
   const [currentAvatarUri, setCurrentAvatarUri] = useState<string | null>(() =>
     readPersistedCurrentAvatar(),
   );
-  const [draftPhoto, setDraftPhoto] = useState<string | null>(null);
-  const [draftPhotoAsset, setDraftPhotoAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
-  const [todayWorkoutOptions, setTodayWorkoutOptions] = useState<WorkoutSession[]>([]);
-  const [workoutPickerOpen, setWorkoutPickerOpen] = useState(false);
-  const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
-  const [mediaBusy, setMediaBusy] = useState(false);
-  const [storyBackground, setStoryBackground] = useState<StoryBackground>("photo");
-  const [storyLayers, setStoryLayers] = useState<StoryLayer[]>(["record", "route", "points"]);
-  const [storyLayout, setStoryLayout] = useState<StoryLayout>("editorial");
-  const [storyScale, setStoryScale] = useState<StoryScale>("standard");
-  const [storyMetricOrder, setStoryMetricOrder] = useState<StoryMetricKey[]>([
-    "distance",
-    "duration",
-    "pace",
-  ]);
-  const [storyText, setStoryText] = useState("");
-  const [storyDistance, setStoryDistance] = useState("0.00");
-  const [storyDuration, setStoryDuration] = useState("00:00");
-  const [storyPace, setStoryPace] = useState("--'--\"");
-  const [storyPoints, setStoryPoints] = useState(0);
-  const [storyRoute, setStoryRoute] = useState<MapPoint[]>([]);
-  const [storyVisibility, setStoryVisibility] = useState<StoryVisibility>({
-    distance: true,
-    duration: true,
-    pace: true,
-    route: true,
-    points: true,
-  });
+  const refreshFeed = useCallback(async () => {
+    if (refreshBusyRef.current) return;
+    refreshBusyRef.current = true;
+    setRefreshing(true);
+    try {
+      const requests: Promise<unknown>[] = [
+        reload().then((success) => {
+          if (!success) throw new Error("피드를 불러오지 못했습니다.");
+          setSharedCounts({});
+        }),
+      ];
+      if (session) {
+        requests.push(
+          api
+            .profile(session.accessToken)
+            .then((profile) =>
+              setCurrentAvatarUri(profile.avatarDataUri ?? readPersistedCurrentAvatar()),
+            ),
+          api
+            .socialSummary(session.accessToken)
+            .then((summary) => setFollowingIds(summary.following.map((person) => person.id))),
+        );
+      }
+      const results = await Promise.allSettled(requests);
+      if (results.some((result) => result.status === "rejected")) {
+        setFeedNotice(
+          "일부 정보를 새로 불러오지 못했습니다. 기존 내용은 유지됩니다. 다시 당겨서 시도해 주세요.",
+        );
+      }
+    } finally {
+      refreshBusyRef.current = false;
+      setRefreshing(false);
+    }
+  }, [reload, session]);
   const selectedStoryOwner = useMemo(
     () => storyOwners.find((owner) => owner.id === selectedStoryOwnerId) ?? null,
     [selectedStoryOwnerId],
@@ -639,46 +619,6 @@ export default function FeedScreen() {
     return () => clearTimeout(timer);
   }, [selectedStoryOwner, selectedStoryOwnerId, storyIndex]);
 
-  useEffect(() => {
-    if (typeof params.draft === "string" && params.draft) {
-      setContent(params.draft);
-      setComposerOpen(true);
-    }
-    if (typeof params.sport === "string") {
-      const selected = sportValues.find((item) => item === params.sport);
-      if (selected) setSport(selected);
-    }
-    if (typeof params.photo === "string" && params.photo) setDraftPhoto(params.photo);
-    if (
-      params.background === "photo" ||
-      params.background === "map" ||
-      params.background === "ink"
-    ) {
-      setStoryBackground(params.background);
-    }
-    if (typeof params.layers === "string") setStoryLayers(parseLayers(params.layers));
-    if (typeof params.storyText === "string") setStoryText(params.storyText);
-    if (typeof params.distance === "string") setStoryDistance(params.distance);
-    if (typeof params.duration === "string") setStoryDuration(params.duration);
-    if (typeof params.pace === "string") setStoryPace(params.pace);
-    if (typeof params.points === "string") setStoryPoints(Number(params.points) || 0);
-    if (typeof params.route === "string") setStoryRoute(parseRoute(params.route));
-    if (typeof params.privacy === "string") setStoryVisibility(parseVisibility(params.privacy));
-  }, [
-    params.background,
-    params.distance,
-    params.draft,
-    params.duration,
-    params.layers,
-    params.pace,
-    params.photo,
-    params.points,
-    params.privacy,
-    params.route,
-    params.sport,
-    params.storyText,
-  ]);
-
   useFocusEffect(
     useCallback(() => {
       if (!session) {
@@ -710,167 +650,15 @@ export default function FeedScreen() {
     }, [reload, session]),
   );
 
-  useEffect(() => {
-    if (!session) return;
-    void api
-      .workouts(session.accessToken)
-      .then((items) =>
-        setTodayWorkoutOptions(
-          items.filter((workout) => isSameLocalDay(new Date(workout.endedAt), new Date())),
-        ),
-      )
-      .catch(() => setTodayWorkoutOptions([]));
-  }, [session]);
-
-  async function pickComposerMedia(source: "camera" | "library") {
-    setMediaBusy(true);
-    setPostError(null);
-    try {
-      if (Platform.OS !== "web") {
-        const permission =
-          source === "camera"
-            ? await ImagePicker.requestCameraPermissionsAsync()
-            : await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!permission.granted) {
-          setPostError(
-            source === "camera"
-              ? "사진 촬영을 위해 카메라 권한을 허용해 주세요."
-              : "갤러리를 열기 위해 사진 권한을 허용해 주세요.",
-          );
-          return;
-        }
-      }
-      const result =
-        source === "camera"
-          ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.9 })
-          : await ImagePicker.launchImageLibraryAsync({
-              allowsMultipleSelection: false,
-              mediaTypes: ["images"],
-              quality: 0.9,
-              selectionLimit: 1,
-            });
-      if (!result.canceled && result.assets[0]?.uri) {
-        setDraftPhoto(result.assets[0].uri);
-        setDraftPhotoAsset(result.assets[0]);
-        setStoryBackground("photo");
-        setStoryLayers((current) =>
-          current.includes("record") ? current : (["record", ...current] as StoryLayer[]),
-        );
-        setComposerOpen(true);
-      }
-    } catch (caught) {
-      setPostError(caught instanceof Error ? caught.message : "사진을 불러오지 못했습니다.");
-    } finally {
-      setMediaBusy(false);
-    }
-  }
-
-  function applyWorkoutToComposer(workout: WorkoutSession) {
-    const durationSeconds = Math.max(
-      1,
-      Math.round((Date.parse(workout.endedAt) - Date.parse(workout.startedAt)) / 1000),
-    );
-    const distanceKm = Number(workout.metrics.distanceKm ?? 0);
-    const distanceM = Number(workout.metrics.distanceM ?? distanceKm * 1000);
-    const paceSeconds = Number(workout.metrics.paceSeconds ?? workout.metrics.swimPaceSeconds ?? 0);
-    setSport(workout.sport);
-    setSelectedWorkoutId(workout.id);
-    setStoryDistance(
-      workout.sport === "swimming" || workout.sport === "diving"
-        ? String(Math.round(distanceM || Number(workout.metrics.dynamicDistanceM ?? 0)))
-        : distanceKm.toFixed(2),
-    );
-    setStoryDuration(formatElapsed(durationSeconds));
-    setStoryPace(
-      workout.sport === "cycling"
-        ? `${Number(workout.metrics.averageSpeedKmh ?? 0).toFixed(1)} KM/H`
-        : formatPace(paceSeconds),
-    );
-    setStoryPoints(Math.round(Number(workout.metrics.calories ?? 0)));
-    setStoryBackground(draftPhoto ? "photo" : "ink");
-    setStoryLayers(["record", "points"]);
-    setStoryLayout("editorial");
-    setStoryScale("standard");
-    setStoryMetricOrder(["distance", "duration", "pace"]);
-    setWorkoutPickerOpen(false);
-    setComposerOpen(true);
-  }
-
-  async function submitPost() {
-    if (!session || !content.trim()) return;
-    setPosting(true);
-    setPostError(null);
-    try {
-      const visibleStats = hasStoryDraft
-        ? [
-            storyVisibility.distance ? storyDistance : null,
-            storyVisibility.duration ? storyDuration : null,
-            storyVisibility.pace ? storyPace : null,
-            storyVisibility.points ? `${storyPoints}P` : null,
-          ].filter(Boolean)
-        : [];
-      const publicContent = visibleStats.length
-        ? `${content.trim()}\n${visibleStats.join(" · ")}`
-        : content.trim();
-      let mediaId: string | undefined;
-      if (draftPhoto && process.env.EXPO_PUBLIC_LOGIN_REQUIRED === "true") {
-        const source = await fetch(draftPhoto);
-        const sourceBlob = await source.blob();
-        const detectedType = draftPhotoAsset?.mimeType ?? sourceBlob.type;
-        const contentType = (
-          detectedType === "image/png" ||
-          detectedType === "image/webp" ||
-          detectedType === "image/jpeg"
-            ? detectedType
-            : "image/jpeg"
-        ) as "image/jpeg" | "image/png" | "image/webp";
-        const uploaded = await uploadMediaAsset({
-          token: session.accessToken,
-          uri: draftPhoto,
-          kind: "post-image",
-          contentType,
-          byteSize: draftPhotoAsset?.fileSize ?? sourceBlob.size,
-        });
-        mediaId = uploaded.mediaId;
-      }
-      await api.createPost(session.accessToken, {
-        sport,
-        content: publicContent,
-        ...(mediaId ? { mediaId } : {}),
-        ...(typeof params.workoutSessionId === "string"
-          ? { workoutSessionId: params.workoutSessionId }
-          : {}),
-      });
-      setContent("");
-      setDraftPhoto(null);
-      setDraftPhotoAsset(null);
-      setSelectedWorkoutId(null);
-      setWorkoutPickerOpen(false);
-      setStoryRoute([]);
-      setStoryText("");
-      setComposerOpen(false);
-      router.replace("/");
-      await reload();
-    } catch (caught) {
-      setPostError(caught instanceof Error ? caught.message : "게시하지 못했습니다.");
-    } finally {
-      setPosting(false);
-    }
-  }
-
   function toggle(id: string, current: string[], update: (next: string[]) => void) {
     update(current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-  }
-
-  function toggleStoryVisibility(key: keyof StoryVisibility) {
-    setStoryVisibility((current) => ({ ...current, [key]: !current[key] }));
   }
 
   async function toggleFollow(userId: string) {
     if (!session || followBusyIds.includes(userId)) return;
     const following = followingIds.includes(userId);
     setFollowBusyIds((current) => [...current, userId]);
-    setPostError(null);
+    setFeedNotice(null);
     try {
       if (following) await api.unfollow(session.accessToken, userId);
       else await api.follow(session.accessToken, userId);
@@ -878,26 +666,38 @@ export default function FeedScreen() {
         following ? current.filter((id) => id !== userId) : [...current, userId],
       );
     } catch (caught) {
-      setPostError(caught instanceof Error ? caught.message : "팔로우 상태를 바꾸지 못했습니다.");
+      setFeedNotice(caught instanceof Error ? caught.message : "팔로우 상태를 바꾸지 못했습니다.");
     } finally {
       setFollowBusyIds((current) => current.filter((id) => id !== userId));
     }
   }
 
-  async function submitComment(postId: string) {
-    if (!session || commentBusyIds.includes(postId)) return;
-    const content = commentDrafts[postId]?.trim();
-    if (!content) return;
-    setCommentBusyIds((current) => [...current, postId]);
-    setFeedNotice(null);
+  async function confirmDeletePost() {
+    if (
+      !session ||
+      !deleteTargetPost ||
+      deleteTargetPost.userId !== session.user.id ||
+      deleteBusyRef.current
+    )
+      return;
+    const postId = deleteTargetPost.id;
+    deleteBusyRef.current = true;
+    setDeletingPost(true);
     try {
-      await api.createComment(session.accessToken, postId, { content });
-      setCommentDrafts((current) => ({ ...current, [postId]: "" }));
-      await reload();
+      await api.deletePost(session.accessToken, postId);
+      setPosts((current) => current?.filter((post) => post.id !== postId) ?? null);
+      setDeleteTargetPost(null);
+      setFeedNotice("게시물을 삭제했습니다. 원본 운동 기록은 그대로 남아 있습니다.");
     } catch (caught) {
-      setFeedNotice(caught instanceof Error ? caught.message : "댓글을 등록하지 못했습니다.");
+      setDeleteTargetPost(null);
+      setFeedNotice(
+        caught instanceof Error
+          ? caught.message
+          : "게시물을 삭제하지 못했습니다. 다시 시도해 주세요.",
+      );
     } finally {
-      setCommentBusyIds((current) => current.filter((id) => id !== postId));
+      deleteBusyRef.current = false;
+      setDeletingPost(false);
     }
   }
 
@@ -949,11 +749,6 @@ export default function FeedScreen() {
     setGoalPrivate(false);
   }
 
-  const hasStoryDraft =
-    draftPhoto !== null ||
-    selectedWorkoutId !== null ||
-    storyRoute.length > 1 ||
-    typeof params.background === "string";
   const normalizedHashtag = (activeHashtag ?? hashtagSearch.trim()).replace(/^#/, "").toLowerCase();
   const visiblePosts = posts?.filter(
     (post) =>
@@ -966,6 +761,8 @@ export default function FeedScreen() {
     <Screen
       key={sharedPostId || "feed"}
       title=""
+      onRefresh={refreshFeed}
+      refreshing={refreshing}
       action={
         <BellButton
           label="피드 알림 확인"
@@ -978,6 +775,15 @@ export default function FeedScreen() {
         onClose={() => setFeedNotice(null)}
         title="안내"
         visible={feedNotice !== null}
+      />
+      <CenterDialog
+        visible={deleteTargetPost !== null}
+        title="게시물을 삭제할까요?"
+        message="이 게시물과 댓글·답글이 함께 삭제되며 되돌릴 수 없습니다. 연결된 원본 운동 기록은 삭제되지 않습니다."
+        confirmLabel={deletingPost ? "삭제 중…" : "삭제"}
+        busy={deletingPost}
+        onClose={() => setDeleteTargetPost(null)}
+        onConfirm={() => void confirmDeletePost()}
       />
 
       {shareTargetPost ? (
@@ -1197,310 +1003,15 @@ export default function FeedScreen() {
             })}
           </ScrollView>
 
-          <Card style={styles.composer}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setComposerOpen(true)}
-              style={styles.composerPrompt}
-            >
-              <View style={styles.miniAvatar}>
-                {currentAvatarUri ? (
-                  <Image source={{ uri: currentAvatarUri }} style={styles.avatarImage} />
-                ) : (
-                  <Text style={styles.miniAvatarText}>
-                    {session?.user.displayName.slice(0, 1) ?? "M"}
-                  </Text>
-                )}
-              </View>
-              <Text style={styles.composerPromptText}>
-                {session ? "오늘의 운동 스토리를 공유해보세요" : "로그인 후 운동을 공유하세요"}
-              </Text>
-            </Pressable>
-            <View style={styles.composerActions}>
-              <Pressable
-                accessibilityLabel="사진 촬영"
-                accessibilityRole="button"
-                disabled={mediaBusy}
-                onPress={() => void pickComposerMedia("camera")}
-                style={styles.composerAction}
-              >
-                <Camera color={colors.muted} size={20} strokeWidth={2} />
-                <Text style={styles.composerActionLabel}>사진</Text>
-              </Pressable>
-              <Pressable
-                accessibilityLabel="갤러리에서 사진 선택"
-                accessibilityRole="button"
-                disabled={mediaBusy}
-                onPress={() => void pickComposerMedia("library")}
-                style={styles.composerAction}
-              >
-                <ImageIcon color={colors.muted} size={20} strokeWidth={2} />
-                <Text style={styles.composerActionLabel}>갤러리</Text>
-              </Pressable>
-              <Pressable
-                accessibilityLabel="오늘의 운동 기록 가져오기"
-                accessibilityRole="button"
-                onPress={() => {
-                  setComposerOpen(true);
-                  setWorkoutPickerOpen((current) => !current);
-                }}
-                style={styles.composerAction}
-              >
-                <BarChart3 color={colors.muted} size={20} strokeWidth={2} />
-                <Text style={styles.composerActionLabel}>기록</Text>
-              </Pressable>
-            </View>
-            {composerOpen && session ? (
-              <View style={styles.composerForm}>
-                {workoutPickerOpen ? (
-                  <View style={styles.workoutPickerPanel}>
-                    <Text style={styles.workoutPickerTitle}>오늘의 활동 기록</Text>
-                    {todayWorkoutOptions.length ? (
-                      <View style={styles.workoutPickerList}>
-                        {todayWorkoutOptions.map((workout) => (
-                          <Pressable
-                            accessibilityRole="button"
-                            key={workout.id}
-                            onPress={() => applyWorkoutToComposer(workout)}
-                            style={styles.workoutPickerItem}
-                          >
-                            <View>
-                              <Text style={styles.workoutPickerSport}>
-                                {sportLabels[workout.sport]}
-                              </Text>
-                              <Text numberOfLines={1} style={styles.workoutPickerNote}>
-                                {workout.notes ?? "오늘의 운동"}
-                              </Text>
-                            </View>
-                            <Text style={styles.workoutPickerMetric}>
-                              {workoutListMetric(workout)}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    ) : (
-                      <Text style={styles.workoutPickerEmpty}>아직 오늘의 기록이 없습니다.</Text>
-                    )}
-                  </View>
-                ) : null}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.sportPicker}>
-                    {sportValues.map((item) => (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: sport === item }}
-                        key={item}
-                        onPress={() => setSport(item)}
-                        style={[styles.sportChip, sport === item && styles.sportChipActive]}
-                      >
-                        <Text
-                          style={[
-                            styles.sportChipText,
-                            sport === item && styles.sportChipTextActive,
-                          ]}
-                        >
-                          {sportLabels[item]}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </ScrollView>
-                {hasStoryDraft ? (
-                  <View style={styles.storyPreviewWrap}>
-                    <StoryCanvas
-                      background={storyBackground}
-                      colors={colors}
-                      customText={storyText}
-                      distance={storyDistance}
-                      duration={storyDuration}
-                      layers={storyLayers}
-                      layout={storyLayout}
-                      metricOrder={storyMetricOrder}
-                      moveScore={storyPoints}
-                      pace={storyPace}
-                      photoUri={draftPhoto}
-                      routePoints={storyRoute}
-                      scale={storyScale}
-                      sportLabel={sportLabels[sport]}
-                      themeLabel={content.split("·").at(-1)?.trim() || "WORKOUT CUT"}
-                      visibility={storyVisibility}
-                    />
-                  </View>
-                ) : null}
-                <TextInput
-                  accessibilityLabel="운동 이야기"
-                  multiline
-                  maxLength={2000}
-                  onChangeText={setContent}
-                  placeholder="오늘 어떤 운동을 했나요?"
-                  placeholderTextColor={colors.muted}
-                  style={styles.input}
-                  value={content}
-                />
-                {extractHashtags(content).length ? (
-                  <View style={styles.composerHashtags}>
-                    {extractHashtags(content).map((tag) => (
-                      <Text key={tag} style={styles.composerHashtag}>
-                        #{tag}
-                      </Text>
-                    ))}
-                  </View>
-                ) : null}
-                {hasStoryDraft ? (
-                  <View style={styles.storyEditor}>
-                    <View style={styles.storyEditorHeading}>
-                      <View>
-                        <Text style={styles.storyEditorEyebrow}>RECORD CARD STUDIO</Text>
-                        <Text style={styles.storyEditorTitle}>기록 카드 편집</Text>
-                      </View>
-                      <Text style={styles.storyEditorMeta}>게시 전 미리보기</Text>
-                    </View>
-                    <EditorControl
-                      label="배치"
-                      options={[
-                        ["editorial", "에디토리얼"],
-                        ["centered", "중앙"],
-                        ["split", "분할"],
-                        ["low", "하단"],
-                      ]}
-                      selected={storyLayout}
-                      onSelect={(value) => setStoryLayout(value as StoryLayout)}
-                      styles={styles}
-                    />
-                    <EditorControl
-                      label="크기"
-                      options={[
-                        ["compact", "작게"],
-                        ["standard", "기본"],
-                        ["bold", "크게"],
-                      ]}
-                      selected={storyScale}
-                      onSelect={(value) => setStoryScale(value as StoryScale)}
-                      styles={styles}
-                    />
-                    <EditorControl
-                      label="배경"
-                      options={[
-                        ["photo", "사진"],
-                        ["map", "지도"],
-                        ["ink", "잉크"],
-                      ]}
-                      selected={storyBackground}
-                      onSelect={(value) => setStoryBackground(value as StoryBackground)}
-                      styles={styles}
-                    />
-                    <View style={styles.storyOrderHeader}>
-                      <Text style={styles.storyEditorLabel}>기록 정보 순서</Text>
-                      <Text style={styles.storyEditorHint}>화살표로 위치 이동</Text>
-                    </View>
-                    <View style={styles.storyOrderList}>
-                      {storyMetricOrder.map((key, index) => {
-                        const labels: Record<StoryMetricKey, string> = {
-                          distance: "거리",
-                          duration: "시간",
-                          pace: "페이스",
-                        };
-                        return (
-                          <View key={key} style={styles.storyOrderItem}>
-                            <Pressable
-                              accessibilityRole="switch"
-                              accessibilityState={{ checked: storyVisibility[key] }}
-                              onPress={() => toggleStoryVisibility(key)}
-                              style={[
-                                styles.storyOrderToggle,
-                                storyVisibility[key] && styles.storyOrderToggleActive,
-                              ]}
-                            >
-                              <View
-                                style={[
-                                  styles.sharePrivacyDot,
-                                  storyVisibility[key] && styles.sharePrivacyDotActive,
-                                ]}
-                              />
-                              <Text style={styles.storyOrderText}>{labels[key]}</Text>
-                            </Pressable>
-                            <View style={styles.storyOrderActions}>
-                              <Pressable
-                                accessibilityLabel={`${labels[key]} 앞으로 이동`}
-                                disabled={index === 0}
-                                onPress={() =>
-                                  setStoryMetricOrder((current) =>
-                                    moveItem(current, index, index - 1),
-                                  )
-                                }
-                                style={[
-                                  styles.storyOrderButton,
-                                  index === 0 && styles.disabledControl,
-                                ]}
-                              >
-                                <Text style={styles.storyOrderButtonText}>←</Text>
-                              </Pressable>
-                              <Pressable
-                                accessibilityLabel={`${labels[key]} 뒤로 이동`}
-                                disabled={index === storyMetricOrder.length - 1}
-                                onPress={() =>
-                                  setStoryMetricOrder((current) =>
-                                    moveItem(current, index, index + 1),
-                                  )
-                                }
-                                style={[
-                                  styles.storyOrderButton,
-                                  index === storyMetricOrder.length - 1 && styles.disabledControl,
-                                ]}
-                              >
-                                <Text style={styles.storyOrderButtonText}>→</Text>
-                              </Pressable>
-                            </View>
-                          </View>
-                        );
-                      })}
-                    </View>
-                    <Text style={styles.storyEditorLabel}>추가 요소</Text>
-                    <View style={styles.sharePrivacyRow}>
-                      {(
-                        [
-                          ["route", "경로"],
-                          ["points", "점수"],
-                        ] as Array<[keyof StoryVisibility, string]>
-                      ).map(([key, label]) => (
-                        <Pressable
-                          accessibilityRole="switch"
-                          accessibilityState={{ checked: storyVisibility[key] }}
-                          key={key}
-                          onPress={() => toggleStoryVisibility(key)}
-                          style={[
-                            styles.sharePrivacyChip,
-                            storyVisibility[key] && styles.sharePrivacyChipActive,
-                          ]}
-                        >
-                          <View
-                            style={[
-                              styles.sharePrivacyDot,
-                              storyVisibility[key] && styles.sharePrivacyDotActive,
-                            ]}
-                          />
-                          <Text
-                            style={[
-                              styles.sharePrivacyText,
-                              storyVisibility[key] && styles.sharePrivacyTextActive,
-                            ]}
-                          >
-                            {label}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
-                {postError ? <Text style={styles.error}>{postError}</Text> : null}
-                <PrimaryButton
-                  label={posting ? "공유 중..." : "피드에 공유"}
-                  disabled={posting || !content.trim()}
-                  onPress={() => void submitPost()}
-                />
-              </View>
-            ) : null}
-          </Card>
+          <RecordStudio
+            avatarUri={currentAvatarUri}
+            onPosted={reload}
+            initialWorkoutId={
+              typeof params.workoutSessionId === "string" ? params.workoutSessionId : undefined
+            }
+            initialCaption={typeof params.draft === "string" ? params.draft : undefined}
+            initialPhoto={typeof params.photo === "string" ? params.photo : undefined}
+          />
         </>
       ) : null}
       <View>
@@ -1551,8 +1062,12 @@ export default function FeedScreen() {
       {normalizedHashtag ? (
         <Text style={styles.hashtagResult}>#{normalizedHashtag} 피드만 보기</Text>
       ) : null}
-      {loading ? <StatePanel state="loading" message="피드를 불러오는 중이에요." /> : null}
-      {error ? <StatePanel state="error" message={error} onRetry={() => void reload()} /> : null}
+      {loading && posts === null ? (
+        <StatePanel state="loading" message="피드를 불러오는 중이에요." />
+      ) : null}
+      {error && posts === null ? (
+        <StatePanel state="error" message={error} onRetry={() => void reload()} />
+      ) : null}
       {posts?.length === 0 ? <StatePanel state="empty" message="첫 기록을 공유해 보세요." /> : null}
       {visiblePosts?.map((post) => {
         const cheered = cheeredPosts.includes(post.id);
@@ -1612,9 +1127,22 @@ export default function FeedScreen() {
                   </Pressable>
                 ) : null}
                 <Text style={styles.time}>{relativeTime(post.createdAt)}</Text>
+                {session?.user.id === post.userId ? (
+                  <Pressable
+                    accessibilityLabel="내 게시물 삭제"
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => setDeleteTargetPost(post)}
+                    style={styles.deletePostButton}
+                  >
+                    <Text style={styles.deletePostText}>삭제</Text>
+                  </Pressable>
+                ) : null}
               </View>
             </View>
-            {postImageSource ? (
+            {post.mediaUrl ? (
+              <PostArtwork uri={post.mediaUrl} label={`${sportLabels[post.sport]} 기록 카드`} />
+            ) : postImageSource ? (
               <ImageBackground
                 accessibilityLabel={`${sportLabels[post.sport]} 운동 기록 사진`}
                 imageStyle={styles.feedArtworkImage}
@@ -1717,131 +1245,40 @@ export default function FeedScreen() {
                 />
               </Pressable>
             </View>
-            {commentsOpen ? (
-              <View style={styles.comments}>
-                {post.comments.length ? (
-                  post.comments.map((comment) => {
-                    const commentAvatarSource = avatarSourceForUser(comment.userId);
-                    return (
-                      <View key={comment.id} style={styles.commentRow}>
-                        <Pressable
-                          accessibilityLabel={`${comment.authorDisplayName} 프로필 보기`}
-                          accessibilityRole="button"
-                          onPress={() => openMemberProfile(comment.userId)}
-                          style={styles.commentIdentity}
-                        >
-                          <View style={styles.commentAvatar}>
-                            {commentAvatarSource ? (
-                              <Image source={commentAvatarSource} style={styles.avatarImage} />
-                            ) : (
-                              <Text style={styles.commentAvatarText}>
-                                {comment.authorDisplayName.slice(0, 1)}
-                              </Text>
-                            )}
-                          </View>
-                          <Text style={styles.commentAuthor}>{comment.authorDisplayName}</Text>
-                        </Pressable>
-                        <View style={styles.commentContentRow}>
-                          <Text style={styles.comment}>{comment.content}</Text>
-                          {session?.user.id !== comment.userId ? (
-                            <Pressable
-                              accessibilityLabel="댓글 신고"
-                              accessibilityRole="button"
-                              onPress={() => reportContent("comment", comment.id)}
-                            >
-                              <Text style={styles.commentReportText}>신고</Text>
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      </View>
-                    );
-                  })
-                ) : (
-                  <Text style={styles.emptyComment}>아직 댓글이 없습니다.</Text>
-                )}
-                <View style={styles.commentComposer}>
-                  <TextInput
-                    accessibilityLabel="댓글 입력"
-                    maxLength={500}
-                    onChangeText={(value) =>
-                      setCommentDrafts((current) => ({ ...current, [post.id]: value }))
-                    }
-                    onSubmitEditing={() => void submitComment(post.id)}
-                    placeholder="응원과 정보를 나눠보세요"
-                    placeholderTextColor={colors.muted}
-                    returnKeyType="send"
-                    style={styles.commentInput}
-                    value={commentDrafts[post.id] ?? ""}
-                  />
-                  <Pressable
-                    disabled={!commentDrafts[post.id]?.trim() || commentBusyIds.includes(post.id)}
-                    onPress={() => void submitComment(post.id)}
-                    style={styles.commentSubmit}
-                  >
-                    <Text style={styles.commentSubmitText}>
-                      {commentBusyIds.includes(post.id) ? "…" : "등록"}
-                    </Text>
-                  </Pressable>
-                </View>
-              </View>
-            ) : null}
+            <View style={!commentsOpen && styles.hiddenComments}>
+              <PostComments
+                post={post}
+                token={session?.accessToken}
+                userId={session?.user.id}
+                avatarSource={avatarSourceForUser}
+                onProfile={openMemberProfile}
+                onReport={(id) => reportContent("comment", id)}
+                onNotice={setFeedNotice}
+                onChange={(comment) =>
+                  setPosts(
+                    (current) =>
+                      current?.map((item) =>
+                        item.id !== post.id
+                          ? item
+                          : {
+                              ...item,
+                              comments: item.comments.some((existing) => existing.id === comment.id)
+                                ? item.comments.map((existing) =>
+                                    existing.id === comment.id ? comment : existing,
+                                  )
+                                : [...item.comments, comment],
+                            },
+                      ) ?? null,
+                  )
+                }
+              />
+            </View>
           </View>
         );
       })}
     </Screen>
   );
 }
-
-function EditorControl({
-  label,
-  options,
-  selected,
-  onSelect,
-  styles,
-}: {
-  label: string;
-  options: Array<[string, string]>;
-  selected: string;
-  onSelect: (value: string) => void;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <View style={styles.storyEditorControl}>
-      <Text style={styles.storyEditorLabel}>{label}</Text>
-      <View style={styles.storyEditorOptions}>
-        {options.map(([value, optionLabel]) => (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ selected: value === selected }}
-            key={value}
-            onPress={() => onSelect(value)}
-            style={[styles.storyEditorOption, value === selected && styles.storyEditorOptionActive]}
-          >
-            <Text
-              style={[
-                styles.storyEditorOptionText,
-                value === selected && styles.storyEditorOptionTextActive,
-              ]}
-            >
-              {optionLabel}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function moveItem<T>(items: T[], from: number, to: number) {
-  if (to < 0 || to >= items.length || from === to) return items;
-  const next = [...items];
-  const [moved] = next.splice(from, 1);
-  if (moved === undefined) return items;
-  next.splice(to, 0, moved);
-  return next;
-}
-
-const defaultStoryLayers: StoryLayer[] = ["record", "route", "points"];
 
 function demoStory(
   sport: SportType,
@@ -1880,96 +1317,10 @@ function demoStory(
   };
 }
 
-function parseLayers(value: string): StoryLayer[] {
-  const validLayers: StoryLayer[] = ["record", "route", "text", "points"];
-  const layers = value
-    .split(",")
-    .filter((layer): layer is StoryLayer => validLayers.includes(layer as StoryLayer));
-  return layers.length ? layers : defaultStoryLayers;
-}
-
-function parseRoute(value: string): MapPoint[] {
-  try {
-    const route: unknown = JSON.parse(value);
-    if (!Array.isArray(route)) return [];
-    return route
-      .filter(
-        (point): point is MapPoint =>
-          typeof point === "object" &&
-          point !== null &&
-          typeof (point as MapPoint).latitude === "number" &&
-          typeof (point as MapPoint).longitude === "number",
-      )
-      .slice(0, 50);
-  } catch {
-    return [];
-  }
-}
-
-function parseVisibility(value: string): StoryVisibility {
-  const fallback: StoryVisibility = {
-    distance: true,
-    duration: true,
-    pace: true,
-    route: true,
-    points: true,
-  };
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (typeof parsed !== "object" || parsed === null) return fallback;
-    return Object.fromEntries(
-      Object.entries(fallback).map(([key, defaultValue]) => [
-        key,
-        typeof (parsed as Record<string, unknown>)[key] === "boolean"
-          ? (parsed as Record<string, boolean>)[key]
-          : defaultValue,
-      ]),
-    ) as StoryVisibility;
-  } catch {
-    return fallback;
-  }
-}
-
-function isSameLocalDay(left: Date, right: Date) {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
-}
-
-function formatElapsed(totalSeconds: number) {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return hours > 0
-    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
-    : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function formatPace(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "--'--\"";
-  const minutes = Math.floor(value / 60);
-  const seconds = Math.round(value % 60);
-  return `${minutes}'${String(seconds).padStart(2, "0")}"`;
-}
-
-function workoutListMetric(workout: WorkoutSession) {
-  if (workout.sport === "strength") {
-    return `${Math.round(Number(workout.metrics.exerciseCount ?? 0))}종목`;
-  }
-  if (workout.sport === "diving") {
-    return `${Number(workout.metrics.maxDepthM ?? 0).toFixed(1)}m`;
-  }
-  if (workout.sport === "swimming") {
-    return `${Math.round(Number(workout.metrics.distanceM ?? 0))}m`;
-  }
-  return `${Number(workout.metrics.distanceKm ?? 0).toFixed(2)}km`;
-}
-
 function extractHashtags(value: string) {
-  const matches = value.match(/#[0-9A-Za-zㄱ-힝_]+/g) ?? [];
-  return [...new Set(matches.map((tag) => tag.slice(1).toLowerCase()))];
+  return [
+    ...new Set((value.match(/#[\p{L}\p{N}_]+/gu) ?? []).map((tag) => tag.slice(1).toLowerCase())),
+  ];
 }
 
 function relativeTime(value: string) {
@@ -2465,48 +1816,8 @@ function createStyles(colors: ThemeColors) {
     actionCount: { color: colors.ink, fontSize: 12, fontFamily: fonts.medium },
     activeAction: { color: colors.primary },
     bookmark: { minHeight: 30, justifyContent: "center", marginLeft: "auto" },
-    comments: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, gap: 7 },
-    commentRow: { gap: 5 },
-    commentIdentity: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 7,
-      alignSelf: "flex-start",
-    },
-    commentAvatar: {
-      width: 25,
-      height: 25,
-      borderRadius: radius.full,
-      backgroundColor: colors.primarySoft,
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "hidden",
-    },
-    commentAvatarText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
-    commentContentRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingLeft: 32 },
-    comment: { color: colors.ink, flex: 1, fontSize: 11, lineHeight: 17 },
-    commentReportText: { color: colors.muted, fontSize: 9, lineHeight: 17 },
-    commentAuthor: { color: colors.ink, fontFamily: fonts.bold, fontSize: 10 },
-    emptyComment: { color: colors.muted, fontSize: 10 },
-    commentComposer: { flexDirection: "row", gap: 7, marginTop: 4 },
-    commentInput: {
-      flex: 1,
-      minHeight: 40,
-      borderRadius: radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      color: colors.ink,
-      paddingHorizontal: 11,
-      fontSize: 10,
-    },
-    commentSubmit: {
-      minWidth: 56,
-      minHeight: 40,
-      borderRadius: radius.md,
-      backgroundColor: colors.primary,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    commentSubmitText: { color: "#FFFFFF", fontSize: 10, fontFamily: fonts.bold },
+    hiddenComments: { display: "none" },
+    deletePostButton: { minHeight: 32, justifyContent: "center" },
+    deletePostText: { color: colors.primary, fontSize: 10, fontFamily: fonts.medium },
   });
 }

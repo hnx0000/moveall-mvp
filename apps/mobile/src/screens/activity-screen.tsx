@@ -582,6 +582,23 @@ export default function ActivityScreen() {
                 </View>
               ) : null}
 
+              {showActivityMap ? (
+                <View style={styles.activityMap}>
+                  <WorkoutMap
+                    backgroundColor={colors.map}
+                    compact
+                    currentPoint={mapLocation}
+                    height={190}
+                    isSample={!mapLocation}
+                    minimal={false}
+                    simplified
+                    showBadge={false}
+                    points={mapPoints}
+                    primaryColor={colors.primary}
+                  />
+                </View>
+              ) : null}
+
               <View style={styles.activityPrimaryRow}>
                 <View>
                   <Text style={styles.activityPrimaryLabel}>{activitySummary.primaryLabel}</Text>
@@ -611,24 +628,6 @@ export default function ActivityScreen() {
                   </Text>
                 </Pressable>
               </View>
-
-              {showActivityMap ? (
-                <View style={styles.activityMap}>
-                  <WorkoutMap
-                    backgroundColor={colors.map}
-                    badgeLabel={
-                      mapLocation ? "현재 위치 · 이동 경로" : "현재 위치 확인 전 · 기본 지도"
-                    }
-                    compact
-                    currentPoint={mapLocation}
-                    height={208}
-                    isSample={!mapLocation}
-                    minimal={false}
-                    points={mapPoints}
-                    primaryColor={colors.primary}
-                  />
-                </View>
-              ) : null}
 
               {activitySummary.cycles ? (
                 <View style={styles.cyclePanel}>

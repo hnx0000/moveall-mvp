@@ -124,7 +124,7 @@ export interface AppStore {
     input: PostCreateInput,
   ): Promise<FeedPost | null>;
   listFeed(viewerId?: string, postId?: string): Promise<FeedPost[]>;
-  listPostsByUser(userId: string): Promise<FeedPost[]>;
+  listPostsByUser(userId: string, viewerId?: string): Promise<FeedPost[]>;
   listArchivedPostsByUser(userId: string): Promise<FeedPost[]>;
   updatePost(userId: string, postId: string, input: PostUpdateInput): Promise<FeedPost | null>;
   setPostArchived(userId: string, postId: string, archived: boolean): Promise<FeedPost | null>;
@@ -162,6 +162,13 @@ export interface AppStore {
     authorDisplayName: string,
     postId: string,
     content: string,
+    parentCommentId?: string,
+  ): Promise<FeedPost["comments"][number] | null>;
+  setCommentLiked(
+    userId: string,
+    postId: string,
+    commentId: string,
+    liked: boolean,
   ): Promise<FeedPost["comments"][number] | null>;
   sharePost(
     userId: string,

@@ -1,4 +1,5 @@
 import { type SportType } from "@moveall/contracts";
+import { useId } from "react";
 import { Defs, Image as SvgImage, Mask, Rect, Svg } from "react-native-svg";
 import sportLogoSheet from "../../assets/images/sport-logo-sheet.jpg";
 import { useAppTheme } from "../theme-context";
@@ -27,13 +28,18 @@ export function SportLogo({
   selected,
   sport,
   size = 48,
+  color: customColor,
+  sheetUri,
 }: {
   selected: boolean;
   sport: SportType;
   size?: number;
+  color?: string;
+  sheetUri?: string;
 }) {
   const { colors } = useAppTheme();
-  const maskId = `sport-logo-${sport}`;
+  const instanceId = useId().replace(/[^a-zA-Z0-9]/g, "");
+  const maskId = `sport-logo-${sport}-${instanceId}`;
   const center = centers[sport];
   const sourceX = sportLogoIndex[sport] * sourceCell + center.x;
   const activeWeightOffsets = selected
@@ -47,7 +53,7 @@ export function SportLogo({
     : [{ x: 0, y: 0 }];
 
   if (sport === "strength") {
-    const color = selected ? "#FFFFFF" : colors.ink;
+    const color = customColor ?? (selected ? "#FFFFFF" : colors.ink);
     const strokeWidth = selected ? 1.2 : 0.85;
     const barHeight = selected ? 1.3 : 0.95;
     return (
@@ -120,7 +126,7 @@ export function SportLogo({
           >
             <SvgImage
               height={sourceCell * 2}
-              href={sportLogoSheet}
+              href={sheetUri ?? sportLogoSheet}
               preserveAspectRatio="none"
               width={sourceCell * 6}
               x={-(sourceX - cropSize / 2) + offset.x}
@@ -132,7 +138,7 @@ export function SportLogo({
       </Defs>
       {activeWeightOffsets.map((offset, index) => (
         <Rect
-          fill={selected ? "#FFFFFF" : colors.ink}
+          fill={customColor ?? (selected ? "#FFFFFF" : colors.ink)}
           height={cropSize}
           key={`${offset.x}-${offset.y}`}
           mask={`url(#${maskId}-${index})`}

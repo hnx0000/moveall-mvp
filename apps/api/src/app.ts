@@ -787,7 +787,7 @@ export async function createApp(dependencies: AppDependencies) {
     return success({ deleted: true as const });
   });
 
-  app.post("/v1/workout-sessions", async (request, reply) => {
+  app.post("/v1/workout-sessions", { bodyLimit: 8_000_000 }, async (request, reply) => {
     const user = await currentUser(request);
     const input = WorkoutSessionCreateInputSchema.parse(request.body);
     const session = await dependencies.store.createWorkoutSession(user.id, input);
@@ -904,7 +904,7 @@ export async function createApp(dependencies: AppDependencies) {
   });
 
   app.get("/v1/users/:userId/posts", async (request) => {
-    await currentUser(request);
+    const viewer = await currentUser(request);
     const parameters = z.object({ userId: z.string().uuid() }).parse(request.params);
     const profile = await dependencies.store.findUserById(parameters.userId);
     if (!profile) throw new AppError(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.");
@@ -914,17 +914,17 @@ export async function createApp(dependencies: AppDependencies) {
         displayName: profile.displayName,
         ...(profile.avatarDataUri ? { avatarDataUri: profile.avatarDataUri } : {}),
       },
-      posts: await attachMediaUrls(await dependencies.store.listPostsByUser(profile.id)),
+      posts: await attachMediaUrls(await dependencies.store.listPostsByUser(profile.id, viewer.id)),
     });
   });
 
   app.get("/v1/users/:userId/profile", async (request) => {
-    await currentUser(request);
+    const viewer = await currentUser(request);
     const parameters = z.object({ userId: z.string().uuid() }).parse(request.params);
     const profile = await dependencies.store.findUserById(parameters.userId);
     if (!profile) throw new AppError(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.");
     const [posts, workouts, followers, following] = await Promise.all([
-      dependencies.store.listPostsByUser(profile.id),
+      dependencies.store.listPostsByUser(profile.id, viewer.id),
       dependencies.store.listWorkoutSessions(profile.id),
       dependencies.store.listFollowers(profile.id),
       dependencies.store.listFollowing(profile.id),
@@ -939,7 +939,9 @@ export async function createApp(dependencies: AppDependencies) {
       followersCount: followers.length,
       followingCount: following.length,
       posts: await attachMediaUrls(posts),
-      workouts,
+      workouts: workouts.map(({ routePoints, ...workout }) =>
+        profile.id === viewer.id ? { ...workout, routePoints } : workout,
+      ),
       medals: medalsFor(workouts),
     });
   });
@@ -1130,10 +1132,37 @@ export async function createApp(dependencies: AppDependencies) {
       user.displayName,
       parameters.postId,
       input.content,
+      input.parentCommentId,
     );
-    if (!comment) throw new AppError(404, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다.");
+    if (!comment)
+      throw new AppError(
+        404,
+        "COMMENT_NOT_ALLOWED",
+        "댓글을 남길 게시물 또는 원본 댓글을 찾을 수 없습니다.",
+      );
     return reply.status(201).send(success(comment));
   });
+
+  for (const method of ["PUT", "DELETE"] as const) {
+    app.route({
+      method,
+      url: "/v1/posts/:postId/comments/:commentId/like",
+      handler: async (request) => {
+        const user = await currentUser(request);
+        const parameters = z
+          .object({ postId: z.uuid(), commentId: z.uuid() })
+          .parse(request.params);
+        const comment = await dependencies.store.setCommentLiked(
+          user.id,
+          parameters.postId,
+          parameters.commentId,
+          method === "PUT",
+        );
+        if (!comment) throw new AppError(404, "COMMENT_NOT_FOUND", "댓글을 찾을 수 없습니다.");
+        return success(comment);
+      },
+    });
+  }
 
   app.post("/v1/posts/:postId/share", async (request, reply) => {
     const user = await currentUser(request);

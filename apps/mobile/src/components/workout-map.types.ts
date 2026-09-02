@@ -22,6 +22,7 @@ export type WorkoutMapProps = {
   compact?: boolean;
   height?: number;
   minimal?: boolean;
+  simplified?: boolean;
   staticMode?: boolean;
   showBadge?: boolean;
   backgroundColor?: string;

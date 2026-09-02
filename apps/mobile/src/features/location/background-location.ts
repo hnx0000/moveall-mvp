@@ -29,7 +29,7 @@ if (Platform.OS !== "web" && !TaskManager.isTaskDefined(taskName)) {
     }));
     await AsyncStorage.setItem(
       storageKey,
-      JSON.stringify([...existing, ...incoming].slice(-12_000)),
+      JSON.stringify([...existing, ...incoming].slice(-30_000)),
     );
   });
 }
@@ -62,12 +62,12 @@ export async function startBackgroundTrack() {
   if (!background.granted) return false;
   if (await Location.hasStartedLocationUpdatesAsync(taskName)) return true;
   await Location.startLocationUpdatesAsync(taskName, {
-    accuracy: Location.Accuracy.High,
+    accuracy: Location.Accuracy.BestForNavigation,
     activityType: Location.ActivityType.Fitness,
-    distanceInterval: 3,
-    timeInterval: 2_000,
-    deferredUpdatesDistance: 10,
-    deferredUpdatesInterval: 5_000,
+    distanceInterval: 2,
+    timeInterval: 1_000,
+    deferredUpdatesDistance: 5,
+    deferredUpdatesInterval: 3_000,
     pausesUpdatesAutomatically: false,
     showsBackgroundLocationIndicator: true,
     foregroundService: {

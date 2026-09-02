@@ -21,6 +21,7 @@ export function WorkoutMap({
   compact = false,
   height,
   minimal = true,
+  simplified = false,
   staticMode = false,
   showBadge = true,
   backgroundColor = "#E8E7E2",
@@ -51,16 +52,27 @@ export function WorkoutMap({
         keyboard: !staticMode,
       });
       createdMap.setView([center.latitude, center.longitude], 14);
+      createdMap.attributionControl.setPrefix(false);
       leaflet
         .tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution: "&copy; OpenStreetMap contributors",
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
           maxZoom: 19,
         })
         .addTo(createdMap);
       const tilePane = createdMap.getPane("tilePane");
-      if (tilePane && minimal) {
+      if (tilePane && simplified) {
+        // Keep road/place labels legible; soften only the basemap, not the live route or marker.
+        tilePane.style.filter = "saturate(.25) contrast(.84) brightness(1.04)";
+      } else if (tilePane && minimal) {
         tilePane.style.opacity = "0.17";
         tilePane.style.filter = "grayscale(1) contrast(.42) brightness(1.32) blur(.25px)";
+      }
+      const attribution = createdMap.attributionControl.getContainer();
+      if (attribution && simplified) {
+        attribution.style.fontSize = "9px";
+        attribution.style.lineHeight = "15px";
+        attribution.style.backgroundColor = "rgba(255,255,255,.86)";
       }
       routeLayerRef.current = leaflet.layerGroup().addTo(createdMap);
       mapRef.current = createdMap;
@@ -148,6 +160,15 @@ export function WorkoutMap({
         addEndpoint(leaflet, layer, recordedCoordinates.at(-1)!, "F", "현재 위치", primaryColor);
       } else if (recordedCoordinates[0]) {
         addEndpoint(leaflet, layer, recordedCoordinates[0], "S", "기록 시작", primaryColor);
+      } else if (currentPoint) {
+        addEndpoint(
+          leaflet,
+          layer,
+          [currentPoint.latitude, currentPoint.longitude],
+          "●",
+          "현재 위치",
+          primaryColor,
+        );
       }
 
       const bounds =
@@ -157,16 +178,16 @@ export function WorkoutMap({
             ? plannedCoordinates
             : [];
       if (bounds.length > 1) {
-        mapRef.current.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+        mapRef.current.fitBounds(bounds, { padding: [30, 30], maxZoom: simplified ? 15 : 16 });
       } else {
         const center = currentPoint ?? plannedPoints[0] ?? points[0] ?? FALLBACK_CENTER;
-        mapRef.current.setView([center.latitude, center.longitude], 15);
+        mapRef.current.setView([center.latitude, center.longitude], simplified ? 14 : 15);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [currentPoint, mapReady, places, plannedPoints, points, primaryColor]);
+  }, [currentPoint, mapReady, places, plannedPoints, points, primaryColor, simplified]);
 
   return (
     <View

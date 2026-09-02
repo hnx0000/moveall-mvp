@@ -1,3 +1,8 @@
+import {
+  appendTrackPoint,
+  calculateTrackDistance,
+  type RecordedTrackPoint as TrackPoint,
+} from "../features/location/gps-track";
 import { sportLabels, type Routine, type SportType, type WorkoutSession } from "@moveall/contracts";
 import * as Location from "expo-location";
 import {
@@ -49,13 +54,6 @@ type RecorderPhase = "setup" | "starting" | "recording" | "paused" | "review" | 
 type DivingSource = "device" | "manual";
 type SwimEnvironment = "indoor" | "outdoor";
 type CountdownValue = "3" | "2" | "1" | "GROOV!";
-type TrackPoint = {
-  latitude: number;
-  longitude: number;
-  altitude: number | null;
-  accuracy: number | null;
-  timestamp: number;
-};
 
 const gpsSports: SportType[] = ["running", "hiking", "cycling", "swimming"];
 const setupSports: SportType[] = ["strength", "swimming", "diving"];
@@ -198,7 +196,7 @@ export function LiveWorkoutRecorder({
 
   const appendPoint = useCallback((point: TrackPoint, reset = false) => {
     setPoints((existing) => {
-      const next = reset ? [point] : appendTrackPoint(existing, point);
+      const next = appendTrackPoint(reset ? [] : existing, point);
       pointsRef.current = next;
       return next;
     });
@@ -325,7 +323,7 @@ export function LiveWorkoutRecorder({
         });
         if (finishedRef.current) return;
         const firstPoint = toTrackPoint(current);
-        appendPoint(firstPoint, reset);
+        appendPoint({ ...firstPoint, breakBefore: !reset }, reset);
         setPhase("recording");
         setGpsStatus(describeGpsAccuracy(firstPoint.accuracy));
         const backgroundActive = await startBackgroundTrack().catch(() => false);
@@ -333,9 +331,9 @@ export function LiveWorkoutRecorder({
         stopGps();
         watchRef.current = await Location.watchPositionAsync(
           {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 2000,
-            distanceInterval: 3,
+            accuracy: Location.Accuracy.BestForNavigation,
+            timeInterval: 1000,
+            distanceInterval: 2,
           },
           (nextLocation) => {
             if (finishedRef.current) return;
@@ -508,6 +506,7 @@ export function LiveWorkoutRecorder({
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),
         perceivedExertion: 5,
+        routePoints: savedPoints,
         notes: buildWorkoutNotes({
           sport,
           selectedRoutine,
@@ -1644,38 +1643,10 @@ function toTrackPoint(location: Location.LocationObject): TrackPoint {
   };
 }
 
-function appendTrackPoint(points: TrackPoint[], next: TrackPoint) {
-  if (next.accuracy !== null && next.accuracy > 120) return points;
-  const previous = points.at(-1);
-  if (!previous) return [next];
-  const delta = haversineKm(previous, next) * 1000;
-  if (delta < 1.5 || delta > 250) return points;
-  return [...points, next];
-}
-
 function describeGpsAccuracy(accuracy: number | null) {
   if (accuracy === null || accuracy <= 65) return "GPS 기록 중";
   if (accuracy <= 120) return "GPS 정확도 보정 중";
   return "GPS 위치 확인 중";
-}
-
-function calculateTrackDistance(points: TrackPoint[]) {
-  return points
-    .slice(1)
-    .reduce((total, point, index) => total + haversineKm(points[index]!, point), 0);
-}
-
-function haversineKm(left: TrackPoint, right: TrackPoint) {
-  const earthRadiusKm = 6371;
-  const toRadians = (value: number) => (value * Math.PI) / 180;
-  const latitudeDelta = toRadians(right.latitude - left.latitude);
-  const longitudeDelta = toRadians(right.longitude - left.longitude);
-  const a =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(toRadians(left.latitude)) *
-      Math.cos(toRadians(right.latitude)) *
-      Math.sin(longitudeDelta / 2) ** 2;
-  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function calculateElevation(points: TrackPoint[]) {

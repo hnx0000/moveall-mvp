@@ -63,6 +63,7 @@ type WorkoutRow = QueryResultRow & {
   perceived_exertion: number;
   notes: string | null;
   metrics: Record<string, number>;
+  route_points: WorkoutSession["routePoints"];
   source: "manual" | "wearable";
   created_at: Date;
 };
@@ -100,6 +101,9 @@ type CommentRow = QueryResultRow & {
   post_id: string;
   content: string;
   created_at: Date;
+  parent_comment_id: string | null;
+  like_count: number;
+  liked_by_me: boolean;
 };
 
 type KnowledgeFeedbackRow = QueryResultRow & {
@@ -580,7 +584,7 @@ export class PostgresStore implements AppStore {
     input: WorkoutSessionCreateInput,
   ): Promise<WorkoutSession> {
     const result = await this.pool.query<WorkoutRow>(
-      "INSERT INTO workout_sessions (user_id, sport, started_at, ended_at, perceived_exertion, notes, metrics, source) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8) RETURNING *",
+      "INSERT INTO workout_sessions (user_id, sport, started_at, ended_at, perceived_exertion, notes, metrics, source, route_points) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb) RETURNING *",
       [
         userId,
         input.sport,
@@ -590,6 +594,7 @@ export class PostgresStore implements AppStore {
         input.notes ?? null,
         JSON.stringify(input.metrics),
         input.source,
+        JSON.stringify(input.routePoints ?? []),
       ],
     );
     return this.mapWorkout(result.rows[0]!);
@@ -660,33 +665,33 @@ export class PostgresStore implements AppStore {
     );
     if (posts.rows.length === 0) return [];
 
-    const comments = await this.pool.query<CommentRow>(
-      "SELECT c.id, c.user_id, u.display_name, u.avatar_data_uri, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) AND ($2::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = $2 AND b.blocked_id = c.user_id) OR (b.blocker_id = c.user_id AND b.blocked_id = $2))) ORDER BY c.created_at ASC",
-      [posts.rows.map((post) => post.id), viewerId ?? null],
+    const comments = await this.listPostComments(
+      posts.rows.map((post) => post.id),
+      viewerId,
     );
 
     return posts.rows.map((post) =>
       this.mapPost(
         post,
-        comments.rows.filter((comment) => comment.post_id === post.id),
+        comments.filter((comment) => comment.post_id === post.id),
       ),
     );
   }
 
-  async listPostsByUser(userId: string): Promise<FeedPost[]> {
+  async listPostsByUser(userId: string, viewerId = userId): Promise<FeedPost[]> {
     const posts = await this.pool.query<PostRow>(
       "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.media_id, mo.object_path AS media_object_path, p.content_type, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN media_objects mo ON mo.id = p.media_id WHERE p.user_id = $1 AND p.moderation_status = 'visible' AND p.archived_at IS NULL ORDER BY p.created_at DESC LIMIT 100",
       [userId],
     );
     if (posts.rows.length === 0) return [];
-    const comments = await this.pool.query<CommentRow>(
-      "SELECT c.id, c.user_id, u.display_name, u.avatar_data_uri, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) ORDER BY c.created_at ASC",
-      [posts.rows.map((post) => post.id)],
+    const comments = await this.listPostComments(
+      posts.rows.map((post) => post.id),
+      viewerId,
     );
     return posts.rows.map((post) =>
       this.mapPost(
         post,
-        comments.rows.filter((comment) => comment.post_id === post.id),
+        comments.filter((comment) => comment.post_id === post.id),
       ),
     );
   }
@@ -697,14 +702,14 @@ export class PostgresStore implements AppStore {
       [userId],
     );
     if (posts.rows.length === 0) return [];
-    const comments = await this.pool.query<CommentRow>(
-      "SELECT c.id, c.user_id, u.display_name, u.avatar_data_uri, c.post_id, c.content, c.created_at FROM comments c JOIN users u ON u.id = c.user_id WHERE c.moderation_status = 'visible' AND c.post_id = ANY($1::uuid[]) ORDER BY c.created_at ASC",
-      [posts.rows.map((post) => post.id)],
+    const comments = await this.listPostComments(
+      posts.rows.map((post) => post.id),
+      userId,
     );
     return posts.rows.map((post) =>
       this.mapPost(
         post,
-        comments.rows.filter((comment) => comment.post_id === post.id),
+        comments.filter((comment) => comment.post_id === post.id),
       ),
     );
   }
@@ -954,13 +959,93 @@ export class PostgresStore implements AppStore {
     authorDisplayName: string,
     postId: string,
     content: string,
+    parentCommentId?: string,
   ): Promise<FeedPost["comments"][number] | null> {
     const result = await this.pool.query<CommentRow>(
-      "INSERT INTO comments (post_id, user_id, content) SELECT $1, $2, $3 WHERE EXISTS (SELECT 1 FROM posts WHERE id = $1) RETURNING id, user_id, $4::text AS display_name, (SELECT avatar_data_uri FROM users WHERE id = $2) AS avatar_data_uri, post_id, content, created_at",
-      [postId, userId, content, authorDisplayName],
+      `INSERT INTO comments (post_id, user_id, content, parent_comment_id)
+       SELECT p.id, $2, $3, $5::uuid FROM posts p
+       WHERE p.id = $1 AND p.archived_at IS NULL AND p.moderation_status = 'visible'
+         AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE
+           (b.blocker_id = $2 AND b.blocked_id = p.user_id) OR (b.blocker_id = p.user_id AND b.blocked_id = $2))
+         AND ($5::uuid IS NULL OR EXISTS (
+           SELECT 1 FROM comments c WHERE c.id = $5 AND c.post_id = p.id
+             AND c.parent_comment_id IS NULL AND c.moderation_status = 'visible'
+             AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE
+               (b.blocker_id = $2 AND b.blocked_id = c.user_id) OR (b.blocker_id = c.user_id AND b.blocked_id = $2))))
+       RETURNING id, user_id, $4::text AS display_name,
+         (SELECT avatar_data_uri FROM users WHERE id = $2) AS avatar_data_uri,
+         post_id, content, created_at, parent_comment_id, 0 AS like_count, false AS liked_by_me`,
+      [postId, userId, content, authorDisplayName, parentCommentId ?? null],
     );
     const row = result.rows[0];
     return row ? this.mapComment(row) : null;
+  }
+
+  async setCommentLiked(userId: string, postId: string, commentId: string, liked: boolean) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Lock the comment to serialize likes and keep counts consistent with the returned state.
+      const target = await client.query<CommentRow>(
+        `SELECT c.*, u.display_name, u.avatar_data_uri FROM comments c
+         JOIN posts p ON p.id = c.post_id JOIN users u ON u.id = c.user_id
+         LEFT JOIN comments parent ON parent.id = c.parent_comment_id
+         WHERE c.id = $1 AND p.id = $2 AND p.archived_at IS NULL
+           AND p.moderation_status = 'visible' AND c.moderation_status = 'visible'
+           AND (c.parent_comment_id IS NULL OR parent.moderation_status = 'visible')
+           AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE
+             (b.blocker_id = $3 AND b.blocked_id IN (p.user_id, c.user_id, parent.user_id)) OR
+             (b.blocked_id = $3 AND b.blocker_id IN (p.user_id, c.user_id, parent.user_id)))
+         FOR UPDATE OF c`,
+        [commentId, postId, userId],
+      );
+      const row = target.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      if (liked) {
+        await client.query(
+          "INSERT INTO comment_likes (comment_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+          [commentId, userId],
+        );
+      } else {
+        await client.query("DELETE FROM comment_likes WHERE comment_id = $1 AND user_id = $2", [
+          commentId,
+          userId,
+        ]);
+      }
+      const count = await client.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM comment_likes WHERE comment_id = $1",
+        [commentId],
+      );
+      await client.query("COMMIT");
+      return this.mapComment({ ...row, like_count: count.rows[0]!.count, liked_by_me: liked });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async listPostComments(postIds: string[], viewerId?: string): Promise<CommentRow[]> {
+    const result = await this.pool.query<CommentRow>(
+      `SELECT c.id, c.user_id, u.display_name, u.avatar_data_uri, c.post_id, c.content,
+         c.created_at, c.parent_comment_id,
+         (SELECT count(*)::int FROM comment_likes l WHERE l.comment_id = c.id) AS like_count,
+         EXISTS (SELECT 1 FROM comment_likes l WHERE l.comment_id = c.id AND l.user_id = $2) AS liked_by_me
+       FROM comments c JOIN users u ON u.id = c.user_id
+       LEFT JOIN comments parent ON parent.id = c.parent_comment_id
+       WHERE c.post_id = ANY($1::uuid[]) AND c.moderation_status = 'visible'
+         AND (c.parent_comment_id IS NULL OR parent.moderation_status = 'visible')
+         AND ($2::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM user_blocks b WHERE
+           (b.blocker_id = $2 AND b.blocked_id IN (c.user_id, parent.user_id)) OR
+           (b.blocked_id = $2 AND b.blocker_id IN (c.user_id, parent.user_id))))
+       ORDER BY c.created_at ASC, c.id ASC`,
+      [postIds, viewerId ?? null],
+    );
+    return result.rows;
   }
 
   async sharePost(
@@ -1139,6 +1224,7 @@ export class PostgresStore implements AppStore {
       perceivedExertion: row.perceived_exertion,
       ...(row.notes ? { notes: row.notes } : {}),
       metrics: row.metrics,
+      routePoints: row.route_points ?? [],
       source: row.source,
       createdAt: row.created_at.toISOString(),
     };
@@ -1171,6 +1257,9 @@ export class PostgresStore implements AppStore {
       authorDisplayName: row.display_name,
       ...(row.avatar_data_uri ? { authorAvatarDataUri: row.avatar_data_uri } : {}),
       content: row.content,
+      ...(row.parent_comment_id ? { parentCommentId: row.parent_comment_id } : {}),
+      likeCount: Number(row.like_count ?? 0),
+      likedByMe: Boolean(row.liked_by_me),
       createdAt: row.created_at.toISOString(),
     };
   }

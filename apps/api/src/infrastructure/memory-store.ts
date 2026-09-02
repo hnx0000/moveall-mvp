@@ -38,6 +38,7 @@ export class MemoryStore implements AppStore {
   private readonly routines: Routine[] = [];
   private readonly workouts: WorkoutSession[] = [];
   private readonly posts: FeedPost[] = [];
+  private readonly commentLikes = new Map<string, Set<string>>();
   private readonly knowledgeFeedback: KnowledgeFeedback[] = [];
 
   async healthCheck(): Promise<void> {}
@@ -158,6 +159,24 @@ export class MemoryStore implements AppStore {
     this.removeWhere(this.routines, (item) => item.userId === userId);
     this.removeWhere(this.workouts, (item) => item.userId === userId);
     this.removeWhere(this.posts, (item) => item.userId === userId);
+    for (const post of this.posts) {
+      const removedIds = new Set(
+        post.comments.filter((item) => item.userId === userId).map((item) => item.id),
+      );
+      this.removeWhere(
+        post.comments,
+        (item) =>
+          removedIds.has(item.id) ||
+          Boolean(item.parentCommentId && removedIds.has(item.parentCommentId)),
+      );
+    }
+    const remainingCommentIds = new Set(
+      this.posts.flatMap((post) => post.comments.map((item) => item.id)),
+    );
+    for (const [commentId, likes] of this.commentLikes) {
+      if (!remainingCommentIds.has(commentId)) this.commentLikes.delete(commentId);
+      else likes.delete(userId);
+    }
     for (const [key, share] of this.postShares) {
       if (
         share.sharerId === userId ||
@@ -391,7 +410,13 @@ export class MemoryStore implements AppStore {
     return this.workouts
       .filter((workout) => workout.userId === userId)
       .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt))
-      .map((workout) => ({ ...workout, metrics: { ...workout.metrics } }));
+      .map((workout) => ({
+        ...workout,
+        metrics: { ...workout.metrics },
+        ...(workout.routePoints
+          ? { routePoints: workout.routePoints.map((point) => ({ ...point })) }
+          : {}),
+      }));
   }
 
   async updateWorkoutSession(
@@ -460,25 +485,29 @@ export class MemoryStore implements AppStore {
       .filter((post) => !post.archivedAt)
       .filter((post) => !viewerId || !this.isBlockedPair(viewerId, post.userId))
       .map((post) => {
-        const cloned = this.clonePost(post);
+        const cloned = this.clonePost(post, viewerId);
         if (viewerId) {
           cloned.comments = cloned.comments.filter(
             (comment) => !this.isBlockedPair(viewerId, comment.userId),
           );
         }
+        const visibleIds = new Set(cloned.comments.map((comment) => comment.id));
+        cloned.comments = cloned.comments.filter(
+          (comment) => !comment.parentCommentId || visibleIds.has(comment.parentCommentId),
+        );
         return cloned;
       });
   }
 
-  async listPostsByUser(userId: string): Promise<FeedPost[]> {
-    const feed = await this.listFeed(userId);
+  async listPostsByUser(userId: string, viewerId = userId): Promise<FeedPost[]> {
+    const feed = await this.listFeed(viewerId);
     return feed.filter((post) => post.userId === userId);
   }
 
   async listArchivedPostsByUser(userId: string): Promise<FeedPost[]> {
     return this.posts
       .filter((post) => post.userId === userId && post.archivedAt)
-      .map((post) => this.clonePost(post));
+      .map((post) => this.clonePost(post, userId));
   }
 
   async updatePost(
@@ -507,6 +536,7 @@ export class MemoryStore implements AppStore {
   async deletePost(userId: string, postId: string): Promise<boolean> {
     const index = this.posts.findIndex((item) => item.id === postId && item.userId === userId);
     if (index < 0) return false;
+    for (const comment of this.posts[index]!.comments) this.commentLikes.delete(comment.id);
     this.posts.splice(index, 1);
     for (const [key, share] of this.postShares)
       if (share.postId === postId) this.postShares.delete(key);
@@ -746,19 +776,44 @@ export class MemoryStore implements AppStore {
     authorDisplayName: string,
     postId: string,
     content: string,
+    parentCommentId?: string,
   ): Promise<FeedPost["comments"][number] | null> {
-    const post = this.posts.find((candidate) => candidate.id === postId);
+    const post = this.posts.find(
+      (candidate) =>
+        candidate.id === postId &&
+        !candidate.archivedAt &&
+        !this.isBlockedPair(userId, candidate.userId),
+    );
     if (!post) return null;
+    if (parentCommentId) {
+      const parent = post.comments.find((comment) => comment.id === parentCommentId);
+      if (!parent || parent.parentCommentId || this.isBlockedPair(userId, parent.userId))
+        return null;
+    }
 
     const comment = {
       id: randomUUID(),
       userId,
       authorDisplayName,
       content,
+      ...(parentCommentId ? { parentCommentId } : {}),
+      likeCount: 0,
+      likedByMe: false,
       createdAt: new Date().toISOString(),
     };
     post.comments.push(comment);
-    return this.clonePost(post).comments.find((item) => item.id === comment.id) ?? null;
+    return this.clonePost(post, userId).comments.find((item) => item.id === comment.id) ?? null;
+  }
+
+  async setCommentLiked(userId: string, postId: string, commentId: string, liked: boolean) {
+    const post = (await this.listFeed(userId, postId))[0];
+    const comment = post?.comments.find((item) => item.id === commentId);
+    if (!comment) return null;
+    const likes = this.commentLikes.get(commentId) ?? new Set<string>();
+    if (liked) likes.add(userId);
+    else likes.delete(userId);
+    this.commentLikes.set(commentId, likes);
+    return { ...comment, likeCount: likes.size, likedByMe: likes.has(userId) };
   }
 
   async sharePost(
@@ -921,6 +976,8 @@ export class MemoryStore implements AppStore {
             userId: jun.id,
             authorDisplayName: jun.displayName,
             content: "꾸준한 이지런이 가장 강한 기반이에요!",
+            likeCount: 0,
+            likedByMe: false,
             createdAt: new Date(now - 12 * 60_000).toISOString(),
           },
         ],
@@ -950,7 +1007,7 @@ export class MemoryStore implements AppStore {
     );
   }
 
-  private clonePost(post: FeedPost): FeedPost {
+  private clonePost(post: FeedPost, viewerId?: string): FeedPost {
     const {
       authorAvatarDataUri: _storedAuthorAvatar,
       comments: storedComments,
@@ -965,6 +1022,8 @@ export class MemoryStore implements AppStore {
         const commentAvatar = this.users.get(comment.userId)?.avatarDataUri;
         return {
           ...commentWithoutAvatar,
+          likeCount: this.commentLikes.get(comment.id)?.size ?? 0,
+          likedByMe: viewerId ? (this.commentLikes.get(comment.id)?.has(viewerId) ?? false) : false,
           ...(commentAvatar ? { authorAvatarDataUri: commentAvatar } : {}),
         };
       }),

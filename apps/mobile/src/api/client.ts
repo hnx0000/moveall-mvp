@@ -230,7 +230,7 @@ const liveApi = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
-  createPost: (token: string, input: PostCreateInput) =>
+  createPost: (token: string, input: PostCreateInput, _previewMediaUri?: string) =>
     request<FeedPost>("/v1/posts", {
       token,
       method: "POST",
@@ -241,6 +241,11 @@ const liveApi = {
       token,
       method: "POST",
       body: JSON.stringify(input),
+    }),
+  setCommentLiked: (token: string, postId: string, commentId: string, liked: boolean) =>
+    request<FeedPost["comments"][number]>(`/v1/posts/${postId}/comments/${commentId}/like`, {
+      token,
+      method: liked ? "PUT" : "DELETE",
     }),
   sharePost: (token: string, postId: string, recipientIds: string[]) =>
     request<PostShareResult>(`/v1/posts/${postId}/share`, {
@@ -348,6 +353,6 @@ const liveApi = {
     }),
 };
 
-const usePreviewApi = process.env.EXPO_PUBLIC_LOGIN_REQUIRED !== "true";
+export const usePreviewApi = process.env.EXPO_PUBLIC_LOGIN_REQUIRED !== "true";
 
 export const api = usePreviewApi ? demoApi : liveApi;

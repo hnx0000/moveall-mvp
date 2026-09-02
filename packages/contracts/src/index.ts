@@ -307,6 +307,16 @@ export const RoutineReorderInputSchema = z.object({
 });
 export type RoutineReorderInput = z.infer<typeof RoutineReorderInputSchema>;
 
+export const WorkoutRoutePointSchema = z.object({
+  latitude: z.number().finite().min(-85).max(85),
+  longitude: z.number().finite().min(-180).max(180),
+  timestamp: z.number().finite().nonnegative(),
+  accuracy: z.number().finite().nonnegative().nullable().optional(),
+  altitude: z.number().finite().nullable().optional(),
+  breakBefore: z.boolean().optional(),
+});
+export type WorkoutRoutePoint = z.infer<typeof WorkoutRoutePointSchema>;
+
 export const WorkoutSessionCreateInputSchema = z
   .object({
     sport: SportTypeSchema,
@@ -315,6 +325,7 @@ export const WorkoutSessionCreateInputSchema = z
     perceivedExertion: z.number().int().min(1).max(10),
     notes: z.string().trim().max(1000).optional(),
     metrics: z.record(z.string().max(50), z.number().finite()).default({}),
+    routePoints: z.array(WorkoutRoutePointSchema).max(30000).optional(),
     source: z.enum(["manual", "wearable"]).default("manual"),
   })
   .refine((value) => Date.parse(value.endedAt) > Date.parse(value.startedAt), {
@@ -386,6 +397,7 @@ export type PostShareInput = z.infer<typeof PostShareInputSchema>;
 
 export const CommentCreateInputSchema = z.object({
   content: communityText(1, 500),
+  parentCommentId: z.uuid().optional(),
 });
 export type CommentCreateInput = z.infer<typeof CommentCreateInputSchema>;
 
@@ -478,6 +490,18 @@ export type PublicMemberProfile = {
   medals: Medal[];
 };
 
+export type FeedComment = {
+  id: string;
+  userId: string;
+  authorDisplayName: string;
+  authorAvatarDataUri?: string;
+  content: string;
+  createdAt: string;
+  parentCommentId?: string;
+  likeCount: number;
+  likedByMe: boolean;
+};
+
 export type FeedPost = PostCreateInput & {
   id: string;
   userId: string;
@@ -490,14 +514,7 @@ export type FeedPost = PostCreateInput & {
   archivedAt?: string;
   mediaObjectPath?: string;
   mediaUrl?: string;
-  comments: Array<{
-    id: string;
-    userId: string;
-    authorDisplayName: string;
-    authorAvatarDataUri?: string;
-    content: string;
-    createdAt: string;
-  }>;
+  comments: FeedComment[];
 };
 
 export type PostShareResult = {

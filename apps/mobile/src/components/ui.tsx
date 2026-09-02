@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -26,13 +25,22 @@ import {
   type ThemeColors,
 } from "../theme";
 import { useAppTheme } from "../theme-context";
+import { RefreshableScrollView } from "./refreshable-scroll-view";
 
 export function Screen({
   children,
   title,
   subtitle,
   action,
-}: PropsWithChildren<{ title: string; subtitle?: string; action?: ReactNode }>) {
+  onRefresh,
+  refreshing,
+}: PropsWithChildren<{
+  title: string;
+  subtitle?: string;
+  action?: ReactNode;
+  onRefresh?: () => Promise<void>;
+  refreshing?: boolean;
+}>) {
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
 
@@ -43,7 +51,8 @@ export function Screen({
           <Wordmark />
           {action ? <View style={styles.headerAction}>{action}</View> : null}
         </View>
-        <ScrollView
+        <RefreshableScrollView
+          {...(onRefresh ? { onRefresh, refreshing: Boolean(refreshing) } : {})}
           style={styles.scroll}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
@@ -56,7 +65,7 @@ export function Screen({
             </View>
           ) : null}
           {children}
-        </ScrollView>
+        </RefreshableScrollView>
       </View>
     </SafeAreaView>
   );

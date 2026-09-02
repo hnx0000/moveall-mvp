@@ -1,4 +1,10 @@
 import {
+  savePreviewImage,
+  hydratePreviewImages,
+  previewImageUri,
+  deletePreviewImage,
+} from "../media/preview-media.ts";
+import {
   sportLabels,
   sportValues,
   type AuthSession,
@@ -183,6 +189,8 @@ const posts: FeedPost[] = [
         userId: "demo-friend-2",
         authorDisplayName: "페이스메이커 준",
         content: "꾸준한 이지런이 가장 강한 기반이에요!",
+        likeCount: 0,
+        likedByMe: false,
         createdAt: new Date(now - 90 * 60_000).toISOString(),
       },
     ],
@@ -586,7 +594,19 @@ const routines = initializeDemoRoutines();
 const workouts = initializeDemoWorkouts();
 const followingIds = new Set<string>(readStored<string[]>("groov-demo-following-v1", []));
 const postShareRecipients = new Map<string, Set<string>>();
-const archived: FeedPost[] = [];
+const savedFeed = readStored<{ posts: FeedPost[]; archived: FeedPost[] } | null>(
+  "groov-demo-feed-v1",
+  null,
+);
+const archived: FeedPost[] = savedFeed?.archived ?? [];
+// Refresh demo imagery/copy from the current seeds while preserving local interactions and own posts.
+for (const savedPost of savedFeed?.posts ?? []) {
+  const seededPost = posts.find((post) => post.id === savedPost.id);
+  if (seededPost) {
+    seededPost.comments = savedPost.comments;
+    seededPost.shareCount = savedPost.shareCount ?? 0;
+  } else posts.unshift(savedPost);
+}
 const messages: DirectMessage[] = [];
 const demoReports: ContentReport[] = [];
 const demoNotifications: UserNotification[] = [];
@@ -705,8 +725,14 @@ export const demoApi = {
     articleSeeds.find((article) => article.id === articleId)?.feedback.push(item);
     return item;
   },
-  feed: async (_token?: string) => posts.map((post) => decorateDemoPost(post)),
+  feed: async (_token?: string) => {
+    await hydratePreviewImages(posts);
+    return [...posts]
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+      .map((post) => decorateDemoPost(post));
+  },
   post: async (postId: string, _token?: string) => {
+    await hydratePreviewImages(posts);
     const post = posts.find((item) => item.id === postId && !item.archivedAt);
     if (!post) throw new Error("삭제·보관되었거나 볼 수 없는 피드입니다.");
     return decorateDemoPost(post);
@@ -751,7 +777,7 @@ export const demoApi = {
     persistDemoState();
     return routines;
   },
-  createPost: async (_token: string, input: PostCreateInput) => {
+  createPost: async (_token: string, input: PostCreateInput, previewMediaUri?: string) => {
     const item: FeedPost = {
       id: makeId("post"),
       userId: activeSession.user.id,
@@ -762,21 +788,49 @@ export const demoApi = {
       createdAt: new Date().toISOString(),
       comments: [],
     };
+    if (previewMediaUri) item.mediaUrl = await savePreviewImage(item.id, previewMediaUri);
     posts.unshift(item);
+    try {
+      persistDemoFeed(true);
+    } catch (error) {
+      posts.splice(posts.indexOf(item), 1);
+      await deletePreviewImage(item.mediaUrl);
+      throw error;
+    }
     return decorateDemoPost(item);
   },
   createComment: async (_token: string, postId: string, input: CommentCreateInput) => {
-    const post = posts.find((item) => item.id === postId);
+    const post = posts.find((item) => item.id === postId && !item.archivedAt);
     if (!post) throw new Error("게시물을 찾을 수 없습니다.");
+    if (input.parentCommentId) {
+      const parent = post.comments.find((item) => item.id === input.parentCommentId);
+      if (!parent || parent.parentCommentId)
+        throw new Error("답글을 남길 원본 댓글을 찾을 수 없습니다.");
+    }
     const comment: FeedPost["comments"][number] = {
       id: makeId("comment"),
       userId: activeSession.user.id,
       authorDisplayName: activeSession.user.displayName,
       content: input.content,
+      ...(input.parentCommentId ? { parentCommentId: input.parentCommentId } : {}),
+      likeCount: 0,
+      likedByMe: false,
       createdAt: new Date().toISOString(),
     };
     post.comments.push(comment);
+    persistDemoFeed();
     return decorateDemoPost(post).comments.find((item) => item.id === comment.id)!;
+  },
+  setCommentLiked: async (_token: string, postId: string, commentId: string, liked: boolean) => {
+    const post = posts.find((item) => item.id === postId && !item.archivedAt);
+    const comment = post?.comments.find((item) => item.id === commentId);
+    if (!post || !comment) throw new Error("댓글을 찾을 수 없습니다.");
+    if (Boolean(comment.likedByMe) !== liked) {
+      comment.likeCount = Math.max(0, (comment.likeCount ?? 0) + (liked ? 1 : -1));
+      comment.likedByMe = liked;
+    }
+    persistDemoFeed();
+    return decorateDemoPost(post).comments.find((item) => item.id === commentId)!;
   },
   sharePost: async (
     _token: string,
@@ -823,7 +877,12 @@ export const demoApi = {
       createdAt: new Date().toISOString(),
     };
     workouts.unshift(item);
-    persistDemoState();
+    try {
+      persistDemoState(true);
+    } catch (error) {
+      workouts.splice(workouts.indexOf(item), 1);
+      throw error;
+    }
     return item;
   },
   updateWorkoutSession: async (
@@ -848,37 +907,61 @@ export const demoApi = {
     persistDemoState();
     return { deleted: true as const };
   },
-  myPosts: async (_token: string) =>
-    posts
+  myPosts: async (_token: string) => {
+    await hydratePreviewImages(posts);
+    return posts
       .filter((post) => post.userId === activeSession.user.id)
-      .map((post) => decorateDemoPost(post)),
-  archivedPosts: async (_token: string) => archived.map((post) => decorateDemoPost(post)),
+      .map((post) => decorateDemoPost(post));
+  },
+  archivedPosts: async (_token: string) => {
+    await hydratePreviewImages(archived);
+    return archived.map((post) => decorateDemoPost(post));
+  },
   updatePost: async (_token: string, postId: string, input: PostUpdateInput) => {
-    const post = [...posts, ...archived].find((item) => item.id === postId)!;
+    const post = [...posts, ...archived].find(
+      (item) => item.id === postId && item.userId === activeSession.user.id,
+    );
+    if (!post) throw new Error("내 게시물만 수정할 수 있습니다.");
     post.content = input.content;
+    persistDemoFeed();
     return decorateDemoPost(post);
   },
   archivePost: async (_token: string, postId: string) => {
-    const index = posts.findIndex((item) => item.id === postId);
+    const index = posts.findIndex(
+      (item) => item.id === postId && item.userId === activeSession.user.id,
+    );
+    if (index < 0) throw new Error("내 게시물만 보관할 수 있습니다.");
     const post = posts.splice(index, 1)[0]!;
     post.archivedAt = new Date().toISOString();
     archived.unshift(post);
+    persistDemoFeed();
     return decorateDemoPost(post);
   },
   restorePost: async (_token: string, postId: string) => {
-    const index = archived.findIndex((item) => item.id === postId);
+    const index = archived.findIndex(
+      (item) => item.id === postId && item.userId === activeSession.user.id,
+    );
+    if (index < 0) throw new Error("내 게시물만 복원할 수 있습니다.");
     const post = archived.splice(index, 1)[0]!;
     delete post.archivedAt;
     posts.unshift(post);
+    persistDemoFeed();
     return decorateDemoPost(post);
   },
   deletePost: async (_token: string, postId: string) => {
     const source = posts.some((item) => item.id === postId) ? posts : archived;
-    const index = source.findIndex((item) => item.id === postId);
-    if (index >= 0) source.splice(index, 1);
+    const index = source.findIndex(
+      (item) => item.id === postId && item.userId === activeSession.user.id,
+    );
+    if (index < 0) throw new Error("내 게시물만 삭제할 수 있습니다.");
+    await deletePreviewImage(source[index]?.mediaUrl);
+    source.splice(index, 1);
+    postShareRecipients.delete(postId);
+    persistDemoFeed();
     return { deleted: true as const };
   },
   userPosts: async (_token: string, userId: string) => {
+    await hydratePreviewImages(posts);
     const userPosts = posts.filter((post) => post.userId === userId);
     return {
       user: { id: userId, displayName: userPosts[0]?.authorDisplayName ?? "MOVE 멤버" },
@@ -886,6 +969,7 @@ export const demoApi = {
     };
   },
   memberProfile: async (_token: string, userId: string): Promise<PublicMemberProfile> => {
+    await hydratePreviewImages(posts);
     const seed = demoMemberDirectory[userId] ?? {
       displayName: "GROOV 멤버",
       isPrivate: false,
@@ -1255,7 +1339,7 @@ function readStored<T>(key: string, fallback: T): T {
   }
 }
 
-function persistDemoState() {
+function persistDemoState(strict = false) {
   try {
     if (!("localStorage" in globalThis)) return;
     globalThis.localStorage.setItem("moveall-demo-routines-v2", JSON.stringify(routines));
@@ -1265,6 +1349,10 @@ function persistDemoState() {
       JSON.stringify([...deletedWorkoutIds]),
     );
   } catch {
+    if (strict)
+      throw new Error(
+        "운동 기록을 저장하지 못했습니다. 기기 저장 공간을 확인한 뒤 다시 저장해 주세요.",
+      );
     // 저장소를 사용할 수 없는 환경에서는 현재 세션의 메모리 상태를 유지합니다.
   }
 }
@@ -1307,6 +1395,7 @@ function decorateDemoPost(post: FeedPost): FeedPost {
     post.userId === activeSession.user.id ? avatarDataUri : storedAuthorAvatar;
   return {
     ...postWithoutAvatar,
+    ...(post.mediaUrl ? { mediaUrl: previewImageUri(post.mediaUrl) ?? "" } : {}),
     ...(resolvedAuthorAvatar ? { authorAvatarDataUri: resolvedAuthorAvatar } : {}),
     comments: comments.map((comment) => {
       const { authorAvatarDataUri: storedCommentAvatar, ...commentWithoutAvatar } = comment;
@@ -1314,8 +1403,23 @@ function decorateDemoPost(post: FeedPost): FeedPost {
         comment.userId === activeSession.user.id ? avatarDataUri : storedCommentAvatar;
       return {
         ...commentWithoutAvatar,
+        likeCount: comment.likeCount ?? 0,
+        likedByMe: comment.likedByMe ?? false,
         ...(resolvedCommentAvatar ? { authorAvatarDataUri: resolvedCommentAvatar } : {}),
       };
     }),
   };
+}
+
+function persistDemoFeed(strict = false) {
+  try {
+    if (!("localStorage" in globalThis)) return;
+    globalThis.localStorage.setItem("groov-demo-feed-v1", JSON.stringify({ posts, archived }));
+  } catch {
+    if (strict)
+      throw new Error(
+        "게시물을 저장하지 못했습니다. 기기 저장 공간을 확인한 뒤 다시 시도해 주세요.",
+      );
+    // Live accounts use PostgreSQL; the preview keeps its current session if browser storage is full.
+  }
 }

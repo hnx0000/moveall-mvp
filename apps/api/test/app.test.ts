@@ -27,6 +27,308 @@ describe("GROOV API", () => {
     store = new MemoryStore();
   });
 
+  async function commentFixture() {
+    const app = await createApp({ config, store });
+    const accounts = await Promise.all(
+      ["owner", "reader"].map(async (name) => {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/auth/register",
+          payload: {
+            email: `${name}@comments.test`,
+            password: "very-secure-1234",
+            displayName: name,
+          },
+        });
+        const account = response.json().data as {
+          accessToken: string;
+          user: { id: string; displayName: string };
+        };
+        return { ...account, headers: { authorization: `Bearer ${account.accessToken}` } };
+      }),
+    );
+    const owner = accounts[0]!;
+    const reader = accounts[1]!;
+    const post = (await store.createPost(owner.user.id, owner.user.displayName, {
+      sport: "running",
+      content: "오늘의 러닝",
+    }))!;
+    return { app, owner, reader, post, url: `/v1/posts/${post.id}/comments` };
+  }
+
+  it("keeps raw workout GPS private while preserving routes through saves and edits", async () => {
+    const { app, owner, reader } = await commentFixture();
+    const routePoints = [
+      { latitude: 37.5, longitude: 127, timestamp: 1000, accuracy: 5, altitude: 10 },
+      { latitude: 37.501, longitude: 127.001, timestamp: 5000, breakBefore: true },
+    ];
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/workout-sessions",
+      headers: owner.headers,
+      payload: {
+        sport: "running",
+        startedAt: "2026-09-03T00:00:00Z",
+        endedAt: "2026-09-03T01:00:00Z",
+        perceivedExertion: 5,
+        metrics: { distanceKm: 2 },
+        routePoints,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().data.routePoints).toEqual(routePoints);
+    const id = created.json().data.id;
+    const own = await app.inject({
+      method: "GET",
+      url: "/v1/workout-sessions/me",
+      headers: owner.headers,
+    });
+    expect(own.json().data[0].routePoints).toEqual(routePoints);
+    const other = await app.inject({
+      method: "GET",
+      url: `/v1/users/${owner.user.id}/profile`,
+      headers: reader.headers,
+    });
+    expect(other.statusCode).toBe(200);
+    expect(other.json().data.workouts[0]).not.toHaveProperty("routePoints");
+    const edited = await app.inject({
+      method: "PATCH",
+      url: `/v1/workout-sessions/${id}`,
+      headers: owner.headers,
+      payload: { notes: "경로 그대로" },
+    });
+    expect(edited.json().data.routePoints).toEqual(routePoints);
+    const denied = await app.inject({
+      method: "PATCH",
+      url: `/v1/workout-sessions/${id}`,
+      headers: reader.headers,
+      payload: { notes: "다른 계정" },
+    });
+    expect(denied.statusCode).toBe(404);
+    const malformed = await app.inject({
+      method: "POST",
+      url: "/v1/workout-sessions",
+      headers: owner.headers,
+      payload: {
+        sport: "running",
+        startedAt: "2026-09-03T00:00:00Z",
+        endedAt: "2026-09-03T01:00:00Z",
+        perceivedExertion: 5,
+        routePoints: [{ latitude: 90, longitude: 127, timestamp: 0 }],
+      },
+    });
+    expect(malformed.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("stores threaded replies and idempotent viewer-specific comment likes", async () => {
+    const { app, owner, reader, post, url } = await commentFixture();
+    const root = await app.inject({
+      method: "POST",
+      url,
+      headers: owner.headers,
+      payload: { content: "함께 달려요" },
+    });
+    expect(root.statusCode).toBe(201);
+    expect(root.json().data).toMatchObject({ likeCount: 0, likedByMe: false });
+    const parentCommentId = root.json().data.id as string;
+    const response = await app.inject({
+      method: "POST",
+      url,
+      headers: reader.headers,
+      payload: { content: "좋아요!", parentCommentId },
+    });
+    expect(response.statusCode).toBe(201);
+    const replyId = response.json().data.id as string;
+    expect(response.json().data.parentCommentId).toBe(parentCommentId);
+    for (const id of [parentCommentId, replyId]) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const like = await app.inject({
+          method: "PUT",
+          url: `${url}/${id}/like`,
+          headers: reader.headers,
+        });
+        expect(like.json().data).toMatchObject({ id, likeCount: 1, likedByMe: true });
+      }
+      await app.inject({ method: "PUT", url: `${url}/${id}/like`, headers: owner.headers });
+      const ownFeed = await store.listFeed(reader.user.id, post.id);
+      expect(ownFeed[0]!.comments.find((comment) => comment.id === id)).toMatchObject({
+        likeCount: 2,
+        likedByMe: true,
+      });
+      expect(
+        (await store.listFeed(undefined, post.id))[0]!.comments.find(
+          (comment) => comment.id === id,
+        ),
+      ).toMatchObject({ likeCount: 2, likedByMe: false });
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const unlike = await app.inject({
+          method: "DELETE",
+          url: `${url}/${id}/like`,
+          headers: reader.headers,
+        });
+        expect(unlike.json().data).toMatchObject({ likeCount: 1, likedByMe: false });
+      }
+    }
+    await app.close();
+  });
+
+  it("rejects unsigned actions, mismatched parents and deeper reply nesting", async () => {
+    const { app, owner, reader, url } = await commentFixture();
+    const root = (
+      await app.inject({
+        method: "POST",
+        url,
+        headers: owner.headers,
+        payload: { content: "댓글" },
+      })
+    ).json().data;
+    const reply = (
+      await app.inject({
+        method: "POST",
+        url,
+        headers: reader.headers,
+        payload: { content: "답글", parentCommentId: root.id },
+      })
+    ).json().data;
+    expect(
+      (await app.inject({ method: "POST", url, payload: { content: "무단 댓글" } })).statusCode,
+    ).toBe(401);
+    expect((await app.inject({ method: "PUT", url: `${url}/${root.id}/like` })).statusCode).toBe(
+      401,
+    );
+    const another = (await store.createPost(owner.user.id, "owner", {
+      sport: "running",
+      content: "다른 게시물",
+    }))!;
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/v1/posts/${another.id}/comments`,
+          headers: reader.headers,
+          payload: { content: "잘못된 연결", parentCommentId: root.id },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await app.inject({
+          method: "PUT",
+          url: `/v1/posts/${another.id}/comments/${root.id}/like`,
+          headers: reader.headers,
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url,
+          headers: reader.headers,
+          payload: { content: "더 깊은 답글", parentCommentId: reply.id },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url,
+          headers: reader.headers,
+          payload: { content: "잘못된 ID", parentCommentId: "bad" },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await app.close();
+  });
+
+  it("hides blocked threads and rejects likes/replies on archived or blocked content", async () => {
+    const { app, owner, reader, post, url } = await commentFixture();
+    const root = (await store.createComment(reader.user.id, "reader", post.id, "원 댓글"))!;
+    const reply = (await store.createComment(owner.user.id, "owner", post.id, "답글", root.id))!;
+    await store.blockUser(owner.user.id, reader.user.id);
+    expect((await store.listFeed(owner.user.id, post.id))[0]!.comments).toEqual([]);
+    expect(await store.setCommentLiked(owner.user.id, post.id, root.id, true)).toBeNull();
+    expect(await store.setCommentLiked(owner.user.id, post.id, reply.id, true)).toBeNull();
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url,
+          headers: reader.headers,
+          payload: { content: "차단 우회" },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      await store.createComment(owner.user.id, "owner", post.id, "차단 댓글 답글", root.id),
+    ).toBeNull();
+    const ownRoot = (await store.createComment(owner.user.id, "owner", post.id, "보관 전"))!;
+    await store.setPostArchived(owner.user.id, post.id, true);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url,
+          headers: owner.headers,
+          payload: { content: "보관 우회" },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await app.inject({
+          method: "PUT",
+          url: `${url}/${ownRoot.id}/like`,
+          headers: owner.headers,
+        })
+      ).statusCode,
+    ).toBe(404);
+    await app.close();
+  });
+
+  it("deletes only the owner's post, removing threads/shares but keeping the workout", async () => {
+    const { app, owner, reader } = await commentFixture();
+    const workout = await store.createWorkoutSession(owner.user.id, {
+      sport: "running",
+      startedAt: "2026-09-03T01:00:00Z",
+      endedAt: "2026-09-03T01:30:00Z",
+      source: "manual",
+      perceivedExertion: 5,
+      metrics: { distanceKm: 5 },
+    });
+    const post = (await store.createPost(owner.user.id, "owner", {
+      sport: "running",
+      content: "삭제 테스트",
+      workoutSessionId: workout.id,
+    }))!;
+    const comment = (await store.createComment(reader.user.id, "reader", post.id, "댓글"))!;
+    await store.createComment(owner.user.id, "owner", post.id, "답글", comment.id);
+    await store.setCommentLiked(owner.user.id, post.id, comment.id, true);
+    await store.followUser(owner.user.id, reader.user.id);
+    await store.sharePost(owner.user.id, post.id, [reader.user.id]);
+    const url = `/v1/posts/${post.id}`;
+    expect((await app.inject({ method: "DELETE", url })).statusCode).toBe(401);
+    expect((await app.inject({ method: "DELETE", url, headers: reader.headers })).statusCode).toBe(
+      404,
+    );
+    expect(await store.listFeed(owner.user.id, post.id)).toHaveLength(1);
+    expect(
+      (await app.inject({ method: "DELETE", url, headers: owner.headers })).json(),
+    ).toMatchObject({ data: { deleted: true } });
+    expect(await store.listFeed(owner.user.id, post.id)).toEqual([]);
+    expect(await store.listMessages(owner.user.id, reader.user.id)).toEqual([]);
+    expect(await store.setCommentLiked(reader.user.id, post.id, comment.id, true)).toBeNull();
+    expect((await app.inject({ method: "GET", url, headers: reader.headers })).statusCode).toBe(
+      404,
+    );
+    expect(await store.listWorkoutSessions(owner.user.id)).toContainEqual(
+      expect.objectContaining({ id: workout.id }),
+    );
+    await app.close();
+  });
+
   it("responds to the health smoke test", async () => {
     const app = await createApp({ config, store });
     const response = await app.inject({ method: "GET", url: "/health" });
