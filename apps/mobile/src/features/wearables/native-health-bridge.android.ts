@@ -25,6 +25,7 @@ export type NativeHealthBridge = {
 const permissionMap: Partial<Record<HealthPermission, Permission["recordType"][]>> = {
   workout: ["ExerciseSession"],
   "heart-rate": ["HeartRate"],
+  "respiratory-rate": ["RespiratoryRate"],
   steps: ["Steps", "StepsCadence"],
   distance: ["Distance"],
   calories: ["TotalCaloriesBurned"],
@@ -90,13 +91,15 @@ const bridge: NativeHealthBridge = {
       .map((recordType) => ({ accessType: "write", recordType }) as Permission);
     const requestedPermissions = [...readPermissions, ...writePermissions];
     const granted = await requestPermission(requestedPermissions);
-    return requestedPermissions.every((permission) =>
-      granted.some(
-        (candidate) =>
-          candidate.accessType === permission.accessType &&
-          candidate.recordType === permission.recordType,
-      ),
-    );
+    return requestedPermissions
+      .filter((permission) => permission.recordType !== "RespiratoryRate")
+      .every((permission) =>
+        granted.some(
+          (candidate) =>
+            candidate.accessType === permission.accessType &&
+            candidate.recordType === permission.recordType,
+        ),
+      );
   },
   async startWorkout() {
     throw new Error("Health Connect is an import source, not a live watch session");
@@ -112,17 +115,20 @@ const bridge: NativeHealthBridge = {
       sessions.records.map(async (session): Promise<WorkoutSessionCreateInput | null> => {
         const sport = sportByExerciseType.get(session.exerciseType);
         if (!sport || Date.parse(session.endTime) <= Date.parse(session.startTime)) return null;
-        const [heart, steps, cadence, distance, calories, elevation] = await Promise.all([
-          safeRead("HeartRate", session.startTime, session.endTime),
-          safeRead("Steps", session.startTime, session.endTime),
-          safeRead("StepsCadence", session.startTime, session.endTime),
-          safeRead("Distance", session.startTime, session.endTime),
-          safeRead("TotalCaloriesBurned", session.startTime, session.endTime),
-          safeRead("ElevationGained", session.startTime, session.endTime),
-        ]);
+        const [heart, respiratory, steps, cadence, distance, calories, elevation] =
+          await Promise.all([
+            safeRead("HeartRate", session.startTime, session.endTime),
+            safeRead("RespiratoryRate", session.startTime, session.endTime),
+            safeRead("Steps", session.startTime, session.endTime),
+            safeRead("StepsCadence", session.startTime, session.endTime),
+            safeRead("Distance", session.startTime, session.endTime),
+            safeRead("TotalCaloriesBurned", session.startTime, session.endTime),
+            safeRead("ElevationGained", session.startTime, session.endTime),
+          ]);
         const heartRates = heart.records.flatMap((record) =>
           record.samples.map((sample) => sample.beatsPerMinute),
         );
+        const respiratoryRates = respiratory.records.map((record) => record.rate);
         const cadences = cadence.records.flatMap((record) =>
           record.samples.map((sample) => sample.rate),
         );
@@ -156,6 +162,9 @@ const bridge: NativeHealthBridge = {
                   averageHeartRateBpm: average(heartRates),
                   maximumHeartRateBpm: Math.max(...heartRates),
                 }
+              : {}),
+            ...(respiratoryRates.length
+              ? { averageRespiratoryRatePerMinute: average(respiratoryRates) }
               : {}),
             ...(cadences.length ? { averageCadenceSpm: average(cadences) } : {}),
           },

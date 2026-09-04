@@ -1,6 +1,7 @@
 export type MapPoint = {
   latitude: number;
   longitude: number;
+  breakBefore?: boolean;
 };
 
 export type MapPlace = MapPoint & {
@@ -26,4 +27,7 @@ export type WorkoutMapProps = {
   staticMode?: boolean;
   showBadge?: boolean;
   backgroundColor?: string;
+  showFitButton?: boolean;
+  onFullScreenPress?: () => void;
+  controlsBottom?: number;
 };

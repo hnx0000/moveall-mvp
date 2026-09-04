@@ -236,11 +236,26 @@ const liveApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  sharingCrews: (token: string) =>
+    request<import("@moveall/contracts").SharingCrew[]>("/v1/sharing-crews", { token }),
+  createSharingCrew: (token: string, input: import("@moveall/contracts").SharingCrewCreateInput) =>
+    request<import("@moveall/contracts").SharingCrew>("/v1/sharing-crews", {
+      token,
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   createComment: (token: string, postId: string, input: CommentCreateInput) =>
     request<FeedPost["comments"][number]>(`/v1/posts/${postId}/comments`, {
       token,
       method: "POST",
       body: JSON.stringify(input),
+    }),
+  socialSuggestions: (token: string) =>
+    request<import("@moveall/contracts").SocialSuggestions>("/v1/social/suggestions", { token }),
+  setPostLiked: (token: string, postId: string, liked: boolean) =>
+    request<import("@moveall/contracts").PostLikeState>(`/v1/posts/${postId}/like`, {
+      token,
+      method: liked ? "PUT" : "DELETE",
     }),
   setCommentLiked: (token: string, postId: string, commentId: string, liked: boolean) =>
     request<FeedPost["comments"][number]>(`/v1/posts/${postId}/comments/${commentId}/like`, {
@@ -290,6 +305,25 @@ const liveApi = {
   memberProfile: (token: string, userId: string) =>
     request<PublicMemberProfile>(`/v1/users/${userId}/profile`, { token }),
   socialSummary: (token: string) => request<SocialSummary>("/v1/social/me", { token }),
+  memberConnections: (token: string, userId: string) =>
+    request<import("@moveall/contracts").MemberConnections>(`/v1/users/${userId}/connections`, {
+      token,
+    }),
+  safetySummary: (token: string) =>
+    request<import("@moveall/contracts").SafetySummary>("/v1/social/safety", { token }),
+  saveSocialPrivacy: (token: string, privacy: import("@moveall/contracts").SocialPrivacy) =>
+    request<import("@moveall/contracts").SocialPrivacy>("/v1/social/privacy", {
+      token,
+      method: "PUT",
+      body: JSON.stringify(privacy),
+    }),
+  unblockUser: (token: string, userId: string) =>
+    request<{ blocked: false }>(`/v1/users/${userId}/block`, { token, method: "DELETE" }),
+  restrictUser: (token: string, userId: string, restricted: boolean) =>
+    request<{ restricted: boolean }>(`/v1/users/${userId}/restriction`, {
+      token,
+      method: restricted ? "PUT" : "DELETE",
+    }),
   medals: (token: string) => request<Medal[]>("/v1/medals/me", { token }),
   followStatus: (token: string, userId: string) =>
     request<FollowStatus>(`/v1/users/${userId}/follow-status`, { token }),
@@ -337,6 +371,18 @@ const liveApi = {
       body: JSON.stringify({ token: pushToken }),
     }),
   moderationReports: (token: string) => request<ContentReport[]>("/v1/admin/reports", { token }),
+  usagePurposeSummary: (
+    token: string,
+    cohort: import("@moveall/contracts").UsagePurposeCohort = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (cohort.registeredFrom) query.set("registeredFrom", cohort.registeredFrom);
+    if (cohort.registeredBefore) query.set("registeredBefore", cohort.registeredBefore);
+    return request<import("@moveall/contracts").UsagePurposeSummary>(
+      `/v1/admin/usage-purposes${query.size ? `?${query}` : ""}`,
+      { token },
+    );
+  },
   updateModerationReport: (token: string, reportId: string, input: ModerationReportUpdateInput) =>
     request<ContentReport>(`/v1/admin/reports/${reportId}`, {
       token,

@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { UsagePurposeSchema, type UsagePurposeResponse } from "./usage-purpose.js";
+export * from "./usage-purpose.js";
 
 export const sportValues = [
   "strength",
@@ -40,14 +42,16 @@ export const OnboardingInputSchema = z
     primarySports: z.array(SportTypeSchema).min(1).max(3),
     activityLevel: ActivityLevelSchema,
     goals: z.array(OnboardingGoalSchema).min(1).max(2),
+    usagePurpose: UsagePurposeSchema.nullable().optional(),
     neighborhood: NeighborhoodVerificationSchema.optional(),
   })
   .strict();
 export type OnboardingInput = z.infer<typeof OnboardingInputSchema>;
 
-export type OnboardingProfile = OnboardingInput & {
-  completedAt: string;
-};
+export type OnboardingProfile = OnboardingInput &
+  UsagePurposeResponse & {
+    completedAt: string;
+  };
 
 export const sportLabels: Record<SportType, string> = {
   strength: "근력 운동",
@@ -367,13 +371,49 @@ function communityText(min: number, max: number) {
     }, "괴롭힘, 혐오, 성적 착취 또는 노골적인 비속어가 포함된 내용은 등록할 수 없습니다.");
 }
 
-export const PostCreateInputSchema = z.object({
-  sport: SportTypeSchema,
-  content: communityText(1, 2000),
-  workoutSessionId: z.uuid().optional(),
-  mediaId: z.uuid().optional(),
-  contentType: z.enum(["post", "story"]).optional(),
+export const PostAudienceSchema = z.object({
+  scope: z.enum(["public", "followers", "mutuals", "crews", "users", "private", "none"]),
+  userIds: z.array(z.uuid()).max(100).optional(),
+  crewIds: z.array(z.uuid()).max(20).optional(),
 });
+export type PostAudience = z.infer<typeof PostAudienceSchema>;
+export const SharingCrewCreateInputSchema = z.object({
+  name: communityText(1, 30),
+  memberIds: z.array(z.uuid()).min(1).max(100),
+});
+export type SharingCrewCreateInput = z.infer<typeof SharingCrewCreateInputSchema>;
+export type SharingCrew = SharingCrewCreateInput & { id: string; userId: string };
+
+export const PostCreateInputSchema = z
+  .object({
+    sport: SportTypeSchema,
+    content: communityText(1, 2000),
+    workoutSessionId: z.uuid().optional(),
+    mediaId: z.uuid().optional(),
+    contentType: z.enum(["post", "story"]).optional(),
+    audience: PostAudienceSchema.optional(),
+    commentAudience: PostAudienceSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    for (const key of ["audience", "commentAudience"] as const) {
+      const audience = value[key];
+      if (key === "audience" && audience?.scope === "none")
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: "게시물 공개 범위를 선택해 주세요.",
+        });
+      if (
+        (audience?.scope === "users" && !audience.userIds?.length) ||
+        (audience?.scope === "crews" && !audience.crewIds?.length)
+      )
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: "공개할 대상을 한 명 이상 선택해 주세요.",
+        });
+    }
+  });
 export type PostCreateInput = z.infer<typeof PostCreateInputSchema>;
 
 export const PostUpdateInputSchema = z.object({
@@ -398,8 +438,23 @@ export type PostShareInput = z.infer<typeof PostShareInputSchema>;
 export const CommentCreateInputSchema = z.object({
   content: communityText(1, 500),
   parentCommentId: z.uuid().optional(),
+  mentions: z
+    .array(
+      z.object({
+        userId: z.string().min(1).max(120),
+        displayName: z.string().min(1).max(100),
+        start: z.number().int().min(0),
+        end: z.number().int().min(1).max(500),
+      }),
+    )
+    .max(20)
+    .optional(),
 });
 export type CommentCreateInput = z.infer<typeof CommentCreateInputSchema>;
+export type CommentMention = NonNullable<CommentCreateInput["mentions"]>[number];
+export type SocialSuggestions = { people: PublicUser[]; frequentIds: string[] };
+export type PostLikeState = { liked: boolean; likeCount: number; changed: boolean };
+export { rankSocialPeople, type ShareFrequency } from "./social-suggestions.js";
 
 export const KnowledgeFeedbackCreateInputSchema = z.object({
   content: communityText(2, 500),
@@ -460,6 +515,21 @@ export type SocialSummary = {
   following: PublicUser[];
 };
 
+export type SocialPrivacy = {
+  hideFollowers: boolean;
+  hideFollowing: boolean;
+};
+
+export type SafetySummary = SocialPrivacy & {
+  blocked: PublicUser[];
+  restricted: PublicUser[];
+};
+
+export type MemberConnections = SocialSummary & {
+  followersHidden: boolean;
+  followingHidden: boolean;
+};
+
 export type FollowStatus = {
   following: boolean;
   followersCount: number;
@@ -491,6 +561,7 @@ export type PublicMemberProfile = {
 };
 
 export type FeedComment = {
+  mentions?: CommentMention[];
   id: string;
   userId: string;
   authorDisplayName: string;
@@ -503,6 +574,7 @@ export type FeedComment = {
 };
 
 export type FeedPost = PostCreateInput & {
+  likedByMe?: boolean;
   id: string;
   userId: string;
   authorDisplayName: string;
@@ -515,7 +587,21 @@ export type FeedPost = PostCreateInput & {
   mediaObjectPath?: string;
   mediaUrl?: string;
   comments: FeedComment[];
+  canComment?: boolean;
+  expiresAt?: string;
+  workoutSummary?: {
+    startedAt: string;
+    endedAt: string;
+    metrics: Record<string, number>;
+  };
 };
+
+export {
+  audienceAllows,
+  storyIsActive,
+  presentPostAccess,
+  resolveCrewAudience,
+} from "./post-permissions.js";
 
 export type PostShareResult = {
   shareCount: number;
@@ -596,7 +682,16 @@ export type ContentReport = ContentReportCreateInput & {
 
 export type UserNotification = {
   id: string;
-  kind: "follow" | "comment" | "share" | "moderation" | "system";
+  kind:
+    | "follow"
+    | "comment"
+    | "share"
+    | "moderation"
+    | "system"
+    | "like"
+    | "message"
+    | "mention"
+    | "goal_activity";
   title: string;
   body: string;
   actorId?: string;

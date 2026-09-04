@@ -12,6 +12,8 @@ import type {
   ModerationReportUpdateInput,
   OnboardingInput,
   OnboardingProfile,
+  UsagePurposeCohort,
+  UsagePurposeSummary,
   PostCreateInput,
   PushDeviceRegistrationInput,
   PostShareResult,
@@ -95,6 +97,10 @@ export interface AppStore {
   saveConsent(userId: string, input: ConsentUpdateInput): Promise<ConsentState>;
   getOnboarding(userId: string): Promise<OnboardingProfile | null>;
   saveOnboarding(userId: string, input: OnboardingInput): Promise<OnboardingProfile>;
+  usagePurposeSummary(
+    cohort: UsagePurposeCohort,
+    excludedEmails: string[],
+  ): Promise<UsagePurposeSummary>;
   createMediaObject(
     input: Omit<StoredMediaObject, "id" | "status" | "createdAt">,
   ): Promise<StoredMediaObject>;
@@ -123,6 +129,11 @@ export interface AppStore {
     authorDisplayName: string,
     input: PostCreateInput,
   ): Promise<FeedPost | null>;
+  listSharingCrews(userId: string): Promise<import("@moveall/contracts").SharingCrew[]>;
+  createSharingCrew(
+    userId: string,
+    input: import("@moveall/contracts").SharingCrewCreateInput,
+  ): Promise<import("@moveall/contracts").SharingCrew | null>;
   listFeed(viewerId?: string, postId?: string): Promise<FeedPost[]>;
   listPostsByUser(userId: string, viewerId?: string): Promise<FeedPost[]>;
   listArchivedPostsByUser(userId: string): Promise<FeedPost[]>;
@@ -133,6 +144,14 @@ export interface AppStore {
   unfollowUser(followerId: string, followingId: string): Promise<void>;
   removeFollower(userId: string, followerId: string): Promise<void>;
   blockUser(blockerId: string, blockedId: string): Promise<boolean>;
+  unblockUser(userId: string, targetId: string): Promise<void>;
+  restrictUser(userId: string, targetId: string, restricted: boolean): Promise<boolean>;
+  safetySummary(userId: string): Promise<import("@moveall/contracts").SafetySummary>;
+  saveSocialPrivacy(
+    userId: string,
+    privacy: import("@moveall/contracts").SocialPrivacy,
+  ): Promise<void>;
+  canViewContent(ownerId: string, viewerId?: string): Promise<boolean>;
   createContentReport(reporterId: string, input: ContentReportCreateInput): Promise<ContentReport>;
   listContentReports(): Promise<ContentReport[]>;
   updateContentReport(
@@ -151,6 +170,12 @@ export interface AppStore {
   isFollowing(followerId: string, followingId: string): Promise<boolean>;
   listFollowers(userId: string): Promise<PublicUser[]>;
   listFollowing(userId: string): Promise<PublicUser[]>;
+  shareFrequency(userId: string): Promise<import("@moveall/contracts").ShareFrequency[]>;
+  setPostLiked(
+    userId: string,
+    postId: string,
+    liked: boolean,
+  ): Promise<import("@moveall/contracts").PostLikeState | null>;
   listMessages(userId: string, peerId: string): Promise<DirectMessage[]>;
   createMessage(
     senderId: string,
@@ -163,6 +188,7 @@ export interface AppStore {
     postId: string,
     content: string,
     parentCommentId?: string,
+    mentions?: import("@moveall/contracts").CommentMention[],
   ): Promise<FeedPost["comments"][number] | null>;
   setCommentLiked(
     userId: string,

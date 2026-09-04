@@ -24,6 +24,7 @@ export function RouteTrace({
     <View onLayout={onLayout} pointerEvents="none" style={StyleSheet.absoluteFill}>
       {screenPoints.slice(1).map((point, index) => {
         const previous = screenPoints[index]!;
+        if (point.breakBefore) return null;
         const dx = point.x - previous.x;
         const dy = point.y - previous.y;
         const length = Math.sqrt(dx * dx + dy * dy);
@@ -90,6 +91,7 @@ function normalize(points: MapPoint[], width: number, height: number) {
   return points.map((point) => ({
     x: padding + ((point.longitude - minLongitude) / longitudeRange) * drawableWidth,
     y: padding + (1 - (point.latitude - minLatitude) / latitudeRange) * drawableHeight,
+    ...(point.breakBefore ? { breakBefore: true } : {}),
   }));
 }
 

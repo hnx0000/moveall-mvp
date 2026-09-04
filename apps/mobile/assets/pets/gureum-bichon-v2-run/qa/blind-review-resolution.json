@@ -1,0 +1,7 @@
+{
+  "decision": "accept",
+  "severity": "minor",
+  "failed_checks": ["horizontal cue 022.5", "horizontal cue 157.5", "horizontal cue 202.5", "vertical cue 247.5"],
+  "evidence": "All four cardinals passed the hard blind gates. Labeled normal-size review confirms the intended quadrants, and the clockwise loop contains no reversal, identity change, clipping, or visible registration pop.",
+  "reviewed_by": "independent-final-visual-qa"
+}

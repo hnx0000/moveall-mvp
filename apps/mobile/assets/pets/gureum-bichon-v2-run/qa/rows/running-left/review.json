@@ -1,0 +1,142 @@
+{
+  "ok": true,
+  "frames_root": "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\running-left\\frames",
+  "states": [
+    "running-left"
+  ],
+  "errors": [],
+  "warnings": [],
+  "rows": [
+    {
+      "state": "running-left",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\running-left\\frames\\running-left\\00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19114,
+          "bbox": [
+            5,
+            29,
+            187,
+            178
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 437
+        },
+        {
+          "index": 1,
+          "file": "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\running-left\\frames\\running-left\\01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22691,
+          "bbox": [
+            5,
+            19,
+            187,
+            189
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 446
+        },
+        {
+          "index": 2,
+          "file": "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\running-left\\frames\\running-left\\02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22240,
+          "bbox": [
+            5,
+            20,
+            187,
+            188
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 529
+        },
+        {
+          "index": 3,
+          "file": "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\running-left\\frames\\running-left\\03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18892,
+          "bbox": [
+            5,
+            31,
+            187,
+            176
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 400
+        },
+        {
+          "index": 4,
+          "file": "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\running-left\\frames\\running-left\\04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22095,
+          "bbox": [
+            5,
+            21,
+            187,
+            187
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 471
+        },
+        {
+          "index": 5,
+          "file": "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\running-left\\frames\\running-left\\05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22098,
+          "bbox": [
+            5,
+            21,
+            187,
+            187
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 393
+        },
+        {
+          "index": 6,
+          "file": "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\running-left\\frames\\running-left\\06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23635,
+          "bbox": [
+            6,
+            9,
+            186,
+            198
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 338
+        },
+        {
+          "index": 7,
+          "file": "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\running-left\\frames\\running-left\\07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18243,
+          "bbox": [
+            5,
+            32,
+            187,
+            175
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 405
+        }
+      ]
+    }
+  ]
+}

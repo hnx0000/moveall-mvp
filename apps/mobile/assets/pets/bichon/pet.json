@@ -1,0 +1,45 @@
+{
+  "id": "bichon",
+  "displayName": "구름 비숑",
+  "formatVersion": 1,
+  "animations": {
+    "idle": {
+      "sheet": "idle-sheet.png",
+      "preview": "idle.webp",
+      "frameDirectory": "frames/idle",
+      "frameCount": 6,
+      "frameWidth": 512,
+      "frameHeight": 512,
+      "durationMs": 150,
+      "loop": true
+    },
+    "walk": {
+      "sheet": "walk-sheet.png",
+      "preview": "walk.webp",
+      "frameDirectory": "frames/walk",
+      "frameCount": 8,
+      "frameWidth": 512,
+      "frameHeight": 512,
+      "durationMs": 95,
+      "loop": true
+    },
+    "reaction": {
+      "sheet": "reaction-sheet.png",
+      "preview": "reaction.webp",
+      "frameDirectory": "frames/reaction",
+      "frameCount": 6,
+      "frameWidth": 512,
+      "frameHeight": 512,
+      "durationMs": 260,
+      "loop": false
+    }
+  },
+  "reactionOrder": [
+    "joy",
+    "curious",
+    "excited",
+    "surprised",
+    "sleepy",
+    "affectionate"
+  ]
+}

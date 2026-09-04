@@ -14,6 +14,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { Settings } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -101,6 +102,7 @@ export default function ProfileScreen() {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const [temporarySettingsOpen, setTemporarySettingsOpen] = useState(false);
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
@@ -423,7 +425,43 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.topBar}>
           <Text style={styles.brand}>GROOV</Text>
+          <Pressable
+            accessibilityLabel="임시 설정 메뉴"
+            onPress={() => setTemporarySettingsOpen((current) => !current)}
+            style={styles.settingsButton}
+          >
+            <Settings color={colors.primary} size={21} strokeWidth={1.8} />
+          </Pressable>
         </View>
+
+        {temporarySettingsOpen ? (
+          <View style={styles.temporarySettingsMenu}>
+            <View style={styles.temporarySettingsHeading}>
+              <Text style={styles.temporarySettingsEyebrow}>TEMPORARY MENU</Text>
+              <Text style={styles.temporarySettingsCaption}>출시 전 내부 바로가기</Text>
+            </View>
+            <Pressable
+              onPress={() => router.push("/league-region?source=my-settings" as never)}
+              style={styles.temporarySettingsItem}
+            >
+              <View>
+                <Text style={styles.temporarySettingsTitle}>대시보드</Text>
+                <Text style={styles.temporarySettingsDescription}>리그·지역 현황 확인</Text>
+              </View>
+              <Text style={styles.temporarySettingsArrow}>→</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push("/reward-collection?tab=medal-concepts&source=my-settings" as never)}
+              style={styles.temporarySettingsItem}
+            >
+              <View>
+                <Text style={styles.temporarySettingsTitle}>로고·보상 보관함</Text>
+                <Text style={styles.temporarySettingsDescription}>스탬프·메달·메달 3안</Text>
+              </View>
+              <Text style={styles.temporarySettingsArrow}>→</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.identityRow}>
           <Pressable
@@ -1109,6 +1147,67 @@ function createStyles(colors: ThemeColors) {
     },
     topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     brand: { ...typography.wordmark(18), color: colors.primary },
+    settingsButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    temporarySettingsMenu: {
+      marginTop: -4,
+      marginBottom: 4,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.xl,
+      backgroundColor: colors.surface,
+      overflow: "hidden",
+    },
+    temporarySettingsHeading: {
+      paddingHorizontal: 16,
+      paddingTop: 14,
+      paddingBottom: 10,
+    },
+    temporarySettingsEyebrow: {
+      color: colors.primary,
+      fontFamily: fonts.displayExtra,
+      fontSize: 7,
+      letterSpacing: 1.2,
+    },
+    temporarySettingsCaption: {
+      marginTop: 3,
+      color: colors.muted,
+      fontFamily: fonts.medium,
+      fontSize: 8,
+    },
+    temporarySettingsItem: {
+      minHeight: 62,
+      paddingHorizontal: 16,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    temporarySettingsTitle: {
+      color: colors.ink,
+      fontFamily: fonts.bold,
+      fontSize: 11,
+    },
+    temporarySettingsDescription: {
+      marginTop: 3,
+      color: colors.muted,
+      fontFamily: fonts.medium,
+      fontSize: 8,
+    },
+    temporarySettingsArrow: {
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 18,
+    },
     identityRow: { flexDirection: "row", alignItems: "center", gap: 14 },
     avatar: {
       width: 62,

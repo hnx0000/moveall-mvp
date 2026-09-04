@@ -10,6 +10,10 @@ import {
   projectRoute,
   routePath,
   workoutMetricLayers,
+  recordGroup,
+  ungroupRecord,
+  STUDIO_BACKGROUNDS,
+  SAMPLE_STUDIO_ROUTE,
 } from "../src/components/record-studio-model.ts";
 import { appendTrackPoint, calculateTrackDistance } from "../src/features/location/gps-track.ts";
 
@@ -22,6 +26,50 @@ const point = (latitude, longitude, timestamp = 0, extra = {}) => ({
   ...extra,
 });
 const route = [point(37.5, 127, 0), point(37.501, 127, 10000), point(37.501, 127.001, 20000)];
+test("editor defaults to one record group, with selected metrics and a grouped logo", () => {
+  const workout = {
+    sport: "running",
+    startedAt: "2026-09-03T00:00:00Z",
+    endedAt: "2026-09-03T00:30:00Z",
+    metrics: { distanceKm: 5, calories: 250 },
+  };
+  const group = recordGroup(workout);
+  assert.equal(group.kind, "group");
+  assert.equal(group.children.filter((item) => item.kind === "metric" && item.visible).length, 3);
+  assert.equal(group.children.filter((item) => item.kind === "brand").length, 1);
+  const changed = recordGroup(workout, "#171513", ["metric-distanceKm"]);
+  assert.deepEqual(
+    changed.children
+      .filter((item) => item.kind === "metric" && item.visible)
+      .map((item) => item.text),
+    ["5.00 km"],
+  );
+  assert.equal(changed.children[0].color, "#171513");
+});
+test("advanced ungroup preserves the group's transform and metric values", () => {
+  const group = {
+    ...layer("group", "group", "", "record", 180, 300, 200, 200),
+    scale: 0.7,
+    rotation: 30,
+    children: [layer("child", "metric", "5.24 km", "거리", 100, 100, 100, 50)],
+  };
+  const [child] = ungroupRecord(group);
+  assert.equal(child.x, 180);
+  assert.equal(child.y, 300);
+  assert.equal(child.scale, 0.7);
+  assert.equal(child.rotation, 30);
+  assert.equal(child.text, "5.24 km");
+});
+test("record-only palette is limited and the test route is explicit and closed", () => {
+  assert.deepEqual(
+    STUDIO_BACKGROUNDS.map((entry) => entry.label),
+    ["White", "Black", "GROOV Orange"],
+  );
+  assert.ok(SAMPLE_STUDIO_ROUTE.length > 20);
+  assert.ok(Math.abs(SAMPLE_STUDIO_ROUTE[0].latitude - SAMPLE_STUDIO_ROUTE.at(-1).latitude) < 1e-9);
+  assert.ok(detachedRoute(SAMPLE_STUDIO_ROUTE).length > 20);
+  assert.deepEqual(detachedRoute([]), []);
+});
 test("missing historical GPS never becomes a sample route", () => {
   assert.equal(fitRouteMap([]), null);
   assert.deepEqual(detachedRoute([]), []);

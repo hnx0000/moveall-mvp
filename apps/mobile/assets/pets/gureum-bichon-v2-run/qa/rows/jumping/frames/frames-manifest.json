@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "chroma_key": {
+    "hex": "#00FFFF",
+    "rgb": [
+      0,
+      255,
+      255
+    ],
+    "threshold": 96.0
+  },
+  "rows": [
+    {
+      "state": "jumping",
+      "frames": [
+        "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\jumping\\frames\\jumping\\00.png",
+        "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\jumping\\frames\\jumping\\01.png",
+        "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\jumping\\frames\\jumping\\02.png",
+        "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\jumping\\frames\\jumping\\03.png",
+        "C:\\Users\\longr\\OneDrive\\\ubb38\uc11c\\\uc571\uac1c\ubc1c\\apps\\mobile\\assets\\pets\\gureum-bichon-v2-run\\qa\\rows\\jumping\\frames\\jumping\\04.png"
+      ],
+      "method": "components"
+    }
+  ]
+}

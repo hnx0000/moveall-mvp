@@ -8,6 +8,7 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -17,6 +18,7 @@ import { useAuth } from "../../src/auth/auth-context";
 import { CenterDialog } from "../../src/components/ui";
 import { fonts, maxContentWidth, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
+import { postWorkoutSettings } from "../../src/post-workout-settings";
 
 export default function AccountScreen() {
   const router = useRouter();
@@ -31,6 +33,38 @@ export default function AccountScreen() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [postPrompt, setPostPrompt] = useState(true);
+  const [postPromptBusy, setPostPromptBusy] = useState(true);
+  useEffect(() => {
+    let active = true;
+    setPostPromptBusy(true);
+    if (!session)
+      return () => {
+        active = false;
+      };
+    void postWorkoutSettings.read(session.user.id).then((enabled) => {
+      if (active) {
+        setPostPrompt(enabled);
+        setPostPromptBusy(false);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [session?.user.id]);
+
+  async function changePostPrompt(enabled: boolean) {
+    if (!session || postPromptBusy) return;
+    setPostPromptBusy(true);
+    try {
+      await postWorkoutSettings.write(session.user.id, enabled);
+      setPostPrompt(enabled);
+    } catch {
+      setNotice("게시 안내 설정을 저장하지 못했어요. 다시 시도해주세요.");
+    } finally {
+      setPostPromptBusy(false);
+    }
+  }
   const isAdmin = (process.env.EXPO_PUBLIC_ADMIN_EMAILS ?? "")
     .split(",")
     .map((email) => email.trim().toLowerCase())
@@ -95,6 +129,24 @@ export default function AccountScreen() {
           <Text style={styles.copy}>로그인 세션, 비밀번호와 계정 삭제를 한곳에서 관리합니다.</Text>
         </View>
 
+        <Pressable onPress={() => router.push("./privacy")} style={styles.sessionRow}>
+          <Text style={styles.rowTitle}>공개 범위 · 차단 목록 · 제한 목록 →</Text>
+        </Pressable>
+        <View style={styles.sessionRow}>
+          <View style={styles.sessionText}>
+            <Text style={styles.rowTitle}>운동 저장 후 게시 안내</Text>
+            <Text style={styles.rowCopy}>
+              기본 켜짐 · 끄면 기록만 저장하고 끝납니다. 이 기기의 현재 계정에 적용됩니다.
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="운동 저장 후 게시 안내"
+            value={postPrompt}
+            disabled={postPromptBusy}
+            onValueChange={(enabled) => void changePostPrompt(enabled)}
+            trackColor={{ false: colors.border, true: colors.primary }}
+          />
+        </View>
         <SectionTitle
           icon={<ShieldCheck color={colors.primary} size={18} />}
           title="로그인 세션"
@@ -182,13 +234,22 @@ export default function AccountScreen() {
             <Text style={styles.chevron}>›</Text>
           </Pressable>
           {isAdmin ? (
-            <Pressable
-              onPress={() => router.push("/profile/moderation" as never)}
-              style={styles.linkRow}
-            >
-              <Text style={styles.rowTitle}>운영 신고 관리</Text>
-              <Text style={styles.chevron}>›</Text>
-            </Pressable>
+            <>
+              <Pressable
+                onPress={() => router.push("/profile/moderation" as never)}
+                style={styles.linkRow}
+              >
+                <Text style={styles.rowTitle}>운영 신고 관리</Text>
+                <Text style={styles.chevron}>›</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push("/profile/product-insights")}
+                style={styles.linkRow}
+              >
+                <Text style={styles.rowTitle}>사용 목적 통계</Text>
+                <Text style={styles.chevron}>›</Text>
+              </Pressable>
+            </>
           ) : null}
         </View>
 

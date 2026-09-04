@@ -1,6 +1,6 @@
-import type { FeedComment, FeedPost } from "@moveall/contracts";
+import type { FeedComment, FeedPost, CommentMention, SocialSuggestions } from "@moveall/contracts";
 import { Heart, X } from "lucide-react-native";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Image,
   Pressable,
@@ -14,6 +14,7 @@ import { api } from "../api/client";
 import { fonts, type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 import { commentThreads } from "./comment-threads";
+import { mentionQuery, insertMention, updateMentionRanges, mentionParts } from "./comment-mentions";
 
 export function PostComments({
   post,
@@ -36,7 +37,54 @@ export function PostComments({
 }) {
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
+  const canComment = post.canComment !== false;
   const [draft, setDraft] = useState("");
+  const [mentions, setMentions] = useState<CommentMention[]>([]);
+  const [cursor, setCursor] = useState(0);
+  const [suggestions, setSuggestions] = useState<SocialSuggestions>({
+    people: [],
+    frequentIds: [],
+  });
+  const [suggestionError, setSuggestionError] = useState(false);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [suggestionVersion, setSuggestionVersion] = useState(0);
+  const query = mentionQuery(draft, cursor);
+  const activeMention =
+    query && !mentions.some((mention) => query.start === mention.start && cursor >= mention.end)
+      ? query
+      : null;
+  const matches = activeMention
+    ? suggestions.people
+        .filter((person) =>
+          person.displayName
+            .normalize("NFKC")
+            .toLocaleLowerCase()
+            .replace(/\s/g, "")
+            .includes(activeMention.query.normalize("NFKC").toLocaleLowerCase().replace(/\s/g, "")),
+        )
+        .slice(0, 3)
+    : [];
+  useEffect(() => {
+    let active = true;
+    setSuggestions({ people: [], frequentIds: [] });
+    if (!token) return;
+    setSuggestionLoading(true);
+    setSuggestionError(false);
+    void api
+      .socialSuggestions(token)
+      .then((value) => {
+        if (active) setSuggestions(value);
+      })
+      .catch(() => {
+        if (active) setSuggestionError(true);
+      })
+      .finally(() => {
+        if (active) setSuggestionLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token, suggestionVersion]);
   const [replyTo, setReplyTo] = useState<FeedComment | null>(null);
   const [posting, setPosting] = useState(false);
   const [busyLikes, setBusyLikes] = useState<string[]>([]);
@@ -44,16 +92,23 @@ export function PostComments({
   const inputRef = useRef<TextInput>(null);
 
   async function submit() {
-    if (!token || !draft.trim() || busy.current.has("submit")) return;
+    if (!canComment || !token || !draft.trim() || busy.current.has("submit")) return;
     busy.current.add("submit");
     setPosting(true);
     try {
       const comment = await api.createComment(token, post.id, {
         content: draft.trim(),
+        mentions: mentions.map((mention) => ({
+          ...mention,
+          start: mention.start - (draft.length - draft.trimStart().length),
+          end: mention.end - (draft.length - draft.trimStart().length),
+        })),
         ...(replyTo ? { parentCommentId: replyTo.id } : {}),
       });
       onChange(comment);
       setDraft("");
+      setMentions([]);
+      setCursor(0);
       setReplyTo(null);
     } catch (error) {
       onNotice(
@@ -103,9 +158,24 @@ export function PostComments({
           <Pressable accessibilityRole="button" onPress={() => onProfile(comment.userId)}>
             <Text style={styles.author}>{comment.authorDisplayName}</Text>
           </Pressable>
-          <Text style={styles.content}>{comment.content}</Text>
+          <Text style={styles.content}>
+            {mentionParts(comment.content, comment.mentions).map((part, index) =>
+              part.userId ? (
+                <Text
+                  key={index}
+                  accessibilityRole="link"
+                  onPress={() => onProfile(part.userId!)}
+                  style={{ color: colors.primary }}
+                >
+                  {part.text}
+                </Text>
+              ) : (
+                part.text
+              ),
+            )}
+          </Text>
           <View style={styles.actions}>
-            {!isReply ? (
+            {!isReply && canComment ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`${comment.authorDisplayName} 댓글에 답글 달기`}
@@ -168,7 +238,7 @@ export function PostComments({
       ) : (
         <Text style={styles.empty}>아직 댓글이 없습니다.</Text>
       )}
-      {replyTo ? (
+      {replyTo && canComment ? (
         <View style={styles.replyTarget}>
           <Text style={styles.replyTargetText} numberOfLines={1}>
             {replyTo.authorDisplayName}님에게 답글 작성 중
@@ -188,16 +258,23 @@ export function PostComments({
         <TextInput
           ref={inputRef}
           accessibilityLabel={replyTo ? "답글 입력" : "댓글 입력"}
-          editable={Boolean(token) && !posting}
+          editable={canComment && Boolean(token) && !posting}
           maxLength={500}
-          onChangeText={setDraft}
+          onSelectionChange={(event) => setCursor(event.nativeEvent.selection.end)}
+          onChangeText={(next) => {
+            setMentions((current) => updateMentionRanges(draft, next, current));
+            setDraft(next);
+            setCursor(Math.max(0, Math.min(next.length, cursor + next.length - draft.length)));
+          }}
           onSubmitEditing={() => void submit()}
           placeholder={
-            !token
-              ? "로그인 후 댓글을 남겨주세요"
-              : replyTo
-                ? "답글을 남겨보세요"
-                : "응원과 정보를 나눠보세요"
+            !canComment
+              ? "이 게시물에는 댓글을 남길 수 없습니다"
+              : !token
+                ? "로그인 후 댓글을 남겨주세요"
+                : replyTo
+                  ? "답글을 남겨보세요"
+                  : "응원과 정보를 나눠보세요"
           }
           placeholderTextColor={colors.muted}
           returnKeyType="send"
@@ -207,13 +284,59 @@ export function PostComments({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={replyTo ? "답글 등록" : "댓글 등록"}
-          disabled={!token || !draft.trim() || posting}
+          disabled={!canComment || !token || !draft.trim() || posting}
           onPress={() => void submit()}
-          style={[styles.submit, (!token || !draft.trim() || posting) && styles.disabled]}
+          style={[
+            styles.submit,
+            (!canComment || !token || !draft.trim() || posting) && styles.disabled,
+          ]}
         >
           <Text style={styles.submitText}>{posting ? "…" : "등록"}</Text>
         </Pressable>
       </View>
+      {activeMention && canComment && !posting ? (
+        <View style={styles.suggestions}>
+          {suggestionLoading ? (
+            <Text style={styles.suggestionText}>사용자 불러오는 중…</Text>
+          ) : null}
+          {suggestionError ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setSuggestionVersion((value) => value + 1)}
+            >
+              <Text style={styles.suggestionText}>목록을 불러오지 못했습니다. 다시 시도</Text>
+            </Pressable>
+          ) : (
+            matches.map((person) => (
+              <Pressable
+                key={person.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${person.displayName} 멘션`}
+                style={({ pressed }) => [styles.suggestionRow, pressed && styles.suggestionPressed]}
+                onPress={() => {
+                  const result = insertMention(draft, activeMention, person, mentions);
+                  if (result.text.length > 500 || result.mentions.length > 20) {
+                    onNotice("댓글은 500자, 멘션은 20개까지 입력할 수 있습니다.");
+                    return;
+                  }
+                  setDraft(result.text);
+                  setMentions(result.mentions);
+                  setCursor(result.cursor);
+                  inputRef.current?.focus();
+                  inputRef.current?.setNativeProps({
+                    selection: { start: result.cursor, end: result.cursor },
+                  });
+                }}
+              >
+                <Text style={styles.suggestionText}>@{person.displayName}</Text>
+              </Pressable>
+            ))
+          )}
+          {!suggestionLoading && !suggestionError && !matches.length ? (
+            <Text style={styles.suggestionText}>일치하는 팔로잉이 없습니다.</Text>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -222,6 +345,22 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     container: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12, gap: 12 },
     thread: { gap: 10 },
+    suggestions: {
+      marginTop: -6,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 10,
+      backgroundColor: colors.surfaceMuted,
+    },
+    suggestionRow: { minHeight: 36, justifyContent: "center", borderRadius: 6 },
+    suggestionPressed: { backgroundColor: colors.surface },
+    suggestionText: {
+      color: colors.muted,
+      opacity: 0.8,
+      fontFamily: fonts.regular,
+      fontSize: 11,
+      lineHeight: 17,
+    },
     comment: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
     reply: { marginLeft: 32, paddingLeft: 10, borderLeftWidth: 1, borderLeftColor: colors.border },
     avatar: {

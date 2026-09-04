@@ -6,7 +6,8 @@ export const ROUTE_ORANGE = "#FF5A32";
 export type XY = { x: number; y: number; breakBefore?: boolean };
 export type StudioLayer = {
   id: string;
-  kind: "text" | "metric" | "sport" | "route";
+  kind: "text" | "metric" | "sport" | "route" | "brand" | "group";
+  children?: StudioLayer[];
   text: string;
   label: string;
   x: number;
@@ -17,6 +18,7 @@ export type StudioLayer = {
   rotation: number;
   color: string;
   visible: boolean;
+  textAlign?: "left" | "center" | "right";
 };
 export const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
@@ -220,4 +222,105 @@ export function initialLayers(workout: WorkoutSession): StudioLayer[] {
 
 export function brandVisible(inApp: boolean, external: boolean) {
   return external || inApp;
+}
+
+export const STUDIO_BACKGROUNDS = [
+  { label: "White", color: "#FFFFFF", ink: "#171513" },
+  { label: "Black", color: "#171513", ink: "#FFFFFF" },
+  { label: "GROOV Orange", color: ROUTE_ORANGE, ink: "#FFFFFF" },
+] as const;
+
+/** Explicit editor-only sample: never stored as a measured workout. */
+export const SAMPLE_STUDIO_ROUTE: WorkoutRoutePoint[] = Array.from({ length: 65 }, (_, index) => {
+  const angle = (index / 64) * Math.PI * 2;
+  return {
+    latitude: 37.511 + Math.sin(angle) * 0.0042,
+    longitude: 127.102 + Math.cos(angle) * (0.0025 + 0.0004 * Math.sin(angle * 3)),
+    timestamp: index * 10000,
+    accuracy: 5,
+    altitude: null,
+  };
+});
+
+export function recordGroup(
+  workout: WorkoutSession,
+  color = "#FFFFFF",
+  visibleMetricIds?: string[],
+): StudioLayer {
+  const metrics = workoutMetricLayers(workout).map((item, index) => ({
+    ...item,
+    x: index % 2 ? 239 : 81,
+    y: 96 + Math.floor(index / 2) * 76,
+    width: 146,
+    height: 62,
+    color,
+    visible: visibleMetricIds ? visibleMetricIds.includes(item.id) : index < 3,
+  }));
+  let position = 0;
+  for (const metric of metrics) {
+    if (!metric.visible) continue;
+    metric.x = position % 2 ? 239 : 81;
+    metric.y = 96 + Math.floor(position / 2) * 76;
+    position++;
+  }
+  const height = 68 + Math.ceil(Math.max(1, position) / 2) * 76;
+  return constrainLayer({
+    ...layer("record-group", "group", "", "기록 그룹", 180, 620 - height / 2, 320, height),
+    color,
+    children: [
+      { ...layer("sport", "sport", "", "종목 로고", 30, 30, 40, 40), color },
+      { ...layer("brand", "brand", "GROOV", "GROOV 로고", 248, 30, 126, 38), color },
+      ...metrics,
+    ],
+  });
+}
+
+export function ungroupRecord(group: StudioLayer, preserveLayout = false): StudioLayer[] {
+  const angle = (group.rotation * Math.PI) / 180;
+  return (group.children ?? []).map((child) => {
+    const dx = (child.x - group.width / 2) * group.scale;
+    const dy = (child.y - group.height / 2) * group.scale;
+    const flattened = {
+      ...child,
+      x: group.x + dx * Math.cos(angle) - dy * Math.sin(angle),
+      y: group.y + dx * Math.sin(angle) + dy * Math.cos(angle),
+      scale: child.scale * group.scale,
+      rotation: child.rotation + group.rotation,
+    };
+    return preserveLayout ? flattened : constrainLayer(flattened);
+  });
+}
+
+/** Regroup the edited layers without resetting their placement, color or visibility. */
+export function regroupRecord(children: StudioLayer[]): StudioLayer {
+  if (!children.length) throw new Error("묶을 기록 레이어가 없습니다.");
+  const bounds = children.map((child) => {
+    const angle = (child.rotation * Math.PI) / 180;
+    const w =
+      ((Math.abs(child.width * Math.cos(angle)) + Math.abs(child.height * Math.sin(angle))) *
+        child.scale) /
+      2;
+    const h =
+      ((Math.abs(child.width * Math.sin(angle)) + Math.abs(child.height * Math.cos(angle))) *
+        child.scale) /
+      2;
+    return { left: child.x - w, right: child.x + w, top: child.y - h, bottom: child.y + h };
+  });
+  const left = Math.min(...bounds.map((b) => b.left));
+  const top = Math.min(...bounds.map((b) => b.top));
+  const width = Math.max(...bounds.map((b) => b.right)) - left;
+  const height = Math.max(...bounds.map((b) => b.bottom)) - top;
+  return {
+    ...layer(
+      "record-group",
+      "group",
+      "",
+      "기록 그룹",
+      left + width / 2,
+      top + height / 2,
+      width,
+      height,
+    ),
+    children: children.map((child) => ({ ...child, x: child.x - left, y: child.y - top })),
+  };
 }

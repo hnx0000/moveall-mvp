@@ -1,5 +1,5 @@
 import {
-  appendTrackPoint,
+  appendTrackPointResult,
   calculateTrackDistance,
   type RecordedTrackPoint as TrackPoint,
 } from "../features/location/gps-track";
@@ -21,6 +21,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  AppState,
   Easing,
   Modal,
   Pressable,
@@ -29,12 +30,14 @@ import {
   TextInput,
   Vibration,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import {
   clearBackgroundTrack,
   consumeBackgroundTrack,
+  readBackgroundTrack,
   startBackgroundTrack,
   stopBackgroundTrack,
 } from "../features/location/background-location";
@@ -79,13 +82,14 @@ export function LiveWorkoutRecorder({
   routines: Routine[];
   history: WorkoutSession[];
   onClose: () => void;
-  onSaved: () => void | Promise<void>;
+  onSaved: (workout: WorkoutSession) => void | Promise<void>;
   onTrackChange?: (track: WorkoutTrackPreview) => void;
   showMap?: boolean;
 }) {
   const { session } = useAuth();
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
+  const window = useWindowDimensions();
   const [phase, setPhase] = useState<RecorderPhase>(
     setupSports.includes(sport) ? "setup" : "starting",
   );
@@ -113,6 +117,7 @@ export function LiveWorkoutRecorder({
   const [devicePrepared, setDevicePrepared] = useState(false);
   const [targetAlert, setTargetAlert] = useState<string | null>(null);
   const [finishConfirmationOpen, setFinishConfirmationOpen] = useState(false);
+  const [mapFullscreen, setMapFullscreen] = useState(false);
   const [startConfirmationOpen, setStartConfirmationOpen] = useState(!setupSports.includes(sport));
   const [countdownValue, setCountdownValue] = useState<CountdownValue | null>(null);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
@@ -180,37 +185,47 @@ export function LiveWorkoutRecorder({
   );
   const active = phase === "recording";
   const canClose = phase === "setup" || phase === "done" || phase === "starting";
+  const usesOutdoorGps =
+    gpsSports.includes(sport) && (sport !== "swimming" || swimEnvironment === "outdoor");
+  const mapFrameWidth = Math.min(window.width, window.height * (9 / 16));
+  const mapFrameHeight = mapFrameWidth * (16 / 9);
 
   useEffect(() => {
     onTrackChange?.({
       points,
       status: gpsStatus,
-      usesGps: gpsSports.includes(sport) && (sport !== "swimming" || swimEnvironment === "outdoor"),
+      usesGps: usesOutdoorGps,
     });
-  }, [gpsStatus, onTrackChange, points, sport, swimEnvironment]);
+  }, [gpsStatus, onTrackChange, points, usesOutdoorGps]);
 
   const stopGps = useCallback(() => {
     watchRef.current?.remove();
     watchRef.current = null;
   }, []);
 
-  const appendPoint = useCallback((point: TrackPoint, reset = false) => {
-    setPoints((existing) => {
-      const next = appendTrackPoint(reset ? [] : existing, point);
-      pointsRef.current = next;
-      return next;
-    });
-  }, []);
+  const appendPoint = useCallback(
+    (point: TrackPoint, reset = false) => {
+      const result = appendTrackPointResult(reset ? [] : pointsRef.current, point, sport, {
+        receivedAt: Date.now(),
+      });
+      if (result.accepted) {
+        pointsRef.current = result.points;
+        setPoints(result.points);
+      }
+      return result;
+    },
+    [sport],
+  );
 
-  const drainBackgroundPoints = useCallback(async () => {
-    const buffered = await consumeBackgroundTrack();
+  const drainBackgroundPoints = useCallback(async (consume = false) => {
+    const buffered = consume ? await consumeBackgroundTrack() : await readBackgroundTrack();
     if (buffered.length === 0) return pointsRef.current;
     let next = pointsRef.current;
-    for (const point of buffered) next = appendTrackPoint(next, point);
+    for (const point of buffered) next = appendTrackPointResult(next, point, sport).points;
     pointsRef.current = next;
     setPoints(next);
     return next;
-  }, []);
+  }, [sport]);
 
   const clearCountdown = useCallback(() => {
     countdownTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
@@ -239,8 +254,14 @@ export function LiveWorkoutRecorder({
 
   useEffect(() => {
     if (phase !== "recording" || !gpsSports.includes(sport)) return undefined;
-    const drain = setInterval(() => void drainBackgroundPoints(), 5_000);
-    return () => clearInterval(drain);
+    const drain = setInterval(() => void drainBackgroundPoints(), 3_000);
+    const appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void drainBackgroundPoints();
+    });
+    return () => {
+      clearInterval(drain);
+      appStateSubscription.remove();
+    };
   }, [drainBackgroundPoints, phase, sport]);
 
   useEffect(() => {
@@ -323,10 +344,14 @@ export function LiveWorkoutRecorder({
         });
         if (finishedRef.current) return;
         const firstPoint = toTrackPoint(current);
-        appendPoint({ ...firstPoint, breakBefore: !reset }, reset);
+        const initialResult = appendPoint({ ...firstPoint, breakBefore: !reset }, reset);
         setPhase("recording");
-        setGpsStatus(describeGpsAccuracy(firstPoint.accuracy));
-        const backgroundActive = await startBackgroundTrack().catch(() => false);
+        setGpsStatus(
+          initialResult.accepted
+            ? describeGpsAccuracy(firstPoint.accuracy)
+            : describeGpsRejection(initialResult.reason),
+        );
+        const backgroundActive = await startBackgroundTrack(sport).catch(() => false);
         if (!backgroundActive) setGpsStatus("GPS 기록 중 · 화면 유지 권장");
         stopGps();
         watchRef.current = await Location.watchPositionAsync(
@@ -338,8 +363,12 @@ export function LiveWorkoutRecorder({
           (nextLocation) => {
             if (finishedRef.current) return;
             const nextPoint = toTrackPoint(nextLocation);
-            appendPoint(nextPoint);
-            setGpsStatus(describeGpsAccuracy(nextPoint.accuracy));
+            const result = appendPoint(nextPoint);
+            setGpsStatus(
+              result.accepted
+                ? describeGpsAccuracy(nextPoint.accuracy)
+                : describeGpsRejection(result.reason),
+            );
           },
           () => {
             setGpsStatus("GPS 연결 끊김");
@@ -414,7 +443,7 @@ export function LiveWorkoutRecorder({
     freezeTimer();
     stopGps();
     void stopBackgroundTrack()
-      .then(() => drainBackgroundPoints())
+      .then(() => drainBackgroundPoints(true))
       .catch(() => undefined);
     setPhase("paused");
     if (gpsSports.includes(sport)) setGpsStatus("일시정지");
@@ -440,7 +469,7 @@ export function LiveWorkoutRecorder({
     freezeTimer();
     stopGps();
     await stopBackgroundTrack().catch(() => undefined);
-    await drainBackgroundPoints();
+    await drainBackgroundPoints(true);
     if (sport === "diving") {
       setPhase("review");
       return;
@@ -499,9 +528,9 @@ export function LiveWorkoutRecorder({
     const allRoutineItemsCompleted =
       totalRoutineSets > 0 && completedRoutineSets.length === totalRoutineSets;
     const divingDeviceCode = divingSource === "device" ? deviceCode(divingDevice) : 0;
-
+    let savedWorkout: WorkoutSession | null = null;
     try {
-      await api.createWorkoutSession(session.accessToken, {
+      savedWorkout = await api.createWorkoutSession(session.accessToken, {
         sport,
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),
@@ -594,13 +623,20 @@ export function LiveWorkoutRecorder({
         source: sport === "diving" && divingSource === "device" ? "wearable" : "manual",
       });
       setPhase("done");
-      await onSaved();
     } catch (caught) {
       finishedRef.current = false;
       setPhase(sport === "diving" ? "review" : "paused");
       setError(caught instanceof Error ? caught.message : "운동 기록을 저장하지 못했습니다.");
     } finally {
       savingRef.current = false;
+    }
+    // A refresh/navigation failure must never turn a successful save into a retry.
+    if (savedWorkout) {
+      try {
+        await onSaved(savedWorkout);
+      } catch {
+        setError("기록은 저장됐습니다. 화면을 다시 열어 확인해주세요.");
+      }
     }
   }
 
@@ -884,6 +920,67 @@ export function LiveWorkoutRecorder({
           </View>
         </View>
       </Modal>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setMapFullscreen(false)}
+        visible={mapFullscreen}
+      >
+        <View style={styles.fullscreenMapBackdrop}>
+          <View
+            style={[styles.fullscreenMapFrame, { width: mapFrameWidth, height: mapFrameHeight }]}
+          >
+            <WorkoutMap
+              backgroundColor={colors.map}
+              badgeLabel={gpsStatus}
+              currentPoint={points.at(-1)}
+              controlsBottom={170}
+              height={mapFrameHeight}
+              isSample={false}
+              minimal={false}
+              points={points}
+              primaryColor={colors.primary}
+              showFitButton
+            />
+            <Pressable
+              accessibilityLabel="전체화면 지도 닫기"
+              accessibilityRole="button"
+              onPress={() => setMapFullscreen(false)}
+              style={styles.fullscreenMapClose}
+            >
+              <X color="#FFFFFF" size={22} />
+            </Pressable>
+            <View pointerEvents="none" style={styles.fullscreenMetricOverlay}>
+              <View>
+                <Text style={styles.fullscreenSport}>{sportLabels[sport]}</Text>
+                <Text style={styles.fullscreenTimer}>{formatClock(elapsedMilliseconds)}</Text>
+              </View>
+              <View style={styles.fullscreenMetricRow}>
+                <FullscreenMetric
+                  label="거리"
+                  styles={styles}
+                  value={`${distanceKm.toFixed(2)} km`}
+                />
+                <FullscreenMetric
+                  label={sport === "cycling" ? "평균 속도" : "평균 페이스"}
+                  styles={styles}
+                  value={
+                    sport === "cycling"
+                      ? `${averageSpeedKmh.toFixed(1)} km/h`
+                      : paceSecondsPerKm > 0
+                        ? formatPace(paceSecondsPerKm, "/km")
+                        : "--/-- /km"
+                  }
+                />
+                <FullscreenMetric
+                  label="심박"
+                  styles={styles}
+                  value={`${measuredHeartRate ?? 0} bpm`}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>LIVE WORKOUT</Text>
@@ -967,7 +1064,7 @@ export function LiveWorkoutRecorder({
 
           {gpsSports.includes(sport) ? (
             <>
-              {showMap && (sport !== "swimming" || swimEnvironment === "outdoor") ? (
+              {showMap && usesOutdoorGps ? (
                 <WorkoutMap
                   backgroundColor={colors.map}
                   badgeLabel={gpsStatus}
@@ -978,6 +1075,8 @@ export function LiveWorkoutRecorder({
                   isSample={false}
                   points={points}
                   primaryColor={colors.primary}
+                  showFitButton
+                  onFullScreenPress={() => setMapFullscreen(true)}
                 />
               ) : null}
               <GpsMetrics
@@ -1643,9 +1742,35 @@ function toTrackPoint(location: Location.LocationObject): TrackPoint {
   };
 }
 
+function FullscreenMetric({
+  label,
+  value,
+  styles,
+}: {
+  label: string;
+  value: string;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.fullscreenMetricItem}>
+      <Text style={styles.fullscreenMetricLabel}>{label}</Text>
+      <Text style={styles.fullscreenMetricValue}>{value}</Text>
+    </View>
+  );
+}
+
 function describeGpsAccuracy(accuracy: number | null) {
-  if (accuracy === null || accuracy <= 65) return "GPS 기록 중";
-  if (accuracy <= 120) return "GPS 정확도 보정 중";
+  if (accuracy === null || accuracy <= 15) return "GPS 기록 중 · 정확도 좋음";
+  if (accuracy <= 35) return "GPS 기록 중 · 좌표 보정";
+  return "GPS 위치 확인 중";
+}
+
+function describeGpsRejection(reason: string | undefined) {
+  if (reason === "inaccurate") return "GPS 정확도 보정 중";
+  if (reason === "speed" || reason === "acceleration") return "이상 좌표 제외 · GPS 기록 중";
+  if (reason === "jitter") return "GPS 기록 중 · 정지 오차 제거";
+  if (reason === "duplicate" || reason === "stale") return "GPS 기록 중 · 중복 좌표 정리";
+  if (reason === "future" || reason === "invalid") return "비정상 GPS 좌표 제외";
   return "GPS 위치 확인 중";
 }
 
@@ -1906,6 +2031,56 @@ function createStyles(colors: ThemeColors) {
       fontSize: 70,
       lineHeight: 86,
       letterSpacing: -4,
+    },
+    fullscreenMapBackdrop: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "#050505",
+    },
+    fullscreenMapFrame: { position: "relative", overflow: "hidden", backgroundColor: colors.map },
+    fullscreenMapClose: {
+      position: "absolute",
+      top: 16,
+      right: 16,
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(16,16,17,0.88)",
+    },
+    fullscreenMetricOverlay: {
+      position: "absolute",
+      left: 16,
+      right: 16,
+      bottom: 18,
+      gap: 12,
+      borderRadius: radius.lg,
+      padding: 15,
+      backgroundColor: "rgba(16,16,17,0.88)",
+    },
+    fullscreenSport: {
+      color: colors.primary,
+      fontFamily: fonts.displayExtra,
+      fontSize: 10,
+      letterSpacing: 1.3,
+    },
+    fullscreenTimer: {
+      color: "#FFFFFF",
+      fontFamily: fonts.displayExtra,
+      fontSize: 30,
+      letterSpacing: -1,
+      marginTop: 3,
+    },
+    fullscreenMetricRow: { flexDirection: "row", gap: 8 },
+    fullscreenMetricItem: { flex: 1, minWidth: 0 },
+    fullscreenMetricLabel: { color: "rgba(255,255,255,0.62)", fontSize: 8 },
+    fullscreenMetricValue: {
+      color: "#FFFFFF",
+      fontFamily: fonts.bold,
+      fontSize: 13,
+      marginTop: 3,
     },
     finishMetricGrid: {
       width: "100%",

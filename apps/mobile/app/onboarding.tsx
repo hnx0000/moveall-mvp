@@ -1,6 +1,8 @@
 import {
   sportLabels,
   sportValues,
+  usagePurposeOptions,
+  type UsagePurpose,
   type ActivityLevel,
   type NeighborhoodVerification,
   type OnboardingGoal,
@@ -24,7 +26,7 @@ import { saveNeighborhoodPreferences } from "../src/neighborhood-preferences";
 import { fonts, type ThemeColors } from "../src/theme";
 import { useAppTheme } from "../src/theme-context";
 
-const steps = ["주 운동", "현재 수준", "목표", "동네 인증"] as const;
+const steps = ["사용 목적", "주 운동", "현재 수준", "목표", "동네 인증"] as const;
 
 const levelOptions: Array<{ value: ActivityLevel; label: string; caption: string }> = [
   { value: "starter", label: "이제 시작", caption: "운동 습관을 만드는 중이에요" },
@@ -59,11 +61,16 @@ function neighborhoodFromAddress(address?: Location.LocationGeocodedAddress) {
 }
 
 export default function OnboardingScreen() {
+  return <OnboardingFlow />;
+}
+
+export function OnboardingFlow({ preview = false }: { preview?: boolean }) {
   const router = useRouter();
   const { completeOnboarding, session } = useAuth();
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [step, setStep] = useState(0);
+  const [usagePurpose, setUsagePurpose] = useState<UsagePurpose | null>(null);
   const [primarySports, setPrimarySports] = useState<SportType[]>([]);
   const [activityLevel, setActivityLevel] = useState<ActivityLevel | null>(null);
   const [goals, setGoals] = useState<OnboardingGoal[]>([]);
@@ -97,11 +104,22 @@ export default function OnboardingScreen() {
   };
 
   const canContinue =
-    (step === 0 && primarySports.length > 0) ||
-    (step === 1 && activityLevel !== null) ||
-    (step === 2 && goals.length > 0);
+    (step === 0 && usagePurpose !== null) ||
+    (step === 1 && primarySports.length > 0) ||
+    (step === 2 && activityLevel !== null) ||
+    (step === 3 && goals.length > 0);
 
   async function verifyNeighborhood() {
+    if (preview) {
+      setNeighborhood({
+        neighborhood: "미리보기 동네",
+        latitude: 37.57,
+        longitude: 126.98,
+        verifiedAt: new Date().toISOString(),
+      });
+      setMessage("예시 동네로 확인했어요. 실제 위치 권한이나 저장은 사용하지 않습니다.");
+      return;
+    }
     setVerifying(true);
     setMessage(null);
     try {
@@ -139,10 +157,17 @@ export default function OnboardingScreen() {
 
   async function finish() {
     if (!activityLevel || primarySports.length === 0 || goals.length === 0) return;
+    if (preview) {
+      setMessage(
+        "온보딩 미리보기를 완료했어요. 입력한 내용은 계정·통계에 저장되지 않았습니다. 위의 ‘처음부터’로 다시 확인할 수 있어요.",
+      );
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
       await completeOnboarding({
+        usagePurpose,
         primarySports,
         activityLevel,
         goals,
@@ -159,6 +184,35 @@ export default function OnboardingScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.shell}>
+        {preview ? (
+          <View style={styles.previewBanner}>
+            <Text style={styles.previewNote}>온보딩 미리보기 · 저장되지 않음</Text>
+            <View style={styles.headerRow}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setStep(0);
+                  setUsagePurpose(null);
+                  setPrimarySports([]);
+                  setActivityLevel(null);
+                  setGoals([]);
+                  setNeighborhood(null);
+                  setMessage(null);
+                }}
+                style={styles.skipButton}
+              >
+                <Text style={styles.skipText}>처음부터</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.replace("/")}
+                style={styles.skipButton}
+              >
+                <Text style={styles.skipText}>앱으로 돌아가기</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
         <View style={styles.header}>
           <View style={styles.headerRow}>
             <Pressable
@@ -188,8 +242,48 @@ export default function OnboardingScreen() {
           <Text style={styles.eyebrow}>QUICK SETUP · 1분</Text>
           {step === 0 ? (
             <>
+              <Text style={styles.title}>GROOV를 어떻게{"\n"}사용하고 싶으세요?</Text>
+              <Text style={styles.description}>
+                지금 가장 큰 목적 하나만 골라주세요. 선택과 관계없이 모든 기능을 사용할 수 있어요.
+              </Text>
+              <View style={styles.stack}>
+                {usagePurposeOptions.map((option) => (
+                  <Pressable
+                    key={option.value}
+                    accessibilityRole="radio"
+                    accessibilityLabel={option.answer}
+                    accessibilityState={{ checked: usagePurpose === option.value }}
+                    onPress={() => setUsagePurpose(option.value)}
+                    style={[
+                      styles.wideCard,
+                      usagePurpose === option.value && styles.selectCardActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.purposeAnswer,
+                        usagePurpose === option.value && styles.optionTitleActive,
+                      ]}
+                    >
+                      {option.answer}
+                    </Text>
+                    <View
+                      style={[styles.radio, usagePurpose === option.value && styles.radioActive]}
+                    />
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={styles.purposeNotice}>
+                선택 설문이에요. 답변은 가입자 구성 통계와 제품 개선에만 활용하며, 프로필에 공개하지
+                않아요.
+              </Text>
+            </>
+          ) : null}
+          {step === 1 ? (
+            <>
               <Text style={styles.title}>
-                {session?.user.displayName ?? "회원"}님,{"\n"}주로 어떤 운동을 하나요?
+                {preview ? "미리보기" : (session?.user.displayName ?? "회원")}님,{"\n"}주로 어떤
+                운동을 하나요?
               </Text>
               <Text style={styles.description}>
                 홈과 기록 화면을 맞추기 위해 최대 3개만 골라주세요.
@@ -217,7 +311,7 @@ export default function OnboardingScreen() {
             </>
           ) : null}
 
-          {step === 1 ? (
+          {step === 2 ? (
             <>
               <Text style={styles.title}>지금의 운동 수준은{"\n"}어느 쪽에 가까운가요?</Text>
               <Text style={styles.description}>
@@ -249,7 +343,7 @@ export default function OnboardingScreen() {
             </>
           ) : null}
 
-          {step === 2 ? (
+          {step === 3 ? (
             <>
               <Text style={styles.title}>GROOV에서 가장 먼저{"\n"}얻고 싶은 건 뭔가요?</Text>
               <Text style={styles.description}>
@@ -285,7 +379,7 @@ export default function OnboardingScreen() {
             </>
           ) : null}
 
-          {step === 3 ? (
+          {step === 4 ? (
             <>
               <Text style={styles.title}>마지막으로,{"\n"}내 동네를 연결할까요?</Text>
               <Text style={styles.description}>
@@ -318,7 +412,19 @@ export default function OnboardingScreen() {
         </ScrollView>
 
         <View style={styles.footer}>
-          {step < 3 ? (
+          {step === 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setUsagePurpose(null);
+                setStep(1);
+              }}
+              style={styles.skipButton}
+            >
+              <Text style={styles.skipText}>건너뛰기</Text>
+            </Pressable>
+          ) : null}
+          {step < 4 ? (
             <Pressable
               disabled={!canContinue}
               onPress={() => {
@@ -340,7 +446,13 @@ export default function OnboardingScreen() {
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <Text style={styles.primaryButtonText}>
-                    {neighborhood ? "GROOV 시작하기" : "동네 인증하기"}
+                    {neighborhood
+                      ? preview
+                        ? "미리보기 완료"
+                        : "GROOV 시작하기"
+                      : preview
+                        ? "동네 인증 체험 (예시)"
+                        : "동네 인증하기"}
                   </Text>
                 )}
               </Pressable>
@@ -363,6 +475,13 @@ export default function OnboardingScreen() {
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
+    previewBanner: { paddingHorizontal: 24, paddingTop: 12, backgroundColor: colors.surface },
+    previewNote: {
+      color: colors.primary,
+      fontFamily: fonts.regular,
+      fontSize: 14,
+      textAlign: "center",
+    },
     safeArea: { flex: 1, backgroundColor: colors.background },
     shell: { flex: 1, width: "100%", maxWidth: 448, alignSelf: "center" },
     header: { paddingHorizontal: 24, paddingTop: 18, gap: 14 },
@@ -466,6 +585,22 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "space-between",
     },
     wideCardCopy: { flex: 1 },
+    purposeAnswer: {
+      flex: 1,
+      color: colors.ink,
+      fontFamily: fonts.medium,
+      fontSize: 16,
+      lineHeight: 24,
+      paddingVertical: 14,
+      paddingRight: 14,
+    },
+    purposeNotice: {
+      color: colors.muted,
+      fontFamily: fonts.regular,
+      fontSize: 14,
+      lineHeight: 22,
+      marginTop: 22,
+    },
     radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.border },
     radioActive: { borderWidth: 6, borderColor: colors.primary },
     goalCheck: { alignItems: "center", justifyContent: "center" },

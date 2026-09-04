@@ -15,6 +15,7 @@ import { ApiError, api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import { demoAvatarSources } from "../demo-avatars";
 import { TapTalkIcon } from "../components/tap-icons";
+import { UnfollowDialog } from "../components/unfollow-dialog";
 import { type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 
@@ -33,6 +34,7 @@ export function ConnectionsScreen({ mode }: { mode: "followers" | "following" })
   const [social, setSocial] = useState(emptySocial);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [unfollowTarget, setUnfollowTarget] = useState<PublicUser | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -54,8 +56,12 @@ export function ConnectionsScreen({ mode }: { mode: "followers" | "following" })
   );
   const people = mode === "followers" ? social.followers : social.following;
 
-  const disconnect = async (person: PublicUser) => {
-    if (!session) return;
+  const disconnect = async (person: PublicUser, confirmed = false) => {
+    if (!session || busyId) return;
+    if (mode === "following" && !confirmed) {
+      setUnfollowTarget(person);
+      return;
+    }
     setBusyId(person.id);
     setError(null);
     try {
@@ -65,6 +71,7 @@ export function ConnectionsScreen({ mode }: { mode: "followers" | "following" })
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "관계를 변경하지 못했습니다.");
     } finally {
+      setUnfollowTarget(null);
       setBusyId(null);
     }
   };
@@ -85,6 +92,14 @@ export function ConnectionsScreen({ mode }: { mode: "followers" | "following" })
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <UnfollowDialog
+        visible={unfollowTarget !== null}
+        busy={busyId !== null}
+        onClose={() => setUnfollowTarget(null)}
+        onConfirm={() => {
+          if (unfollowTarget) void disconnect(unfollowTarget, true);
+        }}
+      />
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.topBar}>
           <Pressable onPress={() => router.back()}>

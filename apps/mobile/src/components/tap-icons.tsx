@@ -36,30 +36,30 @@ export function TapShareIcon({ color, size = 24, strokeWidth = 2 }: TapIconProps
 
 export function TapTalkIcon({ color, size = 24, strokeWidth = 2 }: TapIconProps) {
   return (
-    <Svg fill="none" height={size} viewBox="0 0 28 24" width={(size * 28) / 24}>
+    <Svg fill="none" height={size} viewBox="0 0 32 24" width={(size * 32) / 24}>
       <Path
-        d="M12.2 10.8A5.7 5.7 0 1 0 9.2 15.1"
+        d="M12.2 16.2A6 6 0 1 1 12.2 7.8"
         stroke={color}
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={strokeWidth}
       />
       <Path
-        d="M9.8 9.9A3 3 0 1 0 8.1 12.3"
+        d="M10.1 14.1A3 3 0 1 1 10.1 9.9"
         stroke={color}
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={strokeWidth}
       />
-      <Circle cx="7" cy="7" fill={color} r="1" />
+      <Circle cx="8" cy="12" fill={color} r="0.9" />
       <Path
-        d="m12.7 12.7-4.8-4.8"
+        d="m13.3 17.3-4.2-4.2"
         stroke={color}
         strokeLinecap="round"
         strokeWidth={strokeWidth + 0.15}
       />
       <Path
-        d="M14 5h7.3a3.2 3.2 0 0 1 3.2 3.2v4.4a3.2 3.2 0 0 1-3.2 3.2h-2.2l-3.7 2.8v-2.8H14"
+        d="M18 5h9a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-3l-4 3v-3h-2a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3Z"
         stroke={color}
         strokeLinecap="round"
         strokeLinejoin="round"

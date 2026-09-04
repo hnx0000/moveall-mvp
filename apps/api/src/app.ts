@@ -2,6 +2,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import {
+  rankSocialPeople,
   AccountDeletionInputSchema,
   AppleLoginInputSchema,
   AuthorizationCodeLoginInputSchema,
@@ -15,8 +16,10 @@ import {
   MediaUploadRequestInputSchema,
   ModerationReportUpdateInputSchema,
   OnboardingInputSchema,
+  UsagePurposeCohortSchema,
   PasswordChangeInputSchema,
   PostCreateInputSchema,
+  SharingCrewCreateInputSchema,
   PostShareInputSchema,
   PostUpdateInputSchema,
   PushDeviceRegistrationInputSchema,
@@ -30,6 +33,7 @@ import {
   WorkoutSessionCreateInputSchema,
   WorkoutSessionUpdateInputSchema,
   type ApiSuccess,
+  type FeedPost,
 } from "@moveall/contracts";
 import Fastify, { type FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
@@ -104,6 +108,26 @@ export async function createApp(dependencies: AppDependencies) {
 
   async function attachMediaUrls<T extends { mediaObjectPath?: string }>(posts: T[]): Promise<T[]> {
     return Promise.all(posts.map(attachMediaUrl));
+  }
+
+  async function attachWorkoutSummary(post: FeedPost): Promise<FeedPost> {
+    if (!post.workoutSessionId) return post;
+    const workout = (await dependencies.store.listWorkoutSessions(post.userId)).find(
+      (item) => item.id === post.workoutSessionId,
+    );
+    if (!workout) return post;
+    return {
+      ...post,
+      workoutSummary: {
+        startedAt: workout.startedAt,
+        endedAt: workout.endedAt,
+        metrics: workout.metrics,
+      },
+    };
+  }
+
+  async function presentFeedPosts(posts: FeedPost[]) {
+    return Promise.all(posts.map(async (post) => attachMediaUrl(await attachWorkoutSummary(post))));
   }
 
   await app.register(helmet);
@@ -831,7 +855,7 @@ export async function createApp(dependencies: AppDependencies) {
 
   app.get("/v1/feed", async (request) => {
     const viewer = await optionalCurrentUser(request);
-    return success(await attachMediaUrls(await dependencies.store.listFeed(viewer?.id)));
+    return success(await presentFeedPosts(await dependencies.store.listFeed(viewer?.id)));
   });
 
   app.get("/v1/posts/:postId", async (request) => {
@@ -840,12 +864,32 @@ export async function createApp(dependencies: AppDependencies) {
     const [post] = await dependencies.store.listFeed(viewer?.id, postId);
     if (!post)
       throw new AppError(404, "POST_NOT_FOUND", "삭제·보관되었거나 볼 수 없는 피드입니다.");
-    return success(await attachMediaUrl(post));
+    return success((await presentFeedPosts([post]))[0]!);
   });
 
+  app.get("/v1/sharing-crews", async (request) => {
+    const user = await currentUser(request);
+    return success(await dependencies.store.listSharingCrews(user.id));
+  });
+  app.post("/v1/sharing-crews", async (request, reply) => {
+    const user = await currentUser(request);
+    const input = SharingCrewCreateInputSchema.parse(request.body);
+    const crew = await dependencies.store.createSharingCrew(user.id, input);
+    if (!crew)
+      throw new AppError(400, "CREW_MEMBERS_INVALID", "크루에 포함할 대상을 다시 확인해 주세요.");
+    return reply.status(201).send(success(crew));
+  });
   app.post("/v1/posts", async (request, reply) => {
     const user = await currentUser(request);
     const input = PostCreateInputSchema.parse(request.body);
+    const selectedCrews = [input.audience, input.commentAudience]
+      .filter((audience) => audience?.scope === "crews")
+      .flatMap((audience) => audience?.crewIds ?? []);
+    if (selectedCrews.length) {
+      const ownedCrews = await dependencies.store.listSharingCrews(user.id);
+      if (selectedCrews.some((id) => !ownedCrews.some((crew) => crew.id === id)))
+        throw new AppError(400, "CREW_NOT_FOUND", "본인의 공유 크루를 다시 선택해 주세요.");
+    }
     const post = await dependencies.store.createPost(user.id, user.displayName, input);
     if (!post) {
       throw new AppError(
@@ -854,7 +898,7 @@ export async function createApp(dependencies: AppDependencies) {
         "본인의 운동 기록만 게시물에 연결할 수 있습니다.",
       );
     }
-    return reply.status(201).send(success(await attachMediaUrl(post)));
+    return reply.status(201).send(success((await presentFeedPosts([post]))[0]!));
   });
 
   app.get("/v1/posts/me", async (request) => {
@@ -923,6 +967,7 @@ export async function createApp(dependencies: AppDependencies) {
     const parameters = z.object({ userId: z.string().uuid() }).parse(request.params);
     const profile = await dependencies.store.findUserById(parameters.userId);
     if (!profile) throw new AppError(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.");
+    const visible = await dependencies.store.canViewContent(profile.id, viewer.id);
     const [posts, workouts, followers, following] = await Promise.all([
       dependencies.store.listPostsByUser(profile.id, viewer.id),
       dependencies.store.listWorkoutSessions(profile.id),
@@ -935,15 +980,80 @@ export async function createApp(dependencies: AppDependencies) {
         displayName: profile.displayName,
         ...(profile.avatarDataUri ? { avatarDataUri: profile.avatarDataUri } : {}),
       },
-      isPrivate: false,
+      isPrivate: !visible,
       followersCount: followers.length,
       followingCount: following.length,
       posts: await attachMediaUrls(posts),
-      workouts: workouts.map(({ routePoints, ...workout }) =>
+      workouts: (visible ? workouts : []).map(({ routePoints, ...workout }) =>
         profile.id === viewer.id ? { ...workout, routePoints } : workout,
       ),
-      medals: medalsFor(workouts),
+      medals: visible ? medalsFor(workouts) : [],
     });
+  });
+
+  app.get("/v1/users/:userId/connections", async (request) => {
+    const viewer = await currentUser(request);
+    const { userId } = z.object({ userId: z.string().uuid() }).parse(request.params);
+    if (!(await dependencies.store.findUserById(userId)))
+      throw new AppError(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.");
+    const [visible, privacy, followers, following] = await Promise.all([
+      dependencies.store.canViewContent(userId, viewer.id),
+      dependencies.store.safetySummary(userId),
+      dependencies.store.listFollowers(userId),
+      dependencies.store.listFollowing(userId),
+    ]);
+    const followersHidden = viewer.id !== userId && (!visible || privacy.hideFollowers);
+    const followingHidden = viewer.id !== userId && (!visible || privacy.hideFollowing);
+    return success({
+      followersCount: followers.length,
+      followingCount: following.length,
+      followersHidden,
+      followingHidden,
+      followers: followersHidden ? [] : followers,
+      following: followingHidden ? [] : following,
+    });
+  });
+
+  app.get("/v1/social/safety", async (request) => {
+    const user = await currentUser(request);
+    return success(await dependencies.store.safetySummary(user.id));
+  });
+  app.put("/v1/social/privacy", async (request) => {
+    const user = await currentUser(request);
+    const privacy = z
+      .object({ hideFollowers: z.boolean(), hideFollowing: z.boolean() })
+      .strict()
+      .parse(request.body);
+    await dependencies.store.saveSocialPrivacy(user.id, privacy);
+    return success(privacy);
+  });
+  app.delete("/v1/users/:userId/block", async (request) => {
+    const user = await currentUser(request);
+    const { userId } = z.object({ userId: z.string().uuid() }).parse(request.params);
+    await dependencies.store.unblockUser(user.id, userId);
+    return success({ blocked: false });
+  });
+  for (const method of ["PUT", "DELETE"] as const) {
+    app.route({
+      method,
+      url: "/v1/users/:userId/restriction",
+      handler: async (request) => {
+        const user = await currentUser(request);
+        const { userId } = z.object({ userId: z.string().uuid() }).parse(request.params);
+        if (!(await dependencies.store.restrictUser(user.id, userId, method === "PUT")))
+          throw new AppError(400, "INVALID_USER", "사용자를 찾을 수 없습니다.");
+        return success({ restricted: method === "PUT" });
+      },
+    });
+  }
+
+  app.get("/v1/social/suggestions", async (request) => {
+    const user = await currentUser(request);
+    const [people, history] = await Promise.all([
+      dependencies.store.listFollowing(user.id),
+      dependencies.store.shareFrequency(user.id),
+    ]);
+    return success(rankSocialPeople(people, history));
   });
 
   app.get("/v1/social/me", async (request) => {
@@ -1073,6 +1183,21 @@ export async function createApp(dependencies: AppDependencies) {
     return success(await dependencies.store.listContentReports());
   });
 
+  app.get("/v1/admin/usage-purposes", async (request, reply) => {
+    await currentAdmin(request);
+    const cohort = UsagePurposeCohortSchema.parse(request.query);
+    reply.header("Cache-Control", "private, no-store");
+    return success(
+      await dependencies.store.usagePurposeSummary(cohort, [
+        ...dependencies.config.adminEmails,
+        "developer@groov.dev",
+        "minji@groov.demo",
+        "jun@groov.demo",
+        "yuna@groov.demo",
+      ]),
+    );
+  });
+
   app.patch("/v1/admin/reports/:reportId", async (request) => {
     await currentAdmin(request);
     const parameters = z.object({ reportId: z.string().uuid() }).parse(request.params);
@@ -1113,7 +1238,7 @@ export async function createApp(dependencies: AppDependencies) {
       throw new AppError(400, "MESSAGE_NOT_ALLOWED", "이 사용자에게 메시지를 보낼 수 없습니다.");
     }
     await notifyUser(parameters.userId, {
-      kind: "system",
+      kind: "message",
       title: "새 탭톡",
       body: `${user.displayName}님이 메시지를 보냈습니다.`,
       actorId: user.id,
@@ -1127,12 +1252,30 @@ export async function createApp(dependencies: AppDependencies) {
     const user = await currentUser(request);
     const parameters = z.object({ postId: z.string().uuid() }).parse(request.params);
     const input = CommentCreateInputSchema.parse(request.body);
+    const source = (await dependencies.store.listFeed(user.id, parameters.postId))[0];
+    if (!source) throw new AppError(404, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다.");
+    const followed = await dependencies.store.listFollowing(user.id);
+    const mentions = [...(input.mentions ?? [])].sort((a, b) => a.start - b.start);
+    let lastEnd = 0;
+    for (const mention of mentions) {
+      const person = followed.find((person) => person.id === mention.userId);
+      if (
+        !person ||
+        person.displayName !== mention.displayName ||
+        mention.start < lastEnd ||
+        input.content.slice(mention.start, mention.end) !== `@${person.displayName}`
+      ) {
+        throw new AppError(400, "INVALID_MENTION", "멘션할 사용자를 다시 선택해 주세요.");
+      }
+      lastEnd = mention.end;
+    }
     const comment = await dependencies.store.createComment(
       user.id,
       user.displayName,
       parameters.postId,
       input.content,
       input.parentCommentId,
+      mentions,
     );
     if (!comment)
       throw new AppError(
@@ -1140,6 +1283,27 @@ export async function createApp(dependencies: AppDependencies) {
         "COMMENT_NOT_ALLOWED",
         "댓글을 남길 게시물 또는 원본 댓글을 찾을 수 없습니다.",
       );
+    const recipients = new Set([source.userId, ...mentions.map((mention) => mention.userId)]);
+    const parent = source.comments.find((item) => item.id === input.parentCommentId);
+    if (parent) recipients.add(parent.userId);
+    await Promise.allSettled(
+      [...recipients]
+        .filter((id) => id !== user.id)
+        .map(async (id) => {
+          if (!(await dependencies.store.listFeed(id, source.id))[0]) return;
+          const mentioned = mentions.some((mention) => mention.userId === id);
+          await notifyUser(id, {
+            kind: mentioned ? "mention" : "comment",
+            title: mentioned ? "새 멘션" : "새 댓글",
+            body: mentioned
+              ? `${user.displayName}님이 댓글에서 회원님을 태그했습니다.`
+              : `${user.displayName}님이 댓글을 남겼습니다.`,
+            actorId: user.id,
+            resourceType: "post",
+            resourceId: source.id,
+          });
+        }),
+    );
     return reply.status(201).send(success(comment));
   });
 
@@ -1152,6 +1316,9 @@ export async function createApp(dependencies: AppDependencies) {
         const parameters = z
           .object({ postId: z.uuid(), commentId: z.uuid() })
           .parse(request.params);
+        const previous = (
+          await dependencies.store.listFeed(user.id, parameters.postId)
+        )[0]?.comments.find((item) => item.id === parameters.commentId);
         const comment = await dependencies.store.setCommentLiked(
           user.id,
           parameters.postId,
@@ -1159,7 +1326,48 @@ export async function createApp(dependencies: AppDependencies) {
           method === "PUT",
         );
         if (!comment) throw new AppError(404, "COMMENT_NOT_FOUND", "댓글을 찾을 수 없습니다.");
+        if (
+          method === "PUT" &&
+          !previous?.likedByMe &&
+          comment.userId !== user.id &&
+          (await dependencies.store.listFeed(comment.userId, parameters.postId))[0]
+        ) {
+          await notifyUser(comment.userId, {
+            kind: "like",
+            title: "댓글 좋아요",
+            body: `${user.displayName}님이 댓글을 좋아합니다.`,
+            actorId: user.id,
+            resourceType: "post",
+            resourceId: parameters.postId,
+          });
+        }
         return success(comment);
+      },
+    });
+  }
+
+  for (const method of ["PUT", "DELETE"] as const) {
+    app.route({
+      method,
+      url: "/v1/posts/:postId/like",
+      handler: async (request) => {
+        const user = await currentUser(request);
+        const { postId } = z.object({ postId: z.uuid() }).parse(request.params);
+        const source = (await dependencies.store.listFeed(user.id, postId))[0];
+        if (!source) throw new AppError(404, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다.");
+        const result = await dependencies.store.setPostLiked(user.id, postId, method === "PUT");
+        if (!result) throw new AppError(404, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다.");
+        if (result.changed && result.liked && source.userId !== user.id) {
+          await notifyUser(source.userId, {
+            kind: "like",
+            title: "게시물 좋아요",
+            body: `${user.displayName}님이 게시물을 좋아합니다.`,
+            actorId: user.id,
+            resourceType: "post",
+            resourceId: postId,
+          });
+        }
+        return success(result);
       },
     });
   }

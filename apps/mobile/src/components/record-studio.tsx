@@ -55,6 +55,10 @@ const nextFrame = () =>
 
 export function RecordStudio({
   avatarUri,
+  autoOpen = false,
+  directEditor = false,
+  contentType = "post",
+  onClose,
   onPosted,
   initialWorkoutId,
   initialCaption,
@@ -62,6 +66,10 @@ export function RecordStudio({
   loadWorkouts = api.workouts,
 }: {
   avatarUri: string | null;
+  autoOpen?: boolean;
+  directEditor?: boolean;
+  contentType?: "post" | "story";
+  onClose?: () => void;
   onPosted: () => Promise<unknown>;
   initialWorkoutId?: string | undefined;
   initialCaption?: string | undefined;
@@ -71,7 +79,7 @@ export function RecordStudio({
   const { session } = useAuth();
   const { colors } = useAppTheme();
   const { width: windowWidth } = useWindowDimensions();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen);
   const [background, setBackground] = useState<"photo" | "map" | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoReset, setPhotoReset] = useState(0);
@@ -395,7 +403,7 @@ export function RecordStudio({
 
   return (
     <>
-      <View style={[s.composer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      {!autoOpen ? <View style={[s.composer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <Pressable
           accessibilityRole="button"
           onPress={() =>
@@ -417,12 +425,12 @@ export function RecordStudio({
           </Text>
         </Pressable>
         {baseActions}
-      </View>
+      </View> : null}
       <Modal
         visible={open}
         animationType="slide"
         onRequestClose={() => {
-          if (!busy) setOpen(false);
+          if (!busy) { setOpen(false); onClose?.(); }
         }}
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
@@ -434,7 +442,7 @@ export function RecordStudio({
             <Pressable
               accessibilityLabel="편집 닫기 · 초안 유지"
               disabled={busy}
-              onPress={() => setOpen(false)}
+              onPress={() => { setOpen(false); onClose?.(); }}
               hitSlop={12}
             >
               <X color={colors.ink} />

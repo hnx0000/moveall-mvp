@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Image, PanResponder, Platform, View } from "react-native";
 import { clamp } from "./record-studio-model";
+import { StudioTransformHandles } from "./studio-transform-handles";
 
 export function StudioPhoto({
   uri,
@@ -32,10 +33,10 @@ export function StudioPhoto({
       active = false;
     };
   }, [uri]);
-  const [frame, setFrame] = useState({ x: 0, y: 0, scale: 1 });
+  const [frame, setFrame] = useState({ x: 0, y: 0, scale: 1, rotation: 0 });
   const latest = useRef({ frame, editing, displayScale, onEdit });
   latest.current = { frame, editing, displayScale, onEdit };
-  const start = useRef({ frame, distance: 0, dx: 0, dy: 0 });
+  const start = useRef({ frame, distance: 0, angle: 0, dx: 0, dy: 0 });
   const pan = useMemo(
     () =>
       PanResponder.create({
@@ -43,7 +44,7 @@ export function StudioPhoto({
         onMoveShouldSetPanResponder: () => latest.current.editing,
         onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: () => {
-          start.current = { frame: latest.current.frame, distance: 0, dx: 0, dy: 0 };
+          start.current = { frame: latest.current.frame, distance: 0, angle: 0, dx: 0, dy: 0 };
         },
         onPanResponderMove: (event, gesture) => {
           const touches = event.nativeEvent.touches;
@@ -52,10 +53,12 @@ export function StudioPhoto({
             const a = touches[0]!,
               b = touches[1]!;
             const distance = Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
+            const angle = Math.atan2(b.pageY - a.pageY, b.pageX - a.pageX);
             if (!original.distance) {
               start.current = {
                 frame: latest.current.frame,
                 distance,
+                angle,
                 dx: gesture.dx,
                 dy: gesture.dy,
               };
@@ -63,13 +66,15 @@ export function StudioPhoto({
             }
             setFrame({
               ...original.frame,
-              scale: clamp((original.frame.scale * distance) / original.distance, 1, 4),
+              scale: clamp((original.frame.scale * distance) / original.distance, 0.15, 6),
+              rotation: original.frame.rotation + ((angle - original.angle) * 180) / Math.PI,
             });
           } else {
             if (original.distance) {
               start.current = {
                 frame: latest.current.frame,
                 distance: 0,
+                angle: 0,
                 dx: gesture.dx,
                 dy: gesture.dy,
               };
@@ -86,7 +91,7 @@ export function StudioPhoto({
       }),
     [],
   );
-  const cover = Math.max(360 / size.width, 640 / size.height) * frame.scale;
+  const cover = Math.min(360 / size.width, 640 / size.height);
   const width = size.width * cover,
     height = size.height * cover;
   return (
@@ -102,20 +107,42 @@ export function StudioPhoto({
           : {}),
       }}
     >
-      <View pointerEvents="none" style={{ position: "absolute", width: 360, height: 640 }}>
-        <Image
-          source={{ uri }}
-          resizeMode="cover"
-          onError={onError}
-          onLoad={onLoad}
-          style={{
-            position: "absolute",
-            width,
-            height,
-            left: (360 - width) / 2 + clamp(frame.x, -(width - 360) / 2, (width - 360) / 2),
-            top: (640 - height) / 2 + clamp(frame.y, -(height - 640) / 2, (height - 640) / 2),
-          }}
-        />
+      <View
+        style={{
+          position: "absolute",
+          width,
+          height,
+          left: (360 - width) / 2 + frame.x,
+          top: (640 - height) / 2 + frame.y,
+          transform: [{ scale: frame.scale }, { rotate: `${frame.rotation}deg` }],
+        }}
+      >
+        <View pointerEvents="none" style={{ width, height }}>
+          <Image
+            source={{ uri }}
+            resizeMode="cover"
+            onError={onError}
+            onLoad={onLoad}
+            style={{
+              position: "absolute",
+              width,
+              height,
+            }}
+          />
+        </View>
+        {editing ? (
+          <StudioTransformHandles
+            width={width}
+            height={height}
+            scale={frame.scale}
+            rotation={frame.rotation}
+            displayScale={displayScale}
+            onChange={(patch) => {
+              setFrame((value) => ({ ...value, ...patch }));
+              onEdit();
+            }}
+          />
+        ) : null}
       </View>
     </View>
   );

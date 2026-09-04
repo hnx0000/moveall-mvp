@@ -1,7 +1,8 @@
 import "leaflet/dist/leaflet.css";
-import { useEffect, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { type Map as LeafletMap, type LayerGroup, type LeafletMouseEvent } from "leaflet";
+import { mapFitPoints, splitRouteSegments } from "./workout-map-model";
 import { type MapPlace, type MapPoint, type WorkoutMapProps } from "./workout-map.types";
 
 const FALLBACK_CENTER: MapPoint = { latitude: 37.5284, longitude: 126.9343 };
@@ -25,11 +26,32 @@ export function WorkoutMap({
   staticMode = false,
   showBadge = true,
   backgroundColor = "#E8E7E2",
+  showFitButton = false,
+  onFullScreenPress,
+  controlsBottom = 10,
 }: WorkoutMapProps) {
   const hostRef = useRef<View>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const routeLayerRef = useRef<LayerGroup | null>(null);
   const [mapReady, setMapReady] = useState(false);
+
+  const fitRoute = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const leaflet = await import("leaflet");
+    const coordinates = mapFitPoints(points, plannedPoints, places).map(
+      (point) => [point.latitude, point.longitude] as [number, number],
+    );
+    if (coordinates.length > 1) {
+      map.fitBounds(leaflet.latLngBounds(coordinates), {
+        padding: [38, 38],
+        maxZoom: simplified ? 15 : 16,
+      });
+      return;
+    }
+    const center = currentPoint ?? plannedPoints[0] ?? points[0] ?? places[0] ?? FALLBACK_CENTER;
+    map.setView([center.latitude, center.longitude], simplified ? 14 : 15);
+  }, [currentPoint, places, plannedPoints, points, simplified]);
 
   useEffect(() => {
     let mounted = true;
@@ -111,9 +133,6 @@ export function WorkoutMap({
       const plannedCoordinates = toLeafletPoints(plannedPoints);
 
       if (places.length > 0) {
-        const placeCoordinates = places.map(
-          (place) => [place.latitude, place.longitude] as [number, number],
-        );
         places.forEach((place) => {
           leaflet
             .circleMarker([place.latitude, place.longitude], {
@@ -126,7 +145,6 @@ export function WorkoutMap({
             .bindTooltip(place.name, { direction: "top" })
             .addTo(layer);
         });
-        mapRef.current.fitBounds(placeCoordinates, { padding: [38, 38], maxZoom: 15 });
         return;
       }
 
@@ -146,9 +164,11 @@ export function WorkoutMap({
         addEndpoint(leaflet, layer, plannedCoordinates[0], "S", "출발", "#171719");
       }
 
-      if (recordedCoordinates.length > 1) {
+      const recordedSegments = splitRouteSegments(points).map(toLeafletPoints);
+      recordedSegments.forEach((segment) => {
+        if (segment.length < 2) return;
         leaflet
-          .polyline(recordedCoordinates, {
+          .polyline(segment, {
             color: primaryColor,
             weight: 6,
             opacity: 1,
@@ -156,6 +176,8 @@ export function WorkoutMap({
             lineJoin: "round",
           })
           .addTo(layer);
+      });
+      if (recordedCoordinates.length > 1) {
         addEndpoint(leaflet, layer, recordedCoordinates[0]!, "S", "기록 시작", "#171719");
         addEndpoint(leaflet, layer, recordedCoordinates.at(-1)!, "F", "현재 위치", primaryColor);
       } else if (recordedCoordinates[0]) {
@@ -169,19 +191,6 @@ export function WorkoutMap({
           "현재 위치",
           primaryColor,
         );
-      }
-
-      const bounds =
-        recordedCoordinates.length > 1
-          ? recordedCoordinates
-          : plannedCoordinates.length > 1
-            ? plannedCoordinates
-            : [];
-      if (bounds.length > 1) {
-        mapRef.current.fitBounds(bounds, { padding: [30, 30], maxZoom: simplified ? 15 : 16 });
-      } else {
-        const center = currentPoint ?? plannedPoints[0] ?? points[0] ?? FALLBACK_CENTER;
-        mapRef.current.setView([center.latitude, center.longitude], simplified ? 14 : 15);
       }
     });
     return () => {
@@ -205,6 +214,28 @@ export function WorkoutMap({
             style={[styles.liveDot, { backgroundColor: isSample ? "#777773" : primaryColor }]}
           />
           <Text style={styles.badgeText}>{badgeLabel ?? (isSample ? "ROUTE" : "GPS LIVE")}</Text>
+        </View>
+      ) : null}
+      {!staticMode && (showFitButton || onFullScreenPress) ? (
+        <View style={[styles.controls, { bottom: controlsBottom }]}>
+          {showFitButton ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void fitRoute()}
+              style={styles.controlButton}
+            >
+              <Text style={styles.controlText}>전체 경로</Text>
+            </Pressable>
+          ) : null}
+          {onFullScreenPress ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={onFullScreenPress}
+              style={styles.controlButton}
+            >
+              <Text style={styles.controlText}>전체화면</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
       {!mapReady ? (
@@ -274,4 +305,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   loadingText: { color: "#656560", fontSize: 8, fontWeight: "900", letterSpacing: 1 },
+  controls: { position: "absolute", right: 10, gap: 7, alignItems: "flex-end" },
+  controlButton: {
+    minHeight: 34,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    backgroundColor: "rgba(16,16,17,0.88)",
+  },
+  controlText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" },
 });

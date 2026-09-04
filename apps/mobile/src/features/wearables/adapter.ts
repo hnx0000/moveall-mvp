@@ -2,11 +2,19 @@ import type { SportType, WorkoutSessionCreateInput } from "@moveall/contracts";
 
 export type HealthProvider = "mock" | "apple-health" | "health-connect" | "garmin";
 export type HealthPermission =
-  "workout" | "heart-rate" | "steps" | "distance" | "calories" | "elevation" | "route";
+  | "workout"
+  | "heart-rate"
+  | "respiratory-rate"
+  | "steps"
+  | "distance"
+  | "calories"
+  | "elevation"
+  | "route";
 
 export const groovHealthPermissions: HealthPermission[] = [
   "workout",
   "heart-rate",
+  "respiratory-rate",
   "steps",
   "distance",
   "calories",

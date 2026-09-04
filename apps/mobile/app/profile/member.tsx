@@ -8,7 +8,7 @@ import {
 } from "@moveall/contracts";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Lock } from "lucide-react-native";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -24,6 +24,8 @@ import { ApiError, api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { demoAvatarSources } from "../../src/demo-avatars";
 import { TapTalkIcon } from "../../src/components/tap-icons";
+import { UnfollowDialog } from "../../src/components/unfollow-dialog";
+import { CenterDialog } from "../../src/components/ui";
 import { fonts, radius, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 import { formatSensorMetricLine } from "../../src/workout-metrics";
@@ -40,22 +42,29 @@ export default function MemberProfilePage() {
   const [following, setFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [followBusy, setFollowBusy] = useState(false);
+  const followRequest = useRef(false);
+  const [unfollowOpen, setUnfollowOpen] = useState(false);
   const [reportBusy, setReportBusy] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
+  const [safetyAction, setSafetyAction] = useState<"block" | "restrict" | null>(null);
+  const [restricted, setRestricted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<MemberTab>("records");
 
   const loadProfile = useCallback(async () => {
     if (!session || !userId) return;
     setLoading(true);
+    setProfile(null);
     setError(null);
     try {
-      const [nextProfile, status] = await Promise.all([
+      const [nextProfile, status, safety] = await Promise.all([
         api.memberProfile(session.accessToken, userId),
         api.followStatus(session.accessToken, userId),
+        api.safetySummary(session.accessToken),
       ]);
       setProfile(nextProfile);
       setFollowing(status.following);
+      setRestricted(safety.restricted.some((person) => person.id === userId));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "프로필을 불러오지 못했습니다.");
     } finally {
@@ -69,13 +78,23 @@ export default function MemberProfilePage() {
     }, [loadProfile]),
   );
 
-  async function toggleFollow() {
-    if (!session || !userId || followBusy) return;
+  async function toggleFollow(confirmed = false) {
+    if (!session || !userId || followRequest.current) return;
+    if (following && !confirmed) {
+      setUnfollowOpen(true);
+      return;
+    }
+    if (confirmed && !following) {
+      setUnfollowOpen(false);
+      return;
+    }
+    followRequest.current = true;
     setFollowBusy(true);
+    setError(null);
     try {
       if (following) await api.unfollow(session.accessToken, userId);
       else await api.follow(session.accessToken, userId);
-      setFollowing((current) => !current);
+      setFollowing(!following);
       setProfile((current) =>
         current
           ? {
@@ -87,6 +106,8 @@ export default function MemberProfilePage() {
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "팔로우 상태를 바꾸지 못했습니다.");
     } finally {
+      followRequest.current = false;
+      setUnfollowOpen(false);
       setFollowBusy(false);
     }
   }
@@ -124,33 +145,33 @@ export default function MemberProfilePage() {
   }
 
   function blockProfile() {
+    setSafetyAction("block");
+  }
+
+  async function confirmSafety() {
     if (!session || !userId || blockBusy) return;
-    Alert.alert(
-      "이 사용자를 차단할까요?",
-      "서로의 프로필·팔로우·탭톡이 제한되고 기존 팔로우 관계가 해제됩니다.",
-      [
-        { text: "취소", style: "cancel" },
-        {
-          text: "차단하기",
-          onPress: () => {
-            setBlockBusy(true);
-            void api
-              .blockUser(session.accessToken, userId)
-              .then(() => {
-                Alert.alert("차단 완료", "이 사용자의 활동을 더 이상 표시하지 않습니다.", [
-                  { text: "확인", onPress: () => router.back() },
-                ]);
-              })
-              .catch((caught) =>
-                setError(
-                  caught instanceof ApiError ? caught.message : "사용자를 차단하지 못했습니다.",
-                ),
-              )
-              .finally(() => setBlockBusy(false));
-          },
-        },
-      ],
-    );
+    setBlockBusy(true);
+    try {
+      if (safetyAction === "block") {
+        await api.blockUser(session.accessToken, userId);
+        router.back();
+      } else {
+        await api.restrictUser(session.accessToken, userId, !restricted);
+        setRestricted(!restricted);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "변경하지 못했습니다.");
+    } finally {
+      setBlockBusy(false);
+      setSafetyAction(null);
+    }
+  }
+
+  function openContent(mode: "records" | "posts" | "followers" | "following", recordId?: string) {
+    router.push({
+      pathname: "./member-content",
+      params: { userId, mode, ...(recordId ? { recordId } : {}) },
+    });
   }
 
   const earnedMedals = profile?.medals.filter((medal) => medal.earned) ?? [];
@@ -163,6 +184,32 @@ export default function MemberProfilePage() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <CenterDialog
+        visible={safetyAction !== null}
+        title={
+          safetyAction === "block"
+            ? "이 사용자를 차단할까요?"
+            : restricted
+              ? "제한을 해제할까요?"
+              : "이 사용자를 제한할까요?"
+        }
+        message={
+          safetyAction === "block"
+            ? "서로의 활동이 숨겨지고 기존 팔로우 관계가 해제됩니다."
+            : restricted
+              ? "내 공개 콘텐츠를 다시 볼 수 있게 됩니다."
+              : "팔로우는 유지됩니다. 상대방에게 내 콘텐츠와 관계 목록이 보이지 않으며 알림은 전송되지 않습니다."
+        }
+        busy={blockBusy}
+        onClose={() => setSafetyAction(null)}
+        onConfirm={() => void confirmSafety()}
+      />
+      <UnfollowDialog
+        visible={unfollowOpen}
+        busy={followBusy}
+        onClose={() => setUnfollowOpen(false)}
+        onConfirm={() => void toggleFollow(true)}
+      />
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.topBar}>
           <Pressable accessibilityRole="button" onPress={() => router.back()}>
@@ -219,9 +266,7 @@ export default function MemberProfilePage() {
                     ? "…"
                     : following
                       ? "팔로잉"
-                      : profile.isPrivate
-                        ? "팔로우 요청"
-                        : "+ 팔로우"}
+                      : "+ 팔로우"}
                 </Text>
               </Pressable>
               <Pressable
@@ -257,25 +302,38 @@ export default function MemberProfilePage() {
                 label="기록"
                 value={profile.isPrivate ? "—" : profile.workouts.length}
                 styles={styles}
+                onPress={() => openContent("records")}
               />
-              <Stat label="팔로워" value={profile.followersCount} styles={styles} />
-              <Stat label="팔로잉" value={profile.followingCount} styles={styles} />
+              <Stat
+                label="팔로워"
+                value={profile.followersCount}
+                styles={styles}
+                onPress={() => openContent("followers")}
+              />
+              <Stat
+                label="팔로잉"
+                value={profile.followingCount}
+                styles={styles}
+                onPress={() => openContent("following")}
+              />
               <Stat
                 label="게시물"
                 value={profile.isPrivate ? "—" : profile.posts.length}
                 styles={styles}
+                onPress={() => openContent("posts")}
               />
             </View>
+            <Pressable disabled={blockBusy} onPress={() => setSafetyAction("restrict")}>
+              <Text style={styles.reportText}>{restricted ? "제한 해제" : "이 사용자 제한"}</Text>
+            </Pressable>
 
             {profile.isPrivate ? (
               <View style={styles.privateCard}>
                 <View style={styles.privateLock}>
                   <Lock color="#FFFFFF" size={24} />
                 </View>
-                <Text style={styles.privateTitle}>비공개 계정입니다</Text>
-                <Text style={styles.privateCopy}>
-                  이 사용자가 팔로우 요청을 승인하면 공개한 운동 기록, 메달과 피드를 볼 수 있습니다.
-                </Text>
+                <Text style={styles.privateTitle}>공개된 내용이 없습니다</Text>
+                <Text style={styles.privateCopy}>이 계정이 공개한 활동만 표시됩니다.</Text>
               </View>
             ) : (
               <>
@@ -351,9 +409,19 @@ export default function MemberProfilePage() {
                 </View>
 
                 {tab === "records" ? (
-                  <RecordList styles={styles} workouts={profile.workouts} />
+                  <RecordList
+                    styles={styles}
+                    workouts={profile.workouts}
+                    onPress={(id) => openContent("records", id)}
+                  />
                 ) : (
-                  <PostGrid posts={profile.posts} styles={styles} />
+                  <PostGrid
+                    posts={profile.posts}
+                    styles={styles}
+                    onPress={(id) =>
+                      router.push({ pathname: "/(tabs)/community", params: { post: id } })
+                    }
+                  />
                 )}
               </>
             )}
@@ -368,16 +436,18 @@ function Stat({
   label,
   value,
   styles,
+  onPress,
 }: {
   label: string;
   value: number | string;
   styles: ReturnType<typeof createStyles>;
+  onPress: () => void;
 }) {
   return (
-    <View style={styles.stat}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={styles.stat}>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -405,15 +475,22 @@ function SportOrb({
 function RecordList({
   workouts,
   styles,
+  onPress,
 }: {
   workouts: WorkoutSession[];
   styles: ReturnType<typeof createStyles>;
+  onPress: (id: string) => void;
 }) {
   if (!workouts.length) return <Text style={styles.inlineEmpty}>공개한 운동 기록이 없습니다.</Text>;
   return (
     <View style={styles.recordList}>
       {workouts.map((workout) => (
-        <View key={workout.id} style={styles.recordCard}>
+        <Pressable
+          accessibilityRole="button"
+          key={workout.id}
+          style={styles.recordCard}
+          onPress={() => onPress(workout.id)}
+        >
           <View style={styles.recordTop}>
             <Text style={styles.recordSport}>{sportLabels[workout.sport]}</Text>
             <Text style={styles.recordDate}>{formatDate(workout.endedAt)}</Text>
@@ -426,7 +503,7 @@ function RecordList({
             {durationLabel(workout)} · {calorieLabel(workout)}
           </Text>
           <Text style={styles.recordSensorMetric}>{formatSensorMetricLine(workout)}</Text>
-        </View>
+        </Pressable>
       ))}
     </View>
   );
@@ -435,15 +512,22 @@ function RecordList({
 function PostGrid({
   posts,
   styles,
+  onPress,
 }: {
   posts: FeedPost[];
   styles: ReturnType<typeof createStyles>;
+  onPress: (id: string) => void;
 }) {
   if (!posts.length) return <Text style={styles.inlineEmpty}>공개한 피드가 없습니다.</Text>;
   return (
     <View style={styles.postGrid}>
       {posts.map((post) => (
-        <View key={post.id} style={styles.postCard}>
+        <Pressable
+          accessibilityRole="button"
+          key={post.id}
+          style={styles.postCard}
+          onPress={() => onPress(post.id)}
+        >
           <View style={styles.postTop}>
             <Text style={styles.postType}>{post.contentType.toUpperCase()}</Text>
             <Text style={styles.postSport}>{sportLabels[post.sport]}</Text>
@@ -454,7 +538,7 @@ function PostGrid({
           <Text style={styles.postReaction}>
             ♥ {post.likeCount} · 댓글 {post.comments.length}
           </Text>
-        </View>
+        </Pressable>
       ))}
     </View>
   );

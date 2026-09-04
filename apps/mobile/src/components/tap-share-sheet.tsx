@@ -5,6 +5,7 @@ import {
   type PublicUser,
 } from "@moveall/contracts";
 import * as Clipboard from "expo-clipboard";
+import { useRouter } from "expo-router";
 import { Check, Link2, Search, Share2, X } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -40,9 +41,11 @@ export function TapShareSheet({
   onNotice: (message: string) => void;
 }) {
   const { session } = useAuth();
+  const router = useRouter();
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
   const [people, setPeople] = useState<PublicUser[]>([]);
+  const [sentTo, setSentTo] = useState<string[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -59,9 +62,9 @@ export function TapShareSheet({
     setLoading(true);
     setError(null);
     try {
-      const summary = await api.socialSummary(session.accessToken);
+      const summary = await api.socialSuggestions(session.accessToken);
       if (!mounted.current) return;
-      const next = summary.following.filter((person) => person.id !== session.user.id);
+      const next = summary.people.filter((person) => person.id !== session.user.id);
       setPeople(next);
       setSelected((current) => current.filter((id) => next.some((person) => person.id === id)));
     } catch (caught) {
@@ -98,12 +101,7 @@ export function TapShareSheet({
     try {
       const result = await api.sharePost(session.accessToken, post.id, selected);
       onShared(result);
-      onClose();
-      onNotice(
-        result.recipientCount
-          ? `${result.recipientCount}명의 탭톡에 피드를 보냈습니다.`
-          : "선택한 대상에게 이미 공유한 피드입니다.",
-      );
+      setSentTo([...selected]);
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "전송하지 못했습니다. 다시 시도해 주세요.",
@@ -137,6 +135,40 @@ export function TapShareSheet({
   const visiblePeople = people.filter((person) =>
     person.displayName.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
   );
+  if (sentTo)
+    return (
+      <Modal animationType="fade" transparent visible onRequestClose={close}>
+        <View style={styles.backdrop}>
+          <View accessibilityViewIsModal style={styles.card}>
+            <Text style={styles.title}>탭톡에 공유했어요</Text>
+            <Text style={styles.hint}>
+              대화를 열어 이야기를 이어가세요. 이미 공유한 게시물은 중복 전송되지 않습니다.
+            </Text>
+            {people
+              .filter((person) => sentTo.includes(person.id))
+              .map((person) => (
+                <Pressable
+                  key={person.id}
+                  accessibilityRole="button"
+                  style={styles.preview}
+                  onPress={() => {
+                    onClose();
+                    router.push({
+                      pathname: "/profile/message",
+                      params: { userId: person.id, name: person.displayName },
+                    });
+                  }}
+                >
+                  <Text style={styles.previewName}>{person.displayName} · 탭톡 열기 →</Text>
+                </Pressable>
+              ))}
+            <Pressable accessibilityRole="button" style={styles.send} onPress={close}>
+              <Text style={styles.sendText}>피드 계속 보기</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+    );
   return (
     <Modal animationType="fade" transparent visible onRequestClose={close}>
       <KeyboardAvoidingView
@@ -185,6 +217,7 @@ export function TapShareSheet({
             />
           </View>
           <ScrollView
+            showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             style={styles.peopleScroll}
             contentContainerStyle={styles.people}
@@ -202,44 +235,45 @@ export function TapShareSheet({
                   ? { uri: person.avatarDataUri }
                   : demoAvatarSources[person.id];
                 return (
-                  <Pressable
-                    key={person.id}
-                    accessibilityLabel={person.displayName}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked, disabled: busy !== null }}
-                    disabled={busy !== null}
-                    onPress={() => {
-                      if (!checked && selected.length >= 50) {
-                        setError("한 번에 최대 50명까지 선택할 수 있습니다.");
-                        return;
-                      }
-                      setSelected((current) =>
-                        checked
-                          ? current.filter((id) => id !== person.id)
-                          : [...current, person.id],
-                      );
-                    }}
-                    style={styles.person}
-                  >
-                    <View style={[styles.avatar, checked && styles.avatarSelected]}>
-                      {source ? (
-                        <Image source={source} style={styles.avatarImage} />
-                      ) : (
-                        <Text style={styles.initial}>{person.displayName.slice(0, 1)}</Text>
-                      )}
-                      {checked ? (
-                        <View style={styles.check}>
-                          <Check color="#FFFFFF" size={12} strokeWidth={3} />
-                        </View>
-                      ) : null}
-                    </View>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.personName, checked && styles.selectedName]}
+                  <View key={person.id} style={styles.personSlot}>
+                    <Pressable
+                      accessibilityLabel={person.displayName}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked, disabled: busy !== null }}
+                      disabled={busy !== null}
+                      onPress={() => {
+                        if (!checked && selected.length >= 50) {
+                          setError("한 번에 최대 50명까지 선택할 수 있습니다.");
+                          return;
+                        }
+                        setSelected((current) =>
+                          checked
+                            ? current.filter((id) => id !== person.id)
+                            : [...current, person.id],
+                        );
+                      }}
+                      style={styles.person}
                     >
-                      {person.displayName}
-                    </Text>
-                  </Pressable>
+                      <View style={[styles.avatar, checked && styles.avatarSelected]}>
+                        {source ? (
+                          <Image source={source} style={styles.avatarImage} />
+                        ) : (
+                          <Text style={styles.initial}>{person.displayName.slice(0, 1)}</Text>
+                        )}
+                        {checked ? (
+                          <View style={styles.check}>
+                            <Check color="#FFFFFF" size={12} strokeWidth={3} />
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.personName, checked && styles.selectedName]}
+                      >
+                        {person.displayName}
+                      </Text>
+                    </Pressable>
+                  </View>
                 );
               })
             )}
@@ -343,10 +377,11 @@ function createStyles(colors: ThemeColors) {
     input: { flex: 1, minWidth: 0, height: 44, fontSize: 13, color: colors.ink },
     peopleScroll: { maxHeight: 264, flexShrink: 1 },
     people: { flexDirection: "row", flexWrap: "wrap", paddingVertical: 8, rowGap: 16 },
-    person: { width: "33.333%", alignItems: "center", gap: 7, paddingHorizontal: 4 },
+    personSlot: { width: "25%" },
+    person: { width: "100%", alignItems: "center", gap: 7, paddingHorizontal: 3 },
     avatar: {
-      width: 64,
-      height: 64,
+      width: 52,
+      height: 52,
       padding: 3,
       borderWidth: 2,
       borderColor: "transparent",

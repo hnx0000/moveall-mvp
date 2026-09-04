@@ -17,9 +17,13 @@ import {
   type WearableAvailability,
 } from "../../src/features/wearables";
 import {
+  getHealthSyncStatus,
   isHealthAutoSyncEnabled,
+  markHealthSyncReady,
   setHealthAutoSyncEnabled,
+  subscribeHealthSyncStatus,
   syncHealthData,
+  type HealthSyncStatus,
 } from "../../src/features/wearables/health-sync";
 import { fonts, maxContentWidth, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
@@ -53,10 +57,13 @@ export default function HealthConnectionScreen() {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<HealthSyncStatus | null>(null);
 
   useEffect(() => {
     void adapter.availability().then(setAvailability);
     void isHealthAutoSyncEnabled().then(setPermissionGranted);
+    void getHealthSyncStatus().then(setSyncStatus);
+    return subscribeHealthSyncStatus(setSyncStatus);
   }, [adapter]);
 
   const connect = async () => {
@@ -71,6 +78,7 @@ export default function HealthConnectionScreen() {
       const granted = await adapter.requestPermission();
       setPermissionGranted(granted);
       await setHealthAutoSyncEnabled(granted);
+      if (granted) await markHealthSyncReady();
       setNotice(
         granted
           ? "건강 기록 읽기·쓰기 권한이 연결되었습니다. 앱을 열 때 완료 운동을 양방향으로 자동 동기화합니다."
@@ -141,10 +149,34 @@ export default function HealthConnectionScreen() {
         <View style={styles.noticeCard}>
           <ShieldCheck color={colors.primary} size={19} />
           <Text style={styles.noticeCopy}>
-            GROOV는 운동·심박·걸음·거리·칼로리·고도를 읽고, GROOV에서 완료한 운동·거리·칼로리는 건강
-            앱에 저장합니다. Apple Watch와 Galaxy Watch가 건강 앱에 남긴 완료 기록도 이 경로로
-            들어옵니다.
+            GROOV는 완료된 운동과 심박·호흡·걸음·거리·칼로리·고도를 건강 앱에서 가져옵니다.
+            GROOV에서 완료한 운동·거리·칼로리는 건강 앱에 저장합니다.
           </Text>
+        </View>
+
+        <View style={styles.syncCard}>
+          <SyncRow label="워치 수신 방식" value="운동 종료 후 건강 앱 동기화" styles={styles} />
+          <SyncRow
+            label="실시간 워치 데이터"
+            value={adapter.capabilities.liveMetrics ? "수신 가능" : "미지원 · 전용 Watch 앱 필요"}
+            styles={styles}
+          />
+          <SyncRow
+            label="완료 기록 항목"
+            value="심박 · 호흡(허용 시) · 걸음 · 거리 등"
+            styles={styles}
+          />
+          <SyncRow
+            label="현재 상태"
+            value={syncStatus?.message ?? (permissionGranted ? "동기화 준비됨" : "권한 연결 전")}
+            styles={styles}
+            emphasis={syncStatus?.phase === "syncing"}
+          />
+          {syncStatus?.updatedAt ? (
+            <Text style={styles.syncUpdatedAt}>
+              마지막 상태 · {new Date(syncStatus.updatedAt).toLocaleString("ko-KR")}
+            </Text>
+          ) : null}
         </View>
 
         <Pressable
@@ -172,7 +204,9 @@ export default function HealthConnectionScreen() {
           ]}
         >
           <Download color={colors.ink} size={17} />
-          <Text style={styles.secondaryText}>지금 양방향 동기화</Text>
+          <Text style={styles.secondaryText}>
+            {syncStatus?.phase === "syncing" ? "동기화 중" : "지금 양방향 동기화"}
+          </Text>
         </Pressable>
 
         <Text style={styles.footnote}>
@@ -188,6 +222,25 @@ export default function HealthConnectionScreen() {
         onClose={() => setNotice(null)}
       />
     </SafeAreaView>
+  );
+}
+
+function SyncRow({
+  label,
+  value,
+  styles,
+  emphasis = false,
+}: {
+  label: string;
+  value: string;
+  styles: ReturnType<typeof createStyles>;
+  emphasis?: boolean;
+}) {
+  return (
+    <View style={styles.syncRow}>
+      <Text style={styles.syncLabel}>{label}</Text>
+      <Text style={[styles.syncValue, emphasis && styles.syncValueActive]}>{value}</Text>
+    </View>
   );
 }
 
@@ -252,6 +305,35 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.medium,
       fontSize: 10,
       lineHeight: 17,
+    },
+    syncCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 14,
+      backgroundColor: colors.surface,
+      padding: 15,
+      gap: 11,
+    },
+    syncRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    syncLabel: { color: colors.muted, fontFamily: fonts.medium, fontSize: 9 },
+    syncValue: {
+      flex: 1,
+      color: colors.ink,
+      fontFamily: fonts.semibold,
+      fontSize: 9,
+      textAlign: "right",
+    },
+    syncValueActive: { color: colors.primary },
+    syncUpdatedAt: {
+      color: colors.muted,
+      fontFamily: fonts.regular,
+      fontSize: 8,
+      textAlign: "right",
     },
     primaryButton: {
       minHeight: 54,

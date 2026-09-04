@@ -141,6 +141,333 @@
     .top{align-items:flex-start;flex-direction:column}
     h1{font-size:25px}
   }
+  .validation{margin:18px 0 24px;border-color:#ff5a32;scroll-margin-top:20px}
+  .validation-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .validation-heading h2{font-size:23px;margin:4px 0 8px}
+  .validation-kicker{color:#ff916e;font-size:13px;letter-spacing:1px;margin:0}
+  .validation a{color:#ffad91;font-size:14px}
+  .validation-summary{display:grid;grid-template-columns:1fr 1fr 1.5fr;gap:12px;margin:18px 0}
+  .validation-summary>div{background:var(--panel2);padding:18px;border-radius:12px;display:flex;flex-direction:column;gap:8px}
+  .validation-summary strong{font-size:22px;color:var(--amber)}
+  .validation-summary span{font-size:14px;color:var(--muted)}
+  .validation-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;margin:16px 0}
+  .validation-card{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:16px;min-width:0}
+  .validation-card summary{cursor:pointer;font-size:16px;font-weight:700;line-height:1.6}
+  .validation-card summary:focus-visible{outline:2px solid var(--blue);outline-offset:5px}
+  .validation-state{display:inline-block;margin-left:8px;font-size:14px;font-weight:500;color:var(--amber)}
+  .validation-list{list-style:none;padding:0;margin:12px 0}
+  .validation-list li{display:flex;gap:10px;padding:12px 0;border-top:1px solid var(--line);font-size:16px;line-height:1.7;overflow-wrap:anywhere}
+  .validation-mark{color:var(--amber);flex-shrink:0}
+  .validation-observation{font-size:14px;line-height:1.8;color:var(--muted);background:var(--panel2);padding:12px;border-radius:8px}
+  .validation-reference{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.8;color:#cbd5e1;padding-top:12px}
+  .validation-reference-list{display:grid;gap:10px;margin:14px 0}
+  @media(max-width:760px){.validation-grid,.validation-summary{grid-template-columns:1fr}}
+</style>
+<!-- Standalone UI extension; source: dashboard/validation-ui.css -->
+<style id="validation-ui-styles">
+/* Scoped extension: leave the original development and release dashboard intact. */
+#product-validation {
+  --validation-accent: #ff5a32;
+  padding: clamp(20px, 3vw, 36px);
+  background: #111821;
+  color: #f5f7fa;
+}
+#product-validation .validation-heading {
+  align-items: flex-start;
+}
+#product-validation .validation-heading h2 {
+  font-size: clamp(23px, 3vw, 30px);
+  letter-spacing: -0.7px;
+  line-height: 1.4;
+}
+#product-validation .sub {
+  font-size: 16px;
+  line-height: 1.7;
+  color: #bdc8d6;
+}
+#product-validation .validation-links {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 7px;
+}
+#product-validation .validation-links a {
+  color: #ffac91;
+  line-height: 1.6;
+  text-underline-offset: 4px;
+}
+#product-validation .validation-purpose {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin: 20px 0;
+}
+#product-validation .validation-purpose strong {
+  font-size: 16px;
+}
+#product-validation .validation-purpose p {
+  font-size: 16px;
+  line-height: 1.7;
+  color: #bdc8d6;
+  margin: 8px 0 0;
+}
+#product-validation .validation-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+#product-validation .validation-summary strong {
+  font-size: 27px;
+}
+#product-validation .validation-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+#product-validation .validation-card {
+  padding: 20px 24px;
+  background: #151e29;
+}
+#product-validation .validation-card[open] {
+  border-color: #6c4b3e;
+}
+#product-validation .validation-card summary {
+  font-size: 17px;
+  line-height: 1.7;
+}
+#product-validation .validation-grid > .validation-card > summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  list-style: none;
+}
+#product-validation .validation-grid > .validation-card > summary::after {
+  content: "+";
+  font-size: 25px;
+  color: #bdc8d6;
+}
+#product-validation .validation-grid > .validation-card[open] > summary::after {
+  content: "−";
+}
+#product-validation .validation-grid summary::-webkit-details-marker {
+  display: none;
+}
+#product-validation .validation-persona {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+#product-validation .validation-persona > span:first-child {
+  font-size: 19px;
+}
+#product-validation .validation-scenario {
+  color: #bdc8d6;
+  font-weight: 400;
+  font-size: 15px;
+}
+#product-validation .validation-state {
+  margin: 0;
+  flex-shrink: 0;
+}
+#product-validation .validation-context {
+  background: #101821;
+  padding: 12px 16px;
+  border-radius: 10px;
+}
+#product-validation .validation-context > summary {
+  font-size: 14px;
+  color: #bdc8d6;
+}
+#product-validation .validation-context .validation-fields {
+  margin-top: 14px;
+}
+#product-validation .validation-reference-heading {
+  font-size: 17px;
+  margin-top: 28px;
+}
+#product-validation .validation-kicker,
+#product-validation .validation-summary strong,
+#product-validation .validation-state,
+#product-validation .validation-mark {
+  color: var(--validation-accent);
+}
+#product-validation [hidden] {
+  display: none !important;
+}
+#product-validation button,
+#product-validation input,
+#product-validation select,
+#product-validation textarea {
+  font: inherit;
+}
+#product-validation :is(button, input, select, textarea, summary, a):focus-visible {
+  outline: 2px solid var(--validation-accent);
+  outline-offset: 4px;
+}
+#product-validation .validation-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+#product-validation .validation-button {
+  min-height: 42px;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel2);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+#product-validation .validation-help {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+#product-validation .validation-list li {
+  display: block;
+}
+#product-validation .validation-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1.7;
+}
+#product-validation .validation-check input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 4px 0 0;
+  accent-color: var(--validation-accent);
+}
+#product-validation .validation-check span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#product-validation .validation-check:has(input:checked) span {
+  color: #aeb7c2;
+}
+#product-validation .validation-progress {
+  height: 5px;
+  margin: 14px 0 4px;
+  background: #2a3441;
+  border-radius: 8px;
+  overflow: hidden;
+}
+#product-validation .validation-progress span {
+  display: block;
+  height: 100%;
+  background: var(--validation-accent);
+}
+#product-validation .validation-review {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+}
+#product-validation .validation-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+#product-validation .validation-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  color: #d4dde8;
+  font-size: 14px;
+  line-height: 1.6;
+}
+#product-validation .validation-field :is(input, select, textarea) {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 11px;
+  border: 1px solid #3b4859;
+  border-radius: 9px;
+  background: #151f2a;
+  color: var(--text);
+  color-scheme: dark;
+  font-size: 16px;
+  line-height: 1.6;
+}
+#product-validation .validation-field textarea {
+  min-height: 105px;
+  resize: vertical;
+}
+#product-validation .validation-field :is(input, textarea)::placeholder {
+  color: #91a0b5;
+  opacity: 1;
+}
+#product-validation .validation-feedback {
+  border-left: 3px solid var(--validation-accent);
+  padding: 10px 13px;
+  color: #ffccb9;
+  background: #2a211e;
+  font-size: 14px;
+  line-height: 1.7;
+}
+#product-validation .validation-reference {
+  white-space: normal;
+  font-size: 16px;
+}
+#product-validation .validation-reference p {
+  margin: 12px 0;
+  white-space: pre-line;
+}
+#product-validation .validation-reference h4 {
+  color: var(--text);
+  margin: 20px 0 10px;
+}
+#product-validation .validation-table-wrap {
+  overflow-x: auto;
+}
+#product-validation table {
+  width: 100%;
+  min-width: 440px;
+  border-collapse: collapse;
+  font-size: 16px;
+}
+#product-validation :is(th, td) {
+  padding: 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+#product-validation th {
+  color: var(--text);
+  background: var(--panel2);
+}
+@media (max-width: 540px) {
+  #product-validation .validation-fields {
+    grid-template-columns: 1fr;
+  }
+  #product-validation .validation-purpose,
+  #product-validation .validation-summary {
+    grid-template-columns: 1fr;
+  }
+  #product-validation .validation-grid > .validation-card > summary {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  #product-validation .validation-persona {
+    flex-basis: 100%;
+  }
+  #product-validation .validation-grid > .validation-card > summary::after {
+    margin-left: auto;
+  }
+  #product-validation .validation-card {
+    padding: 14px 12px;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -153,6 +480,99 @@
     <div class="badge">● 1–12 재점검 반영 · 완료 1 / 부분 9 / 대기 2</div>
   </div>
 
+
+  <!-- product-validation:start -->
+  <section class="card validation" id="product-validation" aria-labelledby="product-validation-title">
+    <div class="validation-heading"><div><p class="validation-kicker">USER VALIDATION</p><h2 id="product-validation-title">네 유형 모두, 쓸 이유가 있는가?</h2></div><div class="validation-links"><a href="dashboard/direction-lab.html">업데이트 방향 도구 · 시안 ↗</a><a href="http://localhost:8081/onboarding-preview">온보딩 미리보기 ↗</a></div></div>
+    <p class="sub">사용자 검증 체크리스트 · 실제 사용 결과를 사람이 확인하는 관리표입니다.</p>
+    <div class="validation-purpose"><div><strong>지금 하는 일</strong><p>유형별 사용 경험을 체크하고, 관찰 근거와 개선 메모를 이 브라우저에 저장합니다.</p></div><div><strong>자동으로 하지 않는 일</strong><p>설문 분석, 기능 개발, 앱 변경, 출시 판정은 하지 않습니다. 개발 완료율과도 별개입니다.</p></div></div>
+    <div class="validation-summary"><div><strong>4</strong><span>검증할 사용자 유형</span></div><div><strong>0 / 25</strong><span>원본에 기록된 검증 항목</span></div><div><strong>실사용자 근거 필요</strong><span>자동 테스트 통과 ≠ 만족도 검증</span></div></div>
+    <p class="sub">① 유형 선택 → ② 실제 사용 확인 → ③ 근거를 적고 판정</p>
+    <div class="validation-grid"><details class="validation-card" open><summary><span class="validation-persona"><span>① 순수 기록형</span><span class="validation-scenario">SNS 없이 일주일 사용</span></span><span class="validation-state">0 / 5 확인</span></summary><ul class="validation-list"><li><span aria-label="미검증" class="validation-mark">□</span><span>팔로우·게시·댓글·사진 공개 없이 측정 또는 수동 입력 → 종료 → 저장을 완료한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>측정치, 미측정치, 추정치, 수동 기록을 구분할 수 있고 재접속 후 기록이 유지된다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>원하는 날짜·종목의 기록을 다시 찾고 누적량과 지난 기록 대비 변화를 이해한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>루틴 확인·완료와 회고에 SNS 참여나 공개 게시가 강제되지 않는다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>사용자가 “SNS를 하지 않아도 계속 사용할 이유”를 자기 말로 설명한다.</span></li></ul><p class="validation-observation">관찰: 저장 성공률·소요시간, 재조회 성공 여부, 회고 이해도, 일주일 후 기록 재사용 여부, 만족/불만 이유. 위치·센서 권한을 거절한 경우도 포함한다.</p></details>
+<details class="validation-card" ><summary><span class="validation-persona"><span>② 기록 + SNS형</span><span class="validation-scenario">기록 하나를 만들고 실제 상대와 반응</span></span><span class="validation-state">0 / 5 확인</span></summary><ul class="validation-list"><li><span aria-label="미검증" class="validation-mark">□</span><span>사진+기록, 사진+루트, 기록만, 글만 중 원하는 방식으로 타인 도움 없이 게시한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>처음에는 그룹 편집만으로 충분하고 고급 레이어 편집은 원할 때만 사용한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>공개·댓글 범위를 이해하고 원하는 사람에게 실제로 전달되는지 확인한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>좋아요·댓글·대댓글·탭 공유와 알림이 이어져 상대의 반응을 확인한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>반복되는 반응이 피로하거나 방해되지 않으며 다시 기록을 공유하고 싶다고 느낀다.</span></li></ul><p class="validation-observation">관찰: 기록 가져오기부터 게시까지의 성공률·시간·이탈 지점, 실제 상대와의 반응 왕복, 다음 공유 의향과 이유. 단순 좋아요 수를 만족도의 대체 지표로 쓰지 않는다.</p></details>
+<details class="validation-card" ><summary><span class="validation-persona"><span>③ 경쟁형</span><span class="validation-scenario">참여 → 순위 이해 → 다음 도전</span></span><span class="validation-state">0 / 5 확인</span></summary><ul class="validation-list"><li><span aria-label="미검증" class="validation-mark">□</span><span>자신의 종목·동네에 맞는 경쟁을 찾고 참가 조건과 인증·시즌 규칙을 이해한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>순위 산정 근거, 상대와의 차이, 다음에 달성할 목표를 설명한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>새 기록이 순위·챌린지에 어떻게 반영됐는지 확인한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>부정확한 기록·조작 의심·동점·참여자 부족 상황을 납득할 수 있게 처리한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>상위권이 아니어도 다음 도전을 원하고, 위험한 무리나 원치 않는 공개를 강요받지 않는다.</span></li></ul><p class="validation-observation">관찰: 규칙 이해도, 자발적 재참여, 목표 설정 이유, 공정성 체감, 하위권·입문자의 이탈 이유. 경쟁 UI 노출만으로 경쟁 경험을 충족했다고 보지 않는다.</p></details>
+<details class="validation-card" ><summary><span class="validation-persona"><span>④ 개인 성취형</span><span class="validation-scenario">타인 순위 없이 나의 성장 확인</span></span><span class="validation-state">0 / 5 확인</span></summary><ul class="validation-list"><li><span aria-label="미검증" class="validation-mark">□</span><span>다른 사람과 비교하지 않고 개인 목표를 설정하고 진행 상황을 이해한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>개인기록 경신·누적 운동·루틴 지속 등 자신의 변화가 성취로 연결된다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>메달·마일스톤의 획득 조건과 달성 근거를 확인한다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>혼자 운동하거나 기록을 비공개로 유지해도 개인 성취가 인정되고 다시 조회된다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>작은 성장도 의미 있게 느끼며 실패·휴식 뒤에도 다시 시작할 수 있다고 느낀다.</span></li></ul><p class="validation-observation">관찰: 목표/보상 의미 이해도, 달성 후 만족 이유, 다음 개인 목표, 비공개 이용자의 재방문 의향. 경쟁 순위나 타인의 반응이 없어도 검증한다.</p></details></div>
+    <details class="validation-card" open><summary>모든 유형의 공통 통과 조건 <span class="validation-state">5개 필수 조건</span></summary><ul class="validation-list"><li><span aria-label="미검증" class="validation-mark">□</span><span>사용 목적 선택·건너뛰기에 따라 탭, 기능, 권한, 요금, 접근 경로를 분리하지 않는다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>개인정보·공개 범위·삭제 선택이 예상대로 작동한다. 원치 않는 SNS 게시를 만들지 않는다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>주요 기록 유실·중복·잘못된 측정값·다른 사용자 노출 같은 중대한 오류가 없다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>작은 화면·큰 글씨·느린 연결·권한 거절에서도 핵심 경로와 복구 방법을 찾는다.</span></li><li><span aria-label="미검증" class="validation-mark">□</span><span>한 유형의 개선이 다른 유형의 필수 경로를 복잡하게 하거나 가리지 않는다.</span></li></ul><p class="validation-observation">심각한 실패는 평균 만족도로 상쇄하지 않습니다. 소수 유형의 기본 사용 가치도 지킵니다.</p></details>
+    <h3 class="validation-reference-heading">운영 기준 · 필요할 때 펼치기</h3><div class="validation-reference-list"><details class="validation-card"><summary>4. 검증 운영과 기록 양식</summary><div class="validation-reference">
+새 핵심 기능 추가 전/후, 핵심 동선 변경 후, 베타·출시 판단 전에 같은 기준으로 재검증한다. 그 외 수정은 관련 시나리오와 네 유형에 대한 회귀 영향을 확인한다. 다음 라운드가 시작되면 이전 체크를 자동 승계하지 말고 새 기록을 남긴다.
+
+상태: 미검증 / 검증됨 / 개선 필요 / 보류(사유 필수). 검증 담당자가 상태를 정하고 근거를 연결한다. 목표 성공률·시간·만족도 기준은 결과를 보기 전에 라운드별로 정한다. 적은 표본은 탐색 결과로만 보고 대표성을 주장하지 않는다.
+
+text
+라운드 / 일자 / 담당자 / 앱 버전:
+검증 대상 유형 / 참여자 수 / 모집 방법:
+사용 환경: 기기, OS, 네트워크, 권한 상태
+검증 전 가설과 성공 기준:
+시나리오 / 도움 없이 성공한 수 ÷ 시도 수 / 소요시간:
+목적 달성 만족도(1~5)와 사용자의 이유:
+재사용 의향과 실제 재사용 여부(관찰하지 못했다면 미확인):
+막힌 지점 / 오류 / 예상과 다른 행동:
+근거 링크: 익명화한 관찰 기록·인터뷰·이슈
+판정 / 개선할 항목 / 담당자 / 재검증 시점:
+다른 세 유형에 대한 영향:
+
+
+원본 위치·건강 기록·계정 식별자 대신 익명 참여자 코드를 사용한다. 아직 실시하지 않은 사용자 검증을 성공 수치로 채우지 않는다.
+
+</div></details>
+<details class="validation-card"><summary>5. 신규 기능 역체크 — 개발 시작·리뷰 시 필수</summary><div class="validation-reference">
+| 확인할 것                     | 작성 내용                                          |
+| ----------------------------- | -------------------------------------------------- |
+| 누구를 위한 기능인가?         | 네 유형 중 주 수혜 유형과 부수 수혜 유형           |
+| 어떤 목적을 더 잘 달성하는가? | 기존 불편 → 변화 → 사용자 가치 한 문장             |
+| 실제 필요의 근거는?           | 유형 구성비, 관찰/인터뷰, 이탈·오류 등의 근거 링크 |
+| 좋아졌다고 어떻게 판단하는가? | 관련 시나리오와 검증 전 성공 기준                  |
+| 다른 유형에 손해는 없는가?    | 기록 전용·비공개·비경쟁 사용 경로의 회귀 확인      |
+| 도입·보류·축소 판단은?        | 결과, 남은 불확실성, 담당자, 재검증 시점           |
+
+이 항목은 PR 양식에도 반영한다. 순수 유지보수는 직접 수혜가 없는 이유를 적고 회귀 영향을 확인한다.
+
+</div></details>
+<details class="validation-card"><summary>6. 최초 온보딩 사용 목적 조사</summary><div class="validation-reference">
+질문: GROOV를 어떻게 사용하고 싶으세요?
+
+1. 내 운동을 기록하고 싶어요 → 순수 기록형
+2. 기록을 공유하고 사람들과 소통하고 싶어요 → 기록 + SNS형
+3. 다른 사람과 경쟁하며 운동하고 싶어요 → 경쟁형
+4. 나만의 목표와 성취를 모으고 싶어요 → 개인 성취형
+
+‘지금 가장 큰 목적 하나’만 단일 선택한다. 기본 선택은 없고 건너뛰기가 가능하다. 복합 목적을 부정하는 분류가 아니라 가입 당시 주된 의도를 알아보는 한 문항이다. 운동 목표(체력·체중 등)와 사용 목적은 별도 값이다.
+
+- 기능 제한·자동 탭 재배치·개인 공개 프로필 표시를 하지 않는다.
+- 첫 온보딩 완료 때 응답 또는 명시적 건너뜀, 서버 시각, 질문 버전을 계정에 저장한다.
+- 재전송·설정 재저장으로 최초 응답을 중복 집계하거나 덮어쓰지 않는다.
+- 이전 가입자에게 값을 추정해서 채우거나 설문을 강제로 다시 띄우지 않는다.
+- 질문을 바꾸면 버전을 올리고 서로 다른 질문의 응답을 무분별하게 합치지 않는다.
+- 계정 삭제 시 응답도 삭제한다. 현재 집계는 조회 시점에 남아 있는 계정을 대상으로 하며 영구적인 가입 당시 스냅샷이 아니다.
+
+### 구성비 해석 규칙
+
+유형별 비율의 분모는 실제 응답자 수다. 집계 대상 가입자 수, 응답 수·응답률, 건너뜀, 미수집, 제외 계정 수, 가입 기간, 집계 시각을 함께 확인한다.
+
+미수집 = 설문 도입 이전 가입자 또는 온보딩 미완료 등 아직 저장된 답변이 없는 계정. 건너뜀은 기록형이 아니다. 답변이 없으면 비율은 —로 표시한다. 운영자와 기본 데모 계정은 제외하고 미리보기 데이터는 실제 통계로 표시하지 않는다. 추가로 만든 테스트 계정은 출시 전 별도로 정리·분리해야 한다.
+
+예시 기록 42% / SNS 31% / 성취 19% / 경쟁 8%는 설명용이지 현재 측정 결과가 아니다.
+
+구성비는 투자 비중을 정하는 근거 중 하나다. 유형별 핵심 목적 달성·재사용·불만의 심각도·개발 비용과 함께 판단한다. 가입 의도를 실제 행동이나 만족도로 단정하지 않고, 소수 유형도 계속 검증한다.
+
+</div></details>
+<details class="validation-card"><summary>7. 구현·확인 위치</summary><div class="validation-reference">
+- 온보딩: /onboarding, 사용 목적이 첫 단계. 기존 동네 인증 포함 흐름 유지.
+- 관리자: 내 정보 → 계정 → 사용 목적 통계 (/profile/product-insights). 전체/최근 30일 가입자를 조회한다. 서버 관리자 권한 필요.
+- 집계 API: GET /v1/admin/usage-purposes. registeredFrom 포함, registeredBefore 제외의 ISO 날짜시각 범위를 지원한다. 응답에는 개인 식별자를 넣지 않는다.
+- 데이터 마이그레이션: 0017_onboarding_usage_purpose.sql. 이번 로컬 작업에서 운영 DB 적용·공개 배포는 하지 않는다.
+- 이 문서는 제품 판단 기준의 원본이다. 출시 작업 체크 완료와 사용자 검증 완료를 합산하지 않는다.
+
+### 구현 검사와 남은 검증 — 2026-09-03
+
+- 로컬 자동 테스트 130개 통과: 공통 계약 25개, API 53개, 앱 로직 52개. 타입 검사·변경 코드 린트·웹 빌드 통과.
+- 신규 검사: 네 응답 값과 선택 건너뛰기, 최초 응답 보존·중복 집계 방지, 재조회, 가입 기간 경계, 관리자 접근 제한, 식별자 없는 집계, 탈퇴 후 집계 제외, 데모 응답 분리.
+- PostgreSQL 쿼리·매핑은 모의 DB 응답으로 검사했다. 운영 DB에 마이그레이션을 적용하거나 실제 DB 저장·재접속 검증을 완료한 상태는 아니다. 배포 시 0017 적용 → API → 앱 순으로 반영하고 실제 저장·조회·삭제를 확인한다.
+- 실제 사용자 대상 만족도 관찰과 휴대폰 온보딩 사용성 검증은 별도로 남아 있다. 위 자동 검사 결과로 1~4번 유형의 체크를 대신하지 않는다.
+</div></details></div>
+    <p class="sub">원본: <a href="docs/PRODUCT_VALIDATION.md">핵심 사용자 검증 기준·기록 양식</a> · 원본을 수정한 뒤 대시보드 동기화 시 반영됩니다. 다음 라운드에서는 이전 체크를 자동 승계하지 않습니다.</p>
+  </section>
+<!-- product-validation:end -->
 
   <div class="card worklist" id="worklist">
     <div class="worklist-head" onclick="toggleWorklist()">
@@ -557,6 +977,396 @@
     자동 갱신 대시보드로 확장하려면 GitHub Actions 또는 별도 상태 JSON 생성 파이프라인을 붙이는 방식이 적합합니다.
   </div>
 </div>
+<!-- Standalone UI extension; source: dashboard/validation-ui.js -->
+<script id="validation-ui-script">
+/* global document */
+(function (root) {
+  "use strict";
+  const STORAGE_KEY = "groov-dashboard-user-validation-v1";
+  const STATUS = { unverified: "미검증", verified: "검증됨", improve: "개선 필요", hold: "보류" };
+  const REVIEW_FIELDS = ["round", "date", "owner", "appVersion", "evidence", "next"];
+  const FEATURE_FIELDS = ["name", "audience", "value", "evidence", "success", "risk", "decision"];
+  const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+  const text = (value) => (typeof value === "string" ? value.slice(0, 6000) : "");
+  function itemKey(group, content) {
+    let hash = 2166136261;
+    for (const character of content) hash = Math.imul(hash ^ character.codePointAt(0), 16777619);
+    return `${group}-${(hash >>> 0).toString(36)}`;
+  }
+  function checkedCount(state, group) {
+    return group.items.filter((item) => state.checks[item.id]).length;
+  }
+  function canVerify(state, group) {
+    return (
+      group.items.length > 0 &&
+      checkedCount(state, group) === group.items.length &&
+      Boolean(state.reviews[group.id].evidence.trim())
+    );
+  }
+  function normalize(value, groups) {
+    const saved = object(value) && value.schemaVersion === 1 ? value : {};
+    const state = {
+      schemaVersion: 1,
+      checks: {},
+      reviews: {},
+      feature: {},
+      updatedAt: text(saved.updatedAt),
+    };
+    for (const group of groups) {
+      for (const item of group.items)
+        state.checks[item.id] =
+          object(saved.checks) && Object.hasOwn(saved.checks, item.id)
+            ? saved.checks[item.id] === true
+            : item.baseline === true;
+      if (group.id === "common") continue;
+      const review =
+        object(saved.reviews) && object(saved.reviews[group.id]) ? saved.reviews[group.id] : {};
+      state.reviews[group.id] = Object.fromEntries(
+        REVIEW_FIELDS.map((field) => [field, text(review[field])]),
+      );
+      state.reviews[group.id].status = Object.hasOwn(STATUS, review.status)
+        ? review.status
+        : "unverified";
+      if (state.reviews[group.id].status === "verified" && !canVerify(state, group))
+        state.reviews[group.id].status = "unverified";
+      if (state.reviews[group.id].status === "hold" && !state.reviews[group.id].evidence.trim())
+        state.reviews[group.id].status = "unverified";
+    }
+    for (const field of FEATURE_FIELDS)
+      state.feature[field] = object(saved.feature) ? text(saved.feature[field]) : "";
+    return state;
+  }
+  function setCheck(state, group, id, checked) {
+    if (!group.items.some((item) => item.id === id)) return "";
+    state.checks[id] = checked === true;
+    if (
+      group.id !== "common" &&
+      state.reviews[group.id].status === "verified" &&
+      !canVerify(state, group)
+    ) {
+      state.reviews[group.id].status = "unverified";
+      return "확인 항목이 변경되어 미검증으로 되돌렸습니다. 다시 확인한 뒤 판정해 주세요.";
+    }
+    return "";
+  }
+  function setReview(state, group, field, value) {
+    if (!Object.hasOwn(state.reviews, group.id)) return "";
+    const review = state.reviews[group.id];
+    if (field === "status") {
+      if (!Object.hasOwn(STATUS, value)) return "";
+      if (value === "verified" && !canVerify(state, group))
+        return "모든 항목을 확인하고 관찰 근거를 작성한 뒤 검증됨으로 변경해 주세요.";
+      if (value === "hold" && !review.evidence.trim())
+        return "관찰 근거 · 보류 사유에 이유를 먼저 적어 주세요.";
+      review.status = value;
+    } else if (REVIEW_FIELDS.includes(field)) {
+      const previous = review[field];
+      review[field] = text(value);
+      if (review.status === "verified" && previous !== review[field]) {
+        review.status = "unverified";
+        return "검증 기록이 바뀌었습니다. 새 내용을 확인한 뒤 검증 상태를 다시 선택해 주세요.";
+      }
+      if (review.status === "hold" && !review.evidence.trim()) review.status = "unverified";
+    }
+    return "";
+  }
+  function totals(state, groups) {
+    const personas = groups.filter((group) => group.id !== "common");
+    const common = groups.find((group) => group.id === "common");
+    return {
+      verified: personas.filter(
+        (group) => state.reviews[group.id].status === "verified" && canVerify(state, group),
+      ).length,
+      checked: groups.reduce((sum, group) => sum + checkedCount(state, group), 0),
+      total: groups.reduce((sum, group) => sum + group.items.length, 0),
+      common: common ? checkedCount(state, common) : 0,
+    };
+  }
+  function load(storage, groups) {
+    try {
+      const raw = storage.getItem(STORAGE_KEY);
+      return { state: normalize(raw ? JSON.parse(raw) : null, groups), error: "" };
+    } catch {
+      return {
+        state: normalize(null, groups),
+        error: "저장 내역을 읽지 못했습니다. 브라우저 저장 설정을 확인해 주세요.",
+      };
+    }
+  }
+  function save(storage, state) {
+    try {
+      storage.setItem(STORAGE_KEY, JSON.stringify(state));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  root.GroovValidation = {
+    STORAGE_KEY,
+    itemKey,
+    normalize,
+    checkedCount,
+    canVerify,
+    setCheck,
+    setReview,
+    totals,
+    load,
+    save,
+  };
+  const section =
+    typeof document !== "undefined" ? document.getElementById("product-validation") : null;
+  if (!section) return;
+
+  const create = (tag, className, content) => {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (content !== undefined) element.textContent = content;
+    return element;
+  };
+  const personaIds = ["record", "social", "competition", "achievement"];
+  const cards = [...section.querySelectorAll(".validation-grid > .validation-card")];
+  const commonCard = [...section.children].find((element) =>
+    element.matches("details.validation-card"),
+  );
+  if (cards.length !== 4 || !commonCard) return;
+  const groups = [...cards, commonCard].map((card, index) => {
+    const id = personaIds[index] || "common";
+    const items = [...card.querySelectorAll(".validation-list > li")].map((row) => {
+      const mark = row.querySelector(".validation-mark");
+      const content = row.lastElementChild.textContent.trim();
+      return { id: itemKey(id, content), content, baseline: mark?.textContent === "✓", row };
+    });
+    return { id, card, items, badge: card.querySelector(".validation-state") };
+  });
+  // Keep every persona visible on arrival; the selected card can be expanded in place.
+  groups.forEach((group) => {
+    group.card.open = false;
+  });
+  let storage;
+  try {
+    storage = root.localStorage;
+  } catch {
+    /* Browser/file storage may be disabled. */
+  }
+  const loaded = load(storage, groups);
+  const state = loaded.state;
+  const saveNote = create(
+    "p",
+    "validation-help",
+    loaded.error ||
+      "체크·메모는 이 브라우저에 자동 저장됩니다. 브라우저 데이터 삭제 시 지워지며, 원본 문서와 개발 체크 상태는 변경하지 않습니다.",
+  );
+  saveNote.setAttribute("role", "status");
+  section.append(saveNote);
+  const toolbar = create("div", "validation-toolbar");
+  for (const [label, open] of [
+    ["모두 펼치기", true],
+    ["모두 접기", false],
+  ]) {
+    const button = create("button", "validation-button", label);
+    button.type = "button";
+    button.addEventListener("click", () =>
+      groups.forEach((group) => {
+        group.card.open = open;
+      }),
+    );
+    toolbar.append(button);
+  }
+  toolbar.append(
+    create("span", "validation-help", "개발 완료가 아닌 실제 사용 결과로 판정합니다."),
+  );
+  const grid = section.querySelector(".validation-grid");
+  section.insertBefore(toolbar, grid);
+  const helper = [...section.children].filter((element) => element.matches("p.sub"))[1];
+  if (helper) helper.textContent = "① 유형 선택 → ② 실제 사용 확인 → ③ 근거를 적고 판정";
+  function persist() {
+    state.updatedAt = new Date().toISOString();
+    saveNote.textContent = save(storage, state)
+      ? `이 브라우저에 저장됨 · ${new Date(state.updatedAt).toLocaleTimeString("ko-KR")} · 원본 문서·개발 체크와 별도 저장`
+      : "자동 저장 불가 · 브라우저가 저장을 막고 있습니다. 페이지를 닫으면 이번 입력이 사라질 수 있습니다.";
+  }
+  function feedback(group, message) {
+    if (!group.feedback) return;
+    group.feedback.textContent = message;
+    group.feedback.hidden = !message;
+  }
+  function refresh() {
+    for (const group of groups) {
+      const count = checkedCount(state, group);
+      const prefix = group.id === "common" ? "공통" : STATUS[state.reviews[group.id].status];
+      group.badge.textContent = `${prefix} · ${count} / ${group.items.length} 확인`;
+      group.fill.style.width = `${group.items.length ? (count / group.items.length) * 100 : 0}%`;
+      if (group.statusInput) group.statusInput.value = state.reviews[group.id].status;
+    }
+    const total = totals(state, groups);
+    const tiles = section.querySelectorAll(".validation-summary > div");
+    const values = [
+      [`${total.verified} / 4`, "사용자 유형 검증됨"],
+      [`${total.checked} / ${total.total}`, "직접 확인한 항목"],
+      [`${total.common} / 5`, "모든 유형의 필수 조건"],
+    ];
+    tiles.forEach((tile, index) => {
+      tile.querySelector("strong").textContent = values[index][0];
+      tile.querySelector("span").textContent = values[index][1];
+    });
+  }
+  function field(parent, label, tag, value, placeholder = "", type = "text") {
+    const wrapper = create("label", "validation-field", label);
+    const input = create(tag);
+    input.value = value;
+    if (tag !== "select") {
+      input.placeholder = placeholder;
+      input.maxLength = 6000;
+    }
+    if (tag === "textarea") input.rows = 3;
+    if (tag === "input") input.type = type;
+    wrapper.append(input);
+    parent.append(wrapper);
+    return input;
+  }
+  for (const group of groups) {
+    const progress = create("div", "validation-progress");
+    progress.setAttribute("aria-hidden", "true");
+    group.fill = create("span");
+    progress.append(group.fill);
+    group.card.querySelector("summary").after(progress);
+    for (const item of group.items) {
+      const label = create("label", "validation-check");
+      const checkbox = create("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = state.checks[item.id];
+      label.append(checkbox, create("span", "", item.content));
+      item.row.replaceChildren(label);
+      checkbox.addEventListener("change", () => {
+        feedback(group, setCheck(state, group, item.id, checkbox.checked));
+        refresh();
+        persist();
+      });
+    }
+    if (group.id === "common") continue;
+    const form = create("div", "validation-review");
+    group.card.append(form);
+    const status = field(form, "검증 상태", "select", "");
+    for (const [value, label] of Object.entries(STATUS)) {
+      const option = create("option", "", label);
+      option.value = value;
+      status.append(option);
+    }
+    group.statusInput = status;
+    status.addEventListener("change", () => {
+      feedback(group, setReview(state, group, "status", status.value));
+      refresh();
+      persist();
+    });
+    const fields = create("div", "validation-fields");
+    const context = create("details", "validation-context");
+    context.append(create("summary", "", "검증일 · 담당자 · 앱 버전"), fields);
+    form.append(context);
+    for (const [key, label, type] of [
+      ["round", "검증 라운드", "text"],
+      ["date", "검증일", "date"],
+      ["owner", "담당자", "text"],
+      ["appVersion", "앱 버전", "text"],
+    ]) {
+      const input = field(fields, label, "input", state.reviews[group.id][key], "", type);
+      input.addEventListener("input", () => {
+        const message = setReview(state, group, key, input.value);
+        if (message) feedback(group, message);
+        refresh();
+        persist();
+      });
+    }
+    for (const [key, label, hint] of [
+      [
+        "evidence",
+        "관찰 근거 · 보류 사유",
+        "참여자 수·모집 방법 / 기기·권한 / 사전 성공 기준 / 성공 수·시간 / 만족도와 이유 / 재사용 여부 / 익명 근거 링크",
+      ],
+      [
+        "next",
+        "개선할 점 · 재검증 계획",
+        "막힌 지점, 다음 작업, 담당자·재검증 시점, 다른 유형에 미치는 영향",
+      ],
+    ]) {
+      const input = field(form, label, "textarea", state.reviews[group.id][key], hint);
+      input.addEventListener("input", () => {
+        const message = setReview(state, group, key, input.value);
+        if (message) feedback(group, message);
+        refresh();
+        persist();
+      });
+    }
+    form.append(
+      create(
+        "p",
+        "validation-help",
+        "검증됨은 모든 항목 확인과 관찰 근거가 필요합니다. 새 라운드에서는 이전 결과를 다시 확인하세요. 개인정보 대신 익명 참여자 코드를 사용합니다.",
+      ),
+    );
+    group.feedback = create("p", "validation-feedback");
+    group.feedback.hidden = true;
+    group.feedback.setAttribute("role", "status");
+    form.append(group.feedback);
+  }
+
+  // Render the synced plain-text references as readable paragraphs/tables, never as HTML input.
+  section.querySelectorAll(".validation-reference").forEach((reference) => {
+    const blocks = reference.textContent.trim().split(/\n\s*\n/);
+    reference.replaceChildren();
+    for (const block of blocks) {
+      const lines = block.trim().split("\n");
+      if (lines[0].startsWith("|") && lines.some((line) => /^\|[\s:|-]+\|$/.test(line))) {
+        const wrap = create("div", "validation-table-wrap");
+        const table = create("table");
+        lines
+          .filter((line) => !/^\|[\s:|-]+\|$/.test(line))
+          .forEach((line, index) => {
+            const row = create("tr");
+            line
+              .split("|")
+              .slice(1, -1)
+              .forEach((cell) => row.append(create(index === 0 ? "th" : "td", "", cell.trim())));
+            table.append(row);
+          });
+        wrap.append(table);
+        reference.append(wrap);
+      } else if (lines[0].startsWith("### "))
+        reference.append(create("h4", "", block.replace(/^### /, "")));
+      else reference.append(create("p", "", block.replace(/^text\n/, "")));
+    }
+  });
+  const featureCard = [...section.querySelectorAll(".validation-reference-list > details")].find(
+    (card) => card.querySelector("summary")?.textContent.startsWith("5."),
+  );
+  if (featureCard) {
+    const form = create("div", "validation-review");
+    featureCard.append(form);
+    const labels = [
+      "검토할 기능",
+      "주 수혜 · 부수 수혜 유형",
+      "생기는 가치",
+      "실제 필요의 근거",
+      "검증 전 성공 기준",
+      "다른 유형의 회귀 위험",
+      "판정 · 담당자 · 재검증 시점",
+    ];
+    FEATURE_FIELDS.forEach((key, index) => {
+      const input = field(
+        form,
+        labels[index],
+        index === 0 ? "input" : "textarea",
+        state.feature[key],
+      );
+      input.addEventListener("input", () => {
+        state.feature[key] = text(input.value);
+        persist();
+      });
+    });
+  }
+  refresh();
+})(globalThis);
+
+</script>
 <script>
 document.querySelectorAll('.module').forEach(el=>{
   el.addEventListener('click',()=>el.classList.toggle('open'));

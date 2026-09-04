@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "row": 9,
+  "directions": [
+    {"degree": "000", "verdict": "pass", "reason": "chin, nose, and eyes lift clearly upward"},
+    {"degree": "022.5", "verdict": "pass", "reason": "upward gaze begins a small screen-right turn"},
+    {"degree": "045", "verdict": "pass", "reason": "balanced up-right head and muzzle turn"},
+    {"degree": "067.5", "verdict": "pass", "reason": "stronger rightward profile with remaining upward cue"},
+    {"degree": "090", "verdict": "pass", "reason": "unmistakable screen-right profile"},
+    {"degree": "112.5", "verdict": "pass", "reason": "rightward profile begins a downward tuck"},
+    {"degree": "135", "verdict": "pass", "reason": "balanced down-right head and eye direction"},
+    {"degree": "157.5", "verdict": "pass", "reason": "mostly down with a remaining screen-right cue, one step before 180"}
+  ],
+  "continuity": "pass: planted paws and body scale remain stable while head, muzzle, eyes, and ears advance clockwise without reversal"
+}

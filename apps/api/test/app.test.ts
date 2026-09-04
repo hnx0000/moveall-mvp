@@ -56,6 +56,205 @@ describe("GROOV API", () => {
     return { app, owner, reader, post, url: `/v1/posts/${post.id}/comments` };
   }
 
+  it("ranks real shares and delivers persisted likes, comments, mentions and Tap Talk notifications", async () => {
+    const { app, owner, reader, post } = await commentFixture();
+    await store.followUser(reader.user.id, owner.user.id);
+    const likeUrl = `/v1/posts/${post.id}/like`;
+    const first = await app.inject({ method: "PUT", url: likeUrl, headers: reader.headers });
+    expect(first.json().data).toMatchObject({ liked: true, changed: true, likeCount: 1 });
+    const repeated = await app.inject({ method: "PUT", url: likeUrl, headers: reader.headers });
+    expect(repeated.json().data).toMatchObject({ changed: false, likeCount: 1 });
+    expect(
+      (await store.listNotifications(owner.user.id)).filter((item) => item.kind === "like"),
+    ).toHaveLength(1);
+    expect((await store.listFeed(reader.user.id, post.id))[0]?.likedByMe).toBe(true);
+    await app.inject({ method: "DELETE", url: likeUrl, headers: reader.headers });
+    expect((await store.listFeed(reader.user.id, post.id))[0]?.likeCount).toBe(0);
+    const tag = `@${owner.user.displayName}`;
+    const comment = await app.inject({
+      method: "POST",
+      url: `/v1/posts/${post.id}/comments`,
+      headers: reader.headers,
+      payload: {
+        content: `${tag} 멋져요`,
+        mentions: [
+          { userId: owner.user.id, displayName: owner.user.displayName, start: 0, end: tag.length },
+        ],
+      },
+    });
+    expect(comment.statusCode).toBe(201);
+    expect(comment.json().data.mentions[0].userId).toBe(owner.user.id);
+    expect((await store.listFeed(reader.user.id, post.id))[0]?.comments[0]?.mentions).toHaveLength(
+      1,
+    );
+    expect(
+      (await store.listNotifications(owner.user.id)).filter((item) => item.kind === "mention"),
+    ).toHaveLength(1);
+    const plain = await app.inject({
+      method: "POST",
+      url: `/v1/posts/${post.id}/comments`,
+      headers: reader.headers,
+      payload: { content: "좋은 운동이에요" },
+    });
+    expect(plain.statusCode).toBe(201);
+    expect(
+      (await store.listNotifications(owner.user.id)).some((item) => item.kind === "comment"),
+    ).toBe(true);
+    const shareUrl = `/v1/posts/${post.id}/share`;
+    await app.inject({
+      method: "POST",
+      url: shareUrl,
+      headers: reader.headers,
+      payload: { recipientIds: [owner.user.id] },
+    });
+    await app.inject({
+      method: "POST",
+      url: shareUrl,
+      headers: reader.headers,
+      payload: { recipientIds: [owner.user.id] },
+    });
+    expect((await store.shareFrequency(reader.user.id))[0]?.count).toBe(1);
+    const suggestions = await app.inject({
+      method: "GET",
+      url: "/v1/social/suggestions",
+      headers: reader.headers,
+    });
+    expect(suggestions.json().data.frequentIds).toEqual([owner.user.id]);
+    expect(
+      (await store.listNotifications(owner.user.id)).filter((item) => item.kind === "share"),
+    ).toHaveLength(1);
+    const notification = (await store.listNotifications(owner.user.id))[0]!;
+    const message = await app.inject({
+      method: "POST",
+      url: `/v1/messages/${owner.user.id}`,
+      headers: reader.headers,
+      payload: { content: "공유한 운동 같이 해봐요" },
+    });
+    expect(message.statusCode).toBe(201);
+    expect(
+      (await store.listNotifications(owner.user.id)).some(
+        (item) => item.kind === "message" && item.resourceId === reader.user.id,
+      ),
+    ).toBe(true);
+    await store.markNotificationRead(owner.user.id, notification.id);
+    expect(
+      (await store.listNotifications(owner.user.id)).find((item) => item.id === notification.id)
+        ?.readAt,
+    ).toBeTruthy();
+    await store.unfollowUser(reader.user.id, owner.user.id);
+    expect(
+      (
+        await app.inject({ method: "GET", url: "/v1/social/suggestions", headers: reader.headers })
+      ).json().data.people,
+    ).toEqual([]);
+    const invalid = await app.inject({
+      method: "POST",
+      url: `/v1/posts/${post.id}/comments`,
+      headers: reader.headers,
+      payload: {
+        content: tag,
+        mentions: [
+          { userId: owner.user.id, displayName: owner.user.displayName, start: 0, end: tag.length },
+        ],
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("keeps restrictions silent, preserves follows, and hides content and relationship lists", async () => {
+    const { app, owner, reader, post } = await commentFixture();
+    await store.followUser(reader.user.id, owner.user.id);
+    await store.followUser(owner.user.id, reader.user.id);
+    await store.createWorkoutSession(owner.user.id, {
+      source: "manual",
+      sport: "running",
+      startedAt: "2026-09-03T00:00:00Z",
+      endedAt: "2026-09-03T01:00:00Z",
+      perceivedExertion: 5,
+      metrics: { distanceKm: 5 },
+    });
+    const change = await app.inject({
+      method: "PUT",
+      url: `/v1/users/${reader.user.id}/restriction`,
+      headers: owner.headers,
+    });
+    expect(change.statusCode).toBe(200);
+    expect(await store.isFollowing(reader.user.id, owner.user.id)).toBe(true);
+    expect(await store.isFollowing(owner.user.id, reader.user.id)).toBe(true);
+    expect(await store.listNotifications(reader.user.id)).toEqual([]);
+    const hidden = await app.inject({
+      method: "GET",
+      url: `/v1/users/${owner.user.id}/profile`,
+      headers: reader.headers,
+    });
+    expect(hidden.json().data).toMatchObject({ posts: [], workouts: [], medals: [] });
+    expect(hidden.json().data).not.toHaveProperty("restricted");
+    const connections = await app.inject({
+      method: "GET",
+      url: `/v1/users/${owner.user.id}/connections`,
+      headers: reader.headers,
+    });
+    expect(connections.json().data).toMatchObject({
+      followersHidden: true,
+      followingHidden: true,
+      followers: [],
+      following: [],
+    });
+    expect(await store.listFeed(reader.user.id, post.id)).toEqual([]);
+    expect(await store.listFeed(undefined, post.id)).toEqual([]);
+    expect(await store.createComment(reader.user.id, "reader", post.id, "hidden")).toBeNull();
+    const safety = await app.inject({
+      method: "GET",
+      url: "/v1/social/safety",
+      headers: owner.headers,
+    });
+    expect(safety.json().data.restricted.map((user: { id: string }) => user.id)).toEqual([
+      reader.user.id,
+    ]);
+    await app.inject({
+      method: "DELETE",
+      url: `/v1/users/${reader.user.id}/restriction`,
+      headers: owner.headers,
+    });
+    expect((await store.listFeed(reader.user.id, post.id)).length).toBe(1);
+    const privateLists = await app.inject({
+      method: "PUT",
+      url: "/v1/social/privacy",
+      headers: owner.headers,
+      payload: { hideFollowers: true, hideFollowing: false },
+    });
+    expect(privateLists.statusCode).toBe(200);
+    const lists = await app.inject({
+      method: "GET",
+      url: `/v1/users/${owner.user.id}/connections`,
+      headers: reader.headers,
+    });
+    expect(lists.json().data).toMatchObject({
+      followersHidden: true,
+      followingHidden: false,
+      followers: [],
+    });
+    expect(lists.json().data.following).toHaveLength(1);
+    expect((await store.listFeed(reader.user.id, post.id)).length).toBe(1);
+    await app.inject({
+      method: "POST",
+      url: `/v1/users/${reader.user.id}/block`,
+      headers: owner.headers,
+    });
+    expect(await store.isFollowing(reader.user.id, owner.user.id)).toBe(false);
+    expect(await store.listPostsByUser(owner.user.id, reader.user.id)).toEqual([]);
+    expect((await store.safetySummary(owner.user.id)).blocked).toHaveLength(1);
+    await app.inject({
+      method: "DELETE",
+      url: `/v1/users/${reader.user.id}/block`,
+      headers: owner.headers,
+    });
+    expect((await store.safetySummary(owner.user.id)).blocked).toHaveLength(0);
+    expect(await store.isFollowing(reader.user.id, owner.user.id)).toBe(false);
+    await app.close();
+  });
+
   it("keeps raw workout GPS private while preserving routes through saves and edits", async () => {
     const { app, owner, reader } = await commentFixture();
     const routePoints = [

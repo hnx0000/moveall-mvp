@@ -1,4 +1,15 @@
 import {
+  audienceAllows,
+  firstUsagePurposeResponse,
+  summarizeUsagePurposes,
+  type UsagePurposeCohort,
+  storyIsActive,
+  presentPostAccess,
+  resolveCrewAudience,
+  type SharingCrew,
+  type SharingCrewCreateInput,
+} from "@moveall/contracts";
+import {
   savePreviewImage,
   hydratePreviewImages,
   previewImageUri,
@@ -6,6 +17,7 @@ import {
 } from "../media/preview-media.ts";
 import {
   sportLabels,
+  rankSocialPeople,
   sportValues,
   type AuthSession,
   type AccountDeletionInput,
@@ -179,6 +191,7 @@ const posts: FeedPost[] = [
     userId: "demo-friend-1",
     authorDisplayName: "새벽러너 민지",
     sport: "running",
+    workoutSessionId: "demo-workout-running-5k",
     content: "러닝 5.24km 완료! 지도와 완주 셀피를 함께 기록했어요.",
     contentType: "post",
     likeCount: 42,
@@ -211,6 +224,7 @@ const posts: FeedPost[] = [
     userId: "demo-friend-2",
     authorDisplayName: "페이스메이커 준",
     sport: "cycling",
+    workoutSessionId: "demo-workout-cycling-hanam",
     content: "한강 31.4km. 마지막 구간까지 케이던스를 유지했습니다.",
     contentType: "post",
     likeCount: 36,
@@ -222,6 +236,7 @@ const posts: FeedPost[] = [
     userId: "demo-friend-4",
     authorDisplayName: "스트롱 유나",
     sport: "strength",
+    workoutSessionId: "demo-workout-strength-lower",
     content: "하체 루틴 5종목 18세트 완료. 오늘도 한 칸 전진.",
     contentType: "post",
     likeCount: 51,
@@ -244,6 +259,7 @@ const posts: FeedPost[] = [
     userId: "demo-friend-6",
     authorDisplayName: "리프트 태오",
     sport: "strength",
+    workoutSessionId: "demo-workout-strength-upper",
     content: "상체 루틴 6종목 18세트. 마지막 세트까지 집중했습니다.",
     contentType: "post",
     likeCount: 23,
@@ -255,6 +271,7 @@ const posts: FeedPost[] = [
     userId: "demo-friend-7",
     authorDisplayName: "스튜디오 서아",
     sport: "strength",
+    workoutSessionId: "demo-workout-strength-full-body",
     content: "등과 어깨 16세트 완료. 자세에 집중한 저녁 루틴.",
     contentType: "story",
     likeCount: 39,
@@ -266,10 +283,23 @@ const posts: FeedPost[] = [
     userId: "demo-friend-8",
     authorDisplayName: "스트롱 지영",
     sport: "strength",
+    workoutSessionId: "demo-workout-strength-full-body",
     content: "하체 루틴 5종목 완료. 오늘의 볼륨도 차분하게 채웠어요.",
     contentType: "post",
     likeCount: 47,
     createdAt: new Date(now - 38 * 60 * 60_000).toISOString(),
+    comments: [],
+  },
+  {
+    id: "demo-post-swim-feed",
+    userId: "demo-friend-5",
+    authorDisplayName: "스위머 나리",
+    sport: "swimming",
+    workoutSessionId: "demo-workout-swimming-technique",
+    content: "오운완 🏊",
+    contentType: "post",
+    likeCount: 34,
+    createdAt: new Date(now - 18 * 60 * 60_000).toISOString(),
     comments: [],
   },
 ];
@@ -593,23 +623,134 @@ const deletedWorkoutIds = new Set<string>(
 const routines = initializeDemoRoutines();
 const workouts = initializeDemoWorkouts();
 const followingIds = new Set<string>(readStored<string[]>("groov-demo-following-v1", []));
-const postShareRecipients = new Map<string, Set<string>>();
+const sharingCrews = readStored<SharingCrew[]>("groov-demo-sharing-crews-v1", []);
+function demoPostRelation(post: FeedPost, viewerId = activeSession.user.id) {
+  return {
+    authorId: post.userId,
+    viewerId,
+    viewerFollowsAuthor: viewerId === activeSession.user.id && followingIds.has(post.userId),
+    authorFollowsViewer: post.userId === activeSession.user.id && followingIds.has(viewerId),
+  };
+}
+function demoPostVisible(post: FeedPost, viewerId = activeSession.user.id) {
+  return (
+    !post.archivedAt &&
+    storyIsActive(post) &&
+    demoVisible(post.userId) &&
+    audienceAllows(post.audience, demoPostRelation(post, viewerId))
+  );
+}
+type DemoSafety = import("@moveall/contracts").SocialPrivacy & {
+  blocked: string[];
+  restricted: string[];
+};
+const safetyByUser = readStored<Record<string, DemoSafety>>("groov-demo-safety-v1", {});
+function demoSafety(userId = activeSession.user.id): DemoSafety {
+  return (
+    safetyByUser[userId] ?? {
+      blocked: [],
+      restricted: [],
+      hideFollowers: false,
+      hideFollowing: false,
+    }
+  );
+}
+function saveDemoSafety(value: DemoSafety) {
+  globalThis.localStorage?.setItem(
+    "groov-demo-safety-v1",
+    JSON.stringify({ ...safetyByUser, [activeSession.user.id]: value }),
+  );
+  safetyByUser[activeSession.user.id] = value;
+}
+function demoVisible(ownerId: string) {
+  const viewer = activeSession.user.id;
+  return (
+    ownerId === viewer ||
+    (!demoSafety().blocked.includes(ownerId) &&
+      !demoSafety(ownerId).blocked.includes(viewer) &&
+      !demoSafety(ownerId).restricted.includes(viewer))
+  );
+}
+function demoPerson(id: string) {
+  return {
+    id,
+    displayName:
+      id === activeSession.user.id
+        ? activeSession.user.displayName
+        : (demoMemberDirectory[id]?.displayName ?? "GROOV 멤버"),
+  };
+}
+const postShareRecipients = new Map<string, Set<string>>(
+  readStored<[string, string[]][]>("groov-demo-share-recipients-v1", []).map(([id, recipients]) => [
+    id,
+    new Set(recipients),
+  ]),
+);
+const shareHistory = readStored<import("@moveall/contracts").ShareFrequency[]>(
+  "groov-demo-share-frequency-v1",
+  [],
+);
 const savedFeed = readStored<{ posts: FeedPost[]; archived: FeedPost[] } | null>(
   "groov-demo-feed-v1",
   null,
 );
 const archived: FeedPost[] = savedFeed?.archived ?? [];
-// Refresh demo imagery/copy from the current seeds while preserving local interactions and own posts.
+// Saved posts are authoritative, including deletions, archival, authors and publication times.
+if (savedFeed) posts.splice(0, posts.length, ...savedFeed.posts);
+posts.splice(0, posts.length, ...posts.filter((post) => !post.id.startsWith("demo-record-")));
+if (!posts.some((post) => post.id === "demo-post-swim-feed")) {
+  posts.push({
+    id: "demo-post-swim-feed",
+    userId: "demo-friend-5",
+    authorDisplayName: "스위머 나리",
+    sport: "swimming",
+    workoutSessionId: "demo-workout-swimming-technique",
+    content: "오운완 🏊",
+    contentType: "post",
+    likeCount: 34,
+    createdAt: new Date(now - 18 * 60 * 60_000).toISOString(),
+    comments: [],
+  });
+}
 for (const savedPost of savedFeed?.posts ?? []) {
   const seededPost = posts.find((post) => post.id === savedPost.id);
   if (seededPost) {
-    seededPost.comments = savedPost.comments;
-    seededPost.shareCount = savedPost.shareCount ?? 0;
+    Object.assign(seededPost, savedPost);
   } else posts.unshift(savedPost);
 }
-const messages: DirectMessage[] = [];
+// Seed publication is a one-time event; reloads keep the original persisted timestamps.
+for (const post of posts) {
+  if (!savedFeed?.posts.some((saved) => saved.id === post.id)) {
+    post.createdAt = new Date(now).toISOString();
+    post.comments.forEach((comment) => {
+      comment.createdAt = post.createdAt;
+    });
+  }
+}
+persistDemoFeed();
+const messages: DirectMessage[] = readStored("groov-demo-messages-v1", []);
 const demoReports: ContentReport[] = [];
-const demoNotifications: UserNotification[] = [];
+const demoNotifications: (UserNotification & { userId?: string })[] = readStored(
+  "groov-demo-notifications-v1",
+  [],
+);
+function demoNotify(userId: string, input: Omit<UserNotification, "id" | "createdAt">) {
+  if (userId === activeSession.user.id) return;
+  demoNotifications.unshift({
+    ...input,
+    userId,
+    id: makeId("notification"),
+    createdAt: new Date().toISOString(),
+  });
+  try {
+    globalThis.localStorage?.setItem(
+      "groov-demo-notifications-v1",
+      JSON.stringify(demoNotifications),
+    );
+  } catch {
+    /* Keep the delivered event in memory if preview storage is full. */
+  }
+}
 let avatarDataUri = readStored<string | undefined>("groov-demo-avatar-v1", undefined);
 let demoOnboarding = readStored<OnboardingProfile | null>("groov-demo-onboarding-v1", null);
 
@@ -667,7 +808,12 @@ export const demoApi = {
   },
   onboarding: async (_token: string) => demoOnboarding,
   saveOnboarding: async (_token: string, input: OnboardingInput) => {
-    demoOnboarding = { ...input, completedAt: new Date().toISOString() };
+    const { usagePurpose, ...settings } = input;
+    demoOnboarding = {
+      ...settings,
+      ...firstUsagePurposeResponse(demoOnboarding, usagePurpose, new Date().toISOString()),
+      completedAt: new Date().toISOString(),
+    };
     persistDemoOnboarding();
     return demoOnboarding;
   },
@@ -728,13 +874,15 @@ export const demoApi = {
   feed: async (_token?: string) => {
     await hydratePreviewImages(posts);
     return [...posts]
+      .filter((post) => demoPostVisible(post))
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
       .map((post) => decorateDemoPost(post));
   },
   post: async (postId: string, _token?: string) => {
     await hydratePreviewImages(posts);
     const post = posts.find((item) => item.id === postId && !item.archivedAt);
-    if (!post) throw new Error("삭제·보관되었거나 볼 수 없는 피드입니다.");
+    if (!post || !demoPostVisible(post))
+      throw new Error("삭제·보관되었거나 볼 수 없는 피드입니다.");
     return decorateDemoPost(post);
   },
   routines: async (_token: string) => routines,
@@ -777,12 +925,37 @@ export const demoApi = {
     persistDemoState();
     return routines;
   },
+  sharingCrews: async (_token: string) =>
+    sharingCrews.filter((crew) => crew.userId === activeSession.user.id),
+  createSharingCrew: async (_token: string, input: SharingCrewCreateInput) => {
+    if (!input.name.trim() || !input.memberIds.length)
+      throw new Error("크루 이름과 멤버를 선택해 주세요.");
+    const crew: SharingCrew = {
+      ...input,
+      name: input.name.trim(),
+      memberIds: [...new Set(input.memberIds)],
+      id: makeId("crew"),
+      userId: activeSession.user.id,
+    };
+    const next = [...sharingCrews, crew];
+    globalThis.localStorage?.setItem("groov-demo-sharing-crews-v1", JSON.stringify(next));
+    sharingCrews.push(crew);
+    return crew;
+  },
   createPost: async (_token: string, input: PostCreateInput, previewMediaUri?: string) => {
     const item: FeedPost = {
       id: makeId("post"),
       userId: activeSession.user.id,
       authorDisplayName: activeSession.user.displayName,
       ...input,
+      audience: resolveCrewAudience(
+        input.audience,
+        sharingCrews.filter((crew) => crew.userId === activeSession.user.id),
+      ),
+      commentAudience: resolveCrewAudience(
+        input.commentAudience,
+        sharingCrews.filter((crew) => crew.userId === activeSession.user.id),
+      ),
       contentType: input.contentType ?? "post",
       likeCount: 0,
       createdAt: new Date().toISOString(),
@@ -801,7 +974,10 @@ export const demoApi = {
   },
   createComment: async (_token: string, postId: string, input: CommentCreateInput) => {
     const post = posts.find((item) => item.id === postId && !item.archivedAt);
+    await demoApi.post(postId, _token);
     if (!post) throw new Error("게시물을 찾을 수 없습니다.");
+    if (!audienceAllows(post.commentAudience, demoPostRelation(post)))
+      throw new Error("작성자가 댓글을 허용하지 않은 범위입니다.");
     if (input.parentCommentId) {
       const parent = post.comments.find((item) => item.id === input.parentCommentId);
       if (!parent || parent.parentCommentId)
@@ -812,6 +988,7 @@ export const demoApi = {
       userId: activeSession.user.id,
       authorDisplayName: activeSession.user.displayName,
       content: input.content,
+      mentions: input.mentions ?? [],
       ...(input.parentCommentId ? { parentCommentId: input.parentCommentId } : {}),
       likeCount: 0,
       likedByMe: false,
@@ -819,13 +996,39 @@ export const demoApi = {
     };
     post.comments.push(comment);
     persistDemoFeed();
+    for (const target of new Set([
+      post.userId,
+      ...(input.mentions ?? []).map((mention) => mention.userId),
+      ...post.comments
+        .filter((item) => item.id === input.parentCommentId)
+        .map((item) => item.userId),
+    ])) {
+      demoNotify(target, {
+        kind: "comment",
+        title: "새 댓글",
+        body: `${activeSession.user.displayName}님이 댓글을 남겼습니다.`,
+        actorId: activeSession.user.id,
+        resourceType: "post",
+        resourceId: post.id,
+      });
+    }
     return decorateDemoPost(post).comments.find((item) => item.id === comment.id)!;
   },
   setCommentLiked: async (_token: string, postId: string, commentId: string, liked: boolean) => {
     const post = posts.find((item) => item.id === postId && !item.archivedAt);
     const comment = post?.comments.find((item) => item.id === commentId);
-    if (!post || !comment) throw new Error("댓글을 찾을 수 없습니다.");
+    if (!post || !comment || !demoPostVisible(post) || !demoVisible(comment.userId))
+      throw new Error("댓글을 찾을 수 없습니다.");
     if (Boolean(comment.likedByMe) !== liked) {
+      if (liked)
+        demoNotify(comment.userId, {
+          kind: "like",
+          title: "댓글 좋아요",
+          body: `${activeSession.user.displayName}님이 댓글을 좋아합니다.`,
+          actorId: activeSession.user.id,
+          resourceType: "post",
+          resourceId: postId,
+        });
       comment.likeCount = Math.max(0, (comment.likeCount ?? 0) + (liked ? 1 : -1));
       comment.likedByMe = liked;
     }
@@ -838,8 +1041,10 @@ export const demoApi = {
     selectedIds: string[],
   ): Promise<PostShareResult> => {
     const post = posts.find((candidate) => candidate.id === postId && !candidate.archivedAt);
-    if (!post) throw new Error("게시물을 찾을 수 없습니다.");
+    if (!post || !demoPostVisible(post)) throw new Error("게시물을 찾을 수 없습니다.");
     const selected = [...new Set(selectedIds)];
+    if (selected.some((id) => !demoPostVisible(post, id)))
+      throw new Error("게시물 공개 범위에 포함되지 않는 대상에게 공유할 수 없습니다.");
     if (
       !selected.length ||
       selected.some((id) => id === activeSession.user.id || !followingIds.has(id))
@@ -864,7 +1069,29 @@ export const demoApi = {
       });
     });
     postShareRecipients.set(postId, recipients);
+    for (const id of sentIds) {
+      const existing = shareHistory.find((item) => item.userId === id);
+      if (existing) {
+        existing.count += 1;
+        existing.lastSharedAt = new Date().toISOString();
+      } else shareHistory.push({ userId: id, count: 1, lastSharedAt: new Date().toISOString() });
+      demoNotify(id, {
+        kind: "share",
+        title: "새 탭톡 · 피드 공유",
+        body: `${activeSession.user.displayName}님이 피드를 공유했습니다.`,
+        actorId: activeSession.user.id,
+        resourceType: "user",
+        resourceId: activeSession.user.id,
+      });
+    }
+    globalThis.localStorage?.setItem("groov-demo-share-frequency-v1", JSON.stringify(shareHistory));
+    globalThis.localStorage?.setItem(
+      "groov-demo-share-recipients-v1",
+      JSON.stringify([...postShareRecipients].map(([id, value]) => [id, [...value]])),
+    );
+    globalThis.localStorage?.setItem("groov-demo-messages-v1", JSON.stringify(messages));
     post.shareCount = Math.max(post.shareCount ?? 0, recipients.size > 0 ? 1 : 0);
+    persistDemoFeed();
     return { shareCount: post.shareCount, recipientCount: sentIds.length, recipientIds: sentIds };
   },
   workouts: async (_token: string) =>
@@ -962,7 +1189,7 @@ export const demoApi = {
   },
   userPosts: async (_token: string, userId: string) => {
     await hydratePreviewImages(posts);
-    const userPosts = posts.filter((post) => post.userId === userId);
+    const userPosts = posts.filter((post) => post.userId === userId && demoPostVisible(post));
     return {
       user: { id: userId, displayName: userPosts[0]?.authorDisplayName ?? "MOVE 멤버" },
       posts: userPosts.map((post) => decorateDemoPost(post)),
@@ -977,15 +1204,18 @@ export const demoApi = {
       followingCount: 0,
     };
     const memberWorkouts = demoMemberWorkouts[userId] ?? [];
-    const isPrivate = seed.isPrivate;
+    const isPrivate = !demoVisible(userId);
+    const connections = await demoApi.memberConnections(_token, userId);
     return {
       user: { id: userId, displayName: seed.displayName },
       isPrivate,
-      followersCount: seed.followersCount + (followingIds.has(userId) ? 1 : 0),
-      followingCount: seed.followingCount,
+      followersCount: connections.followersCount,
+      followingCount: connections.followingCount,
       posts: isPrivate
         ? []
-        : posts.filter((post) => post.userId === userId).map((post) => decorateDemoPost(post)),
+        : posts
+            .filter((post) => post.userId === userId && demoPostVisible(post))
+            .map((post) => decorateDemoPost(post)),
       workouts: isPrivate ? [] : memberWorkouts,
       medals: isPrivate ? [] : medalsForWorkouts(memberWorkouts),
     };
@@ -1002,13 +1232,114 @@ export const demoApi = {
         "GROOV 멤버",
     })),
   }),
+  memberConnections: async (
+    _token: string,
+    userId: string,
+  ): Promise<import("@moveall/contracts").MemberConnections> => {
+    const own = userId === activeSession.user.id;
+    // Demo relationships use only existing member identities, not inflated placeholder counts.
+    const ids = Object.keys(demoMemberDirectory);
+    const targets = (id: string) => {
+      const index = ids.indexOf(id);
+      return index < 0 ? [] : [1, 2, 3].map((offset) => ids[(index + offset) % ids.length]!);
+    };
+    const followers = own
+      ? []
+      : [
+          ...ids.filter((id) => targets(id).includes(userId)),
+          ...(followingIds.has(userId) ? [activeSession.user.id] : []),
+        ].map(demoPerson);
+    const following = (own ? [...followingIds] : targets(userId)).map(demoPerson);
+    const privacy = demoSafety(userId);
+    const followersHidden = !own && (!demoVisible(userId) || privacy.hideFollowers);
+    const followingHidden = !own && (!demoVisible(userId) || privacy.hideFollowing);
+    return {
+      followersCount: followers.length,
+      followingCount: following.length,
+      followersHidden,
+      followingHidden,
+      followers: followersHidden ? [] : followers,
+      following: followingHidden ? [] : following,
+    };
+  },
+  safetySummary: async (_token: string): Promise<import("@moveall/contracts").SafetySummary> => {
+    const value = demoSafety();
+    return {
+      ...value,
+      blocked: value.blocked.map(demoPerson),
+      restricted: value.restricted.map(demoPerson),
+    };
+  },
+  saveSocialPrivacy: async (
+    _token: string,
+    privacy: import("@moveall/contracts").SocialPrivacy,
+  ) => {
+    saveDemoSafety({ ...demoSafety(), ...privacy });
+    return privacy;
+  },
+  unblockUser: async (_token: string, userId: string) => {
+    saveDemoSafety({
+      ...demoSafety(),
+      blocked: demoSafety().blocked.filter((id) => id !== userId),
+    });
+    return { blocked: false as const };
+  },
+  restrictUser: async (_token: string, userId: string, restricted: boolean) => {
+    saveDemoSafety({
+      ...demoSafety(),
+      restricted: restricted
+        ? [...new Set([...demoSafety().restricted, userId])]
+        : demoSafety().restricted.filter((id) => id !== userId),
+    });
+    return { restricted };
+  },
+  socialSuggestions: async (
+    _token: string,
+  ): Promise<import("@moveall/contracts").SocialSuggestions> =>
+    rankSocialPeople((await demoApi.socialSummary(_token)).following, shareHistory),
+  setPostLiked: async (
+    _token: string,
+    postId: string,
+    liked: boolean,
+  ): Promise<import("@moveall/contracts").PostLikeState> => {
+    const post = posts.find((item) => item.id === postId);
+    if (!post || !demoPostVisible(post)) throw new Error("게시물을 찾을 수 없습니다.");
+    const changed = Boolean(post.likedByMe) !== liked;
+    if (changed) {
+      const previousCount = post.likeCount;
+      const previousLiked = Boolean(post.likedByMe);
+      post.likeCount = Math.max(0, post.likeCount + (liked ? 1 : -1));
+      post.likedByMe = liked;
+      try {
+        persistDemoFeed(true);
+      } catch (caught) {
+        post.likeCount = previousCount;
+        post.likedByMe = previousLiked;
+        throw caught;
+      }
+      if (liked)
+        demoNotify(post.userId, {
+          kind: "like",
+          title: "게시물 좋아요",
+          body: `${activeSession.user.displayName}님이 게시물을 좋아합니다.`,
+          actorId: activeSession.user.id,
+          resourceType: "post",
+          resourceId: postId,
+        });
+    }
+    return { liked, changed, likeCount: post.likeCount };
+  },
   medals: async (_token: string): Promise<Medal[]> => medalsForWorkouts(workouts),
   followStatus: async (_token: string, userId: string) => ({
     following: followingIds.has(userId),
-    followersCount:
-      (demoMemberDirectory[userId]?.followersCount ?? 0) + (followingIds.has(userId) ? 1 : 0),
+    followersCount: (await demoApi.memberConnections(_token, userId)).followersCount,
   }),
   follow: async (_token: string, userId: string) => {
+    if (
+      demoSafety().blocked.includes(userId) ||
+      demoSafety(userId).blocked.includes(activeSession.user.id)
+    )
+      throw new Error("이 사용자를 팔로우할 수 없습니다.");
     followingIds.add(userId);
     persistDemoFollowing();
     return { following: true as const };
@@ -1020,6 +1351,7 @@ export const demoApi = {
   },
   removeFollower: async (_token: string, _userId: string) => ({ removed: true as const }),
   blockUser: async (_token: string, userId: string) => {
+    saveDemoSafety({ ...demoSafety(), blocked: [...new Set([...demoSafety().blocked, userId])] });
     followingIds.delete(userId);
     persistDemoFollowing();
     return { blocked: true as const };
@@ -1037,7 +1369,8 @@ export const demoApi = {
     demoReports.unshift(report);
     return report;
   },
-  notifications: async (_token: string) => [...demoNotifications],
+  notifications: async (_token: string) =>
+    demoNotifications.filter((item) => !item.userId || item.userId === activeSession.user.id),
   registerPushDevice: async (_token: string, input: { platform: "ios" | "android" }) => ({
     id: "demo-push-device",
     platform: input.platform,
@@ -1050,9 +1383,16 @@ export const demoApi = {
     const notification = demoNotifications.find((item) => item.id === notificationId);
     if (!notification) throw new Error("notification not found");
     notification.readAt ??= new Date().toISOString();
+    globalThis.localStorage?.setItem(
+      "groov-demo-notifications-v1",
+      JSON.stringify(demoNotifications),
+    );
     return { ...notification };
   },
   moderationReports: async (_token: string) => [...demoReports],
+  // Never present the demo cast or device-local test answers as real signup composition.
+  usagePurposeSummary: async (_token: string, cohort: UsagePurposeCohort = {}) =>
+    summarizeUsagePurposes([], cohort, "preview"),
   updateModerationReport: async (
     _token: string,
     reportId: string,
@@ -1081,14 +1421,15 @@ export const demoApi = {
         const post = posts.find((item) => item.id === message.sharedPost?.id && !item.archivedAt);
         return {
           ...message,
-          sharedPost: post
-            ? {
-                id: post.id,
-                authorDisplayName: post.authorDisplayName,
-                sport: post.sport,
-                content: post.content,
-              }
-            : null,
+          sharedPost:
+            post && demoPostVisible(post)
+              ? {
+                  id: post.id,
+                  authorDisplayName: post.authorDisplayName,
+                  sport: post.sport,
+                  content: post.content,
+                }
+              : null,
         };
       }),
   sendMessage: async (_token: string, userId: string, input: DirectMessageCreateInput) => {
@@ -1100,6 +1441,15 @@ export const demoApi = {
       createdAt: new Date().toISOString(),
     };
     messages.push(message);
+    globalThis.localStorage?.setItem("groov-demo-messages-v1", JSON.stringify(messages));
+    demoNotify(userId, {
+      kind: "message",
+      title: "새 탭톡",
+      body: `${activeSession.user.displayName}님이 메시지를 보냈습니다.`,
+      actorId: activeSession.user.id,
+      resourceType: "user",
+      resourceId: activeSession.user.id,
+    });
     return message;
   },
 };
@@ -1393,22 +1743,57 @@ function decorateDemoPost(post: FeedPost): FeedPost {
   const { authorAvatarDataUri: storedAuthorAvatar, comments, ...postWithoutAvatar } = post;
   const resolvedAuthorAvatar =
     post.userId === activeSession.user.id ? avatarDataUri : storedAuthorAvatar;
-  return {
-    ...postWithoutAvatar,
-    ...(post.mediaUrl ? { mediaUrl: previewImageUri(post.mediaUrl) ?? "" } : {}),
-    ...(resolvedAuthorAvatar ? { authorAvatarDataUri: resolvedAuthorAvatar } : {}),
-    comments: comments.map((comment) => {
-      const { authorAvatarDataUri: storedCommentAvatar, ...commentWithoutAvatar } = comment;
-      const resolvedCommentAvatar =
-        comment.userId === activeSession.user.id ? avatarDataUri : storedCommentAvatar;
-      return {
-        ...commentWithoutAvatar,
-        likeCount: comment.likeCount ?? 0,
-        likedByMe: comment.likedByMe ?? false,
-        ...(resolvedCommentAvatar ? { authorAvatarDataUri: resolvedCommentAvatar } : {}),
-      };
-    }),
+  const seededWorkoutIds: Record<string, string> = {
+    "demo-post-running": "demo-workout-running-5k",
+    "demo-post-cycling": "demo-workout-cycling-hanam",
+    "demo-post-strength": "demo-workout-strength-lower",
+    "demo-post-taeo": "demo-workout-strength-upper",
+    "demo-post-jiyoung": "demo-workout-strength-full-body",
+    "demo-post-swim-feed": "demo-workout-swimming-technique",
   };
+  const workoutSessionId = post.workoutSessionId ?? seededWorkoutIds[post.id];
+  const workout = workoutSessionId
+    ? (workouts.find((item) => item.id === workoutSessionId) ??
+      defaultWorkoutSeeds.find((item) => item.id === workoutSessionId))
+    : undefined;
+  return presentPostAccess(
+    {
+      ...postWithoutAvatar,
+      ...(workoutSessionId ? { workoutSessionId } : {}),
+      ...(workout
+        ? {
+            workoutSummary: {
+              startedAt: workout.startedAt,
+              endedAt: workout.endedAt,
+              metrics: workout.metrics,
+            },
+          }
+        : {}),
+      ...(post.mediaUrl ? { mediaUrl: previewImageUri(post.mediaUrl) ?? "" } : {}),
+      ...(resolvedAuthorAvatar ? { authorAvatarDataUri: resolvedAuthorAvatar } : {}),
+      comments: comments
+        .filter(
+          (comment) =>
+            demoVisible(comment.userId) &&
+            (!comment.parentCommentId ||
+              comments.some(
+                (parent) => parent.id === comment.parentCommentId && demoVisible(parent.userId),
+              )),
+        )
+        .map((comment) => {
+          const { authorAvatarDataUri: storedCommentAvatar, ...commentWithoutAvatar } = comment;
+          const resolvedCommentAvatar =
+            comment.userId === activeSession.user.id ? avatarDataUri : storedCommentAvatar;
+          return {
+            ...commentWithoutAvatar,
+            likeCount: comment.likeCount ?? 0,
+            likedByMe: comment.likedByMe ?? false,
+            ...(resolvedCommentAvatar ? { authorAvatarDataUri: resolvedCommentAvatar } : {}),
+          };
+        }),
+    },
+    demoPostRelation(post),
+  );
 }
 
 function persistDemoFeed(strict = false) {

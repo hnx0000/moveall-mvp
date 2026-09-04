@@ -1,4 +1,15 @@
 import { randomUUID } from "node:crypto";
+import {
+  audienceAllows,
+  firstUsagePurposeResponse,
+  summarizeUsagePurposes,
+  type UsagePurposeCohort,
+  storyIsActive,
+  presentPostAccess,
+  resolveCrewAudience,
+  type SharingCrew,
+  type SharingCrewCreateInput,
+} from "@moveall/contracts";
 import type {
   ContentReport,
   ContentReportCreateInput,
@@ -38,13 +49,17 @@ export class MemoryStore implements AppStore {
   private readonly routines: Routine[] = [];
   private readonly workouts: WorkoutSession[] = [];
   private readonly posts: FeedPost[] = [];
+  private readonly sharingCrews: SharingCrew[] = [];
   private readonly commentLikes = new Map<string, Set<string>>();
+  private readonly postLikes = new Map<string, Set<string>>();
   private readonly knowledgeFeedback: KnowledgeFeedback[] = [];
 
   async healthCheck(): Promise<void> {}
   private readonly oauthIdentities = new Map<string, string>();
   private readonly follows = new Set<string>();
   private readonly blocks = new Set<string>();
+  private readonly restrictions = new Set<string>();
+  private readonly socialPrivacy = new Map<string, import("@moveall/contracts").SocialPrivacy>();
   private readonly messages: DirectMessage[] = [];
   private readonly postShares = new Map<
     string,
@@ -159,6 +174,9 @@ export class MemoryStore implements AppStore {
     this.removeWhere(this.routines, (item) => item.userId === userId);
     this.removeWhere(this.workouts, (item) => item.userId === userId);
     this.removeWhere(this.posts, (item) => item.userId === userId);
+    this.removeWhere(this.sharingCrews, (item) => item.userId === userId);
+    for (const crew of this.sharingCrews)
+      crew.memberIds = crew.memberIds.filter((id) => id !== userId);
     for (const post of this.posts) {
       const removedIds = new Set(
         post.comments.filter((item) => item.userId === userId).map((item) => item.id),
@@ -176,6 +194,11 @@ export class MemoryStore implements AppStore {
     for (const [commentId, likes] of this.commentLikes) {
       if (!remainingCommentIds.has(commentId)) this.commentLikes.delete(commentId);
       else likes.delete(userId);
+    }
+    for (const [postId, likes] of this.postLikes) {
+      const post = this.posts.find((item) => item.id === postId);
+      if (!post) this.postLikes.delete(postId);
+      else if (likes.delete(userId)) post.likeCount = Math.max(0, post.likeCount - 1);
     }
     for (const [key, share] of this.postShares) {
       if (
@@ -201,6 +224,9 @@ export class MemoryStore implements AppStore {
     }
     for (const key of [...this.follows]) if (key.includes(userId)) this.follows.delete(key);
     for (const key of [...this.blocks]) if (key.includes(userId)) this.blocks.delete(key);
+    for (const key of [...this.restrictions])
+      if (key.split(":").includes(userId)) this.restrictions.delete(key);
+    this.socialPrivacy.delete(userId);
     for (const [id, session] of this.authSessions) {
       if (session.userId === userId) this.authSessions.delete(id);
     }
@@ -287,12 +313,41 @@ export class MemoryStore implements AppStore {
   }
 
   async saveOnboarding(userId: string, input: OnboardingInput): Promise<OnboardingProfile> {
+    const { usagePurpose, ...settings } = structuredClone(input);
     const profile: OnboardingProfile = {
-      ...structuredClone(input),
+      ...settings,
+      ...firstUsagePurposeResponse(
+        this.onboardingProfiles.get(userId),
+        usagePurpose,
+        new Date().toISOString(),
+      ),
       completedAt: new Date().toISOString(),
     };
     this.onboardingProfiles.set(userId, profile);
     return structuredClone(profile);
+  }
+
+  async usagePurposeSummary(cohort: UsagePurposeCohort, excludedEmails: string[]) {
+    const excluded = new Set(excludedEmails.map((email) => email.toLowerCase()));
+    const users = [...this.users.values()].filter(
+      (user) =>
+        (!cohort.registeredFrom ||
+          Date.parse(user.createdAt) >= Date.parse(cohort.registeredFrom)) &&
+        (!cohort.registeredBefore ||
+          Date.parse(user.createdAt) < Date.parse(cohort.registeredBefore)),
+    );
+    return summarizeUsagePurposes(
+      users.map((user) => {
+        const response = this.onboardingProfiles.get(user.id);
+        return {
+          count: 1,
+          purpose: response?.usagePurpose ?? null,
+          collected: Boolean(response?.usagePurposeRecordedAt),
+          excluded: excluded.has(user.email.toLowerCase()),
+        };
+      }),
+      cohort,
+    );
   }
 
   async createMediaObject(
@@ -463,11 +518,14 @@ export class MemoryStore implements AppStore {
       return null;
     }
 
+    const crews = await this.listSharingCrews(userId);
     const post: FeedPost = {
       id: randomUUID(),
       userId,
       authorDisplayName,
       ...input,
+      audience: resolveCrewAudience(input.audience, crews),
+      commentAudience: resolveCrewAudience(input.commentAudience, crews),
       ...(media ? { mediaObjectPath: media.objectPath } : {}),
       contentType: input.contentType ?? "post",
       likeCount: 0,
@@ -476,19 +534,59 @@ export class MemoryStore implements AppStore {
       comments: [],
     };
     this.posts.unshift(post);
-    return this.clonePost(post);
+    return this.clonePost(post, userId);
+  }
+
+  async listSharingCrews(userId: string) {
+    return this.sharingCrews
+      .filter((crew) => crew.userId === userId)
+      .map((crew) => ({ ...crew, memberIds: [...crew.memberIds] }));
+  }
+
+  async createSharingCrew(userId: string, input: SharingCrewCreateInput) {
+    if (
+      input.memberIds.some(
+        (id) => id === userId || !this.users.has(id) || this.isBlockedPair(userId, id),
+      )
+    )
+      return null;
+    const crew = { ...input, memberIds: [...new Set(input.memberIds)], id: randomUUID(), userId };
+    this.sharingCrews.push(crew);
+    return crew;
+  }
+
+  private postRelation(post: FeedPost, viewerId?: string) {
+    return {
+      authorId: post.userId,
+      viewerId,
+      viewerFollowsAuthor: Boolean(
+        viewerId && this.follows.has(this.followKey(viewerId, post.userId)),
+      ),
+      authorFollowsViewer: Boolean(
+        viewerId && this.follows.has(this.followKey(post.userId, viewerId)),
+      ),
+    };
+  }
+
+  private postVisible(post: FeedPost, viewerId?: string) {
+    return (
+      !post.archivedAt &&
+      storyIsActive(post) &&
+      this.contentVisible(post.userId, viewerId) &&
+      audienceAllows(post.audience, this.postRelation(post, viewerId))
+    );
   }
 
   async listFeed(viewerId?: string, postId?: string): Promise<FeedPost[]> {
     return this.posts
       .filter((post) => !postId || post.id === postId)
       .filter((post) => !post.archivedAt)
-      .filter((post) => !viewerId || !this.isBlockedPair(viewerId, post.userId))
+      .filter((post) => this.postVisible(post, viewerId))
       .map((post) => {
         const cloned = this.clonePost(post, viewerId);
         if (viewerId) {
-          cloned.comments = cloned.comments.filter(
-            (comment) => !this.isBlockedPair(viewerId, comment.userId),
+          cloned.comments = cloned.comments.filter((comment) =>
+            this.contentVisible(comment.userId, viewerId),
           );
         }
         const visibleIds = new Set(cloned.comments.map((comment) => comment.id));
@@ -518,7 +616,7 @@ export class MemoryStore implements AppStore {
     const post = this.posts.find((item) => item.id === postId && item.userId === userId);
     if (!post) return null;
     post.content = input.content;
-    return this.clonePost(post);
+    return this.clonePost(post, userId);
   }
 
   async setPostArchived(
@@ -530,13 +628,14 @@ export class MemoryStore implements AppStore {
     if (!post) return null;
     if (archived) post.archivedAt = new Date().toISOString();
     else delete post.archivedAt;
-    return this.clonePost(post);
+    return this.clonePost(post, userId);
   }
 
   async deletePost(userId: string, postId: string): Promise<boolean> {
     const index = this.posts.findIndex((item) => item.id === postId && item.userId === userId);
     if (index < 0) return false;
     for (const comment of this.posts[index]!.comments) this.commentLikes.delete(comment.id);
+    this.postLikes.delete(postId);
     this.posts.splice(index, 1);
     for (const [key, share] of this.postShares)
       if (share.postId === postId) this.postShares.delete(key);
@@ -576,6 +675,62 @@ export class MemoryStore implements AppStore {
       this.blocks.has(this.followKey(leftId, rightId)) ||
       this.blocks.has(this.followKey(rightId, leftId))
     );
+  }
+
+  private contentVisible(ownerId: string, viewerId?: string): boolean {
+    if (ownerId === viewerId) return true;
+    if (!viewerId) return ![...this.restrictions].some((key) => key.startsWith(`${ownerId}:`));
+    return (
+      !this.isBlockedPair(ownerId, viewerId) &&
+      !this.restrictions.has(this.followKey(ownerId, viewerId))
+    );
+  }
+
+  async canViewContent(ownerId: string, viewerId?: string): Promise<boolean> {
+    return this.contentVisible(ownerId, viewerId);
+  }
+
+  async unblockUser(userId: string, targetId: string): Promise<void> {
+    this.blocks.delete(this.followKey(userId, targetId));
+  }
+
+  async restrictUser(userId: string, targetId: string, restricted: boolean): Promise<boolean> {
+    if (userId === targetId || !this.users.has(targetId)) return false;
+    const key = this.followKey(userId, targetId);
+    if (restricted) this.restrictions.add(key);
+    else this.restrictions.delete(key);
+    return true;
+  }
+
+  async saveSocialPrivacy(
+    userId: string,
+    privacy: import("@moveall/contracts").SocialPrivacy,
+  ): Promise<void> {
+    this.socialPrivacy.set(userId, { ...privacy });
+  }
+
+  async safetySummary(userId: string): Promise<import("@moveall/contracts").SafetySummary> {
+    const people = (keys: Set<string>) =>
+      [...keys].flatMap((key) => {
+        const [owner, target] = key.split(":");
+        const user = target ? this.users.get(target) : undefined;
+        return owner === userId && user
+          ? [
+              {
+                id: user.id,
+                displayName: user.displayName,
+                ...(user.avatarDataUri ? { avatarDataUri: user.avatarDataUri } : {}),
+              },
+            ]
+          : [];
+      });
+    return {
+      hideFollowers: false,
+      hideFollowing: false,
+      ...this.socialPrivacy.get(userId),
+      blocked: people(this.blocks),
+      restricted: people(this.restrictions),
+    };
   }
 
   async createContentReport(
@@ -718,8 +873,7 @@ export class MemoryStore implements AppStore {
     if (this.isBlockedPair(userId, peerId)) return [];
     const shares: DirectMessage[] = [...this.postShares.entries()].map(([id, share]) => {
       const post = this.posts.find(
-        (item) =>
-          item.id === share.postId && !item.archivedAt && !this.isBlockedPair(userId, item.userId),
+        (item) => item.id === share.postId && this.postVisible(item, userId),
       );
       return {
         id: `share:${id}`,
@@ -777,17 +931,18 @@ export class MemoryStore implements AppStore {
     postId: string,
     content: string,
     parentCommentId?: string,
+    mentions: import("@moveall/contracts").CommentMention[] = [],
   ): Promise<FeedPost["comments"][number] | null> {
     const post = this.posts.find(
       (candidate) =>
         candidate.id === postId &&
-        !candidate.archivedAt &&
-        !this.isBlockedPair(userId, candidate.userId),
+        this.postVisible(candidate, userId) &&
+        audienceAllows(candidate.commentAudience, this.postRelation(candidate, userId)),
     );
     if (!post) return null;
     if (parentCommentId) {
       const parent = post.comments.find((comment) => comment.id === parentCommentId);
-      if (!parent || parent.parentCommentId || this.isBlockedPair(userId, parent.userId))
+      if (!parent || parent.parentCommentId || !this.contentVisible(parent.userId, userId))
         return null;
     }
 
@@ -797,6 +952,7 @@ export class MemoryStore implements AppStore {
       authorDisplayName,
       content,
       ...(parentCommentId ? { parentCommentId } : {}),
+      mentions: mentions.map((mention) => ({ ...mention })),
       likeCount: 0,
       likedByMe: false,
       createdAt: new Date().toISOString(),
@@ -816,14 +972,45 @@ export class MemoryStore implements AppStore {
     return { ...comment, likeCount: likes.size, likedByMe: likes.has(userId) };
   }
 
+  async shareFrequency(userId: string): Promise<import("@moveall/contracts").ShareFrequency[]> {
+    const counts = new Map<string, import("@moveall/contracts").ShareFrequency>();
+    for (const share of this.postShares.values()) {
+      if (share.sharerId !== userId) continue;
+      const current = counts.get(share.recipientId);
+      counts.set(share.recipientId, {
+        userId: share.recipientId,
+        count: (current?.count ?? 0) + 1,
+        lastSharedAt:
+          current && current.lastSharedAt > share.createdAt
+            ? current.lastSharedAt
+            : share.createdAt,
+      });
+    }
+    return [...counts.values()];
+  }
+
+  async setPostLiked(
+    userId: string,
+    postId: string,
+    liked: boolean,
+  ): Promise<import("@moveall/contracts").PostLikeState | null> {
+    if (!(await this.listFeed(userId, postId))[0]) return null;
+    const post = this.posts.find((item) => item.id === postId)!;
+    const likes = this.postLikes.get(postId) ?? new Set<string>();
+    const changed = likes.has(userId) !== liked;
+    if (liked) likes.add(userId);
+    else likes.delete(userId);
+    this.postLikes.set(postId, likes);
+    if (changed) post.likeCount = Math.max(0, post.likeCount + (liked ? 1 : -1));
+    return { liked, changed, likeCount: post.likeCount };
+  }
+
   async sharePost(
     userId: string,
     postId: string,
     selectedIds: string[],
   ): Promise<PostShareResult | null> {
-    const post = this.posts.find(
-      (item) => item.id === postId && !item.archivedAt && !this.isBlockedPair(userId, item.userId),
-    );
+    const post = this.posts.find((item) => item.id === postId && this.postVisible(item, userId));
     const recipientIds = [...new Set(selectedIds)];
     if (
       !post ||
@@ -834,7 +1021,7 @@ export class MemoryStore implements AppStore {
           !this.users.has(id) ||
           !this.follows.has(this.followKey(userId, id)) ||
           this.isBlockedPair(userId, id) ||
-          this.isBlockedPair(post.userId, id),
+          !this.postVisible(post, id),
       )
     )
       return null;
@@ -1014,19 +1201,25 @@ export class MemoryStore implements AppStore {
       ...postWithoutAvatar
     } = post;
     const authorAvatar = this.users.get(post.userId)?.avatarDataUri;
-    return {
-      ...postWithoutAvatar,
-      ...(authorAvatar ? { authorAvatarDataUri: authorAvatar } : {}),
-      comments: storedComments.map((comment) => {
-        const { authorAvatarDataUri: _storedCommentAvatar, ...commentWithoutAvatar } = comment;
-        const commentAvatar = this.users.get(comment.userId)?.avatarDataUri;
-        return {
-          ...commentWithoutAvatar,
-          likeCount: this.commentLikes.get(comment.id)?.size ?? 0,
-          likedByMe: viewerId ? (this.commentLikes.get(comment.id)?.has(viewerId) ?? false) : false,
-          ...(commentAvatar ? { authorAvatarDataUri: commentAvatar } : {}),
-        };
-      }),
-    };
+    return presentPostAccess(
+      {
+        ...postWithoutAvatar,
+        likedByMe: viewerId ? (this.postLikes.get(post.id)?.has(viewerId) ?? false) : false,
+        ...(authorAvatar ? { authorAvatarDataUri: authorAvatar } : {}),
+        comments: storedComments.map((comment) => {
+          const { authorAvatarDataUri: _storedCommentAvatar, ...commentWithoutAvatar } = comment;
+          const commentAvatar = this.users.get(comment.userId)?.avatarDataUri;
+          return {
+            ...commentWithoutAvatar,
+            likeCount: this.commentLikes.get(comment.id)?.size ?? 0,
+            likedByMe: viewerId
+              ? (this.commentLikes.get(comment.id)?.has(viewerId) ?? false)
+              : false,
+            ...(commentAvatar ? { authorAvatarDataUri: commentAvatar } : {}),
+          };
+        }),
+      },
+      this.postRelation(post, viewerId),
+    );
   }
 }

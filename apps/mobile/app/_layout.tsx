@@ -57,10 +57,12 @@ function SessionGate() {
   const onLoginScreen = segments[0] === "login";
   const onOnboardingScreen = segments[0] === "onboarding";
   const onPublicLegalScreen = segments[0] === "legal";
+  const onOnboardingPreview = segments[0] === "onboarding-preview";
   const onboardingComplete = Boolean(onboarding?.completedAt);
 
   useEffect(() => {
-    if (!navigationState?.key || restoring || (session && onboardingLoading)) return;
+    if (onOnboardingPreview || !navigationState?.key || restoring || (session && onboardingLoading))
+      return;
     if (!session && !onLoginScreen && !onPublicLegalScreen) router.replace("/login");
     if (session && !onboardingComplete && !onOnboardingScreen && !onPublicLegalScreen) {
       router.replace("/onboarding");
@@ -73,6 +75,7 @@ function SessionGate() {
     onLoginScreen,
     onOnboardingScreen,
     onPublicLegalScreen,
+    onOnboardingPreview,
     onboardingComplete,
     onboardingLoading,
     restoring,
@@ -80,7 +83,7 @@ function SessionGate() {
     session,
   ]);
 
-  if (restoring || (session && onboardingLoading)) {
+  if (!onOnboardingPreview && (restoring || (session && onboardingLoading))) {
     return (
       <View style={[styles.splash, { backgroundColor: colors.background }]}>
         <Text style={[styles.brand, { color: colors.primary }]}>GROOV</Text>

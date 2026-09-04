@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 import MapView, { Marker, Polyline, type LatLng } from "react-native-maps";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { mapFitPoints, splitRouteSegments } from "./workout-map-model";
 import { type MapPlace, type MapPoint, type WorkoutMapProps } from "./workout-map.types";
 
 const FALLBACK_CENTER: MapPoint = { latitude: 37.5284, longitude: 126.9343 };
@@ -52,17 +53,20 @@ export function WorkoutMap({
   staticMode = false,
   showBadge = true,
   backgroundColor = "#E8E7E2",
+  showFitButton = false,
+  onFullScreenPress,
+  controlsBottom = 10,
 }: WorkoutMapProps) {
   const mapRef = useRef<MapView>(null);
   const center = currentPoint ?? plannedPoints[0] ?? places[0] ?? points.at(-1) ?? FALLBACK_CENTER;
+  const routeSegments = splitRouteSegments(points);
 
-  useEffect(() => {
-    const coordinates =
-      points.length > 1 ? points : plannedPoints.length > 1 ? plannedPoints : places;
+  const fitRoute = useCallback(() => {
+    const coordinates = mapFitPoints(points, plannedPoints, places);
     if (coordinates.length > 1) {
       mapRef.current?.fitToCoordinates(coordinates as LatLng[], {
         animated: true,
-        edgePadding: { top: 42, right: 30, bottom: 34, left: 30 },
+        edgePadding: { top: 58, right: 38, bottom: 58, left: 38 },
       });
       return;
     }
@@ -130,14 +134,17 @@ export function WorkoutMap({
             <Endpoint color={primaryColor} label="F" />
           </Marker>
         ) : null}
-        {points.length > 1 ? (
-          <Polyline
-            coordinates={points}
-            lineCap="round"
-            strokeColor={primaryColor}
-            strokeWidth={6}
-          />
-        ) : null}
+        {routeSegments.map((segment, index) =>
+          segment.length > 1 ? (
+            <Polyline
+              coordinates={segment}
+              key={`recorded-${index}`}
+              lineCap="round"
+              strokeColor={primaryColor}
+              strokeWidth={6}
+            />
+          ) : null,
+        )}
         {!points.length && currentPoint ? (
           <Marker coordinate={currentPoint} title="현재 위치">
             <Endpoint color={primaryColor} label="●" />
@@ -172,6 +179,24 @@ export function WorkoutMap({
             style={[styles.liveDot, { backgroundColor: isSample ? "#777773" : primaryColor }]}
           />
           <Text style={styles.badgeText}>{badgeLabel ?? (isSample ? "ROUTE" : "GPS LIVE")}</Text>
+        </View>
+      ) : null}
+      {!staticMode && (showFitButton || onFullScreenPress) ? (
+        <View style={[styles.controls, { bottom: controlsBottom }]}>
+          {showFitButton ? (
+            <Pressable accessibilityRole="button" onPress={fitRoute} style={styles.controlButton}>
+              <Text style={styles.controlText}>전체 경로</Text>
+            </Pressable>
+          ) : null}
+          {onFullScreenPress ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={onFullScreenPress}
+              style={styles.controlButton}
+            >
+              <Text style={styles.controlText}>전체화면</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -235,4 +260,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "#FFFFFF",
   },
+  controls: { position: "absolute", right: 10, gap: 7, alignItems: "flex-end" },
+  controlButton: {
+    minHeight: 34,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    backgroundColor: "rgba(16,16,17,0.88)",
+  },
+  controlText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" },
 });

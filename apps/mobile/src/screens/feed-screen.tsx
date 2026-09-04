@@ -1,7 +1,7 @@
-import { sportLabels, type FeedPost, type SportType } from "@moveall/contracts";
+import { sportLabels, storyIsActive, type FeedPost, type SportType } from "@moveall/contracts";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { Bookmark, Heart, MessageCircle } from "lucide-react-native";
+import { Bookmark, Heart, MessageCircle, Plus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -36,28 +36,39 @@ import seoaStory01 from "../../assets/images/people/seoa/story-01.jpg";
 import seoaStory02 from "../../assets/images/people/seoa/story-02.jpg";
 import taeoStory01 from "../../assets/images/people/taeo/story-01.jpg";
 import yunaStory01 from "../../assets/images/people/yuna/story-01.jpg";
-import { api } from "../../src/api/client";
+import { api, usePreviewApi } from "../../src/api/client";
 import { TapShareSheet } from "../components/tap-share-sheet";
+import { UnfollowDialog } from "../components/unfollow-dialog";
 import { PostComments } from "../components/post-comments";
 import { useAuth } from "../../src/auth/auth-context";
 import { demoAvatarSources } from "../../src/demo-avatars";
-import { BellButton, CenterDialog, Screen, StatePanel } from "../../src/components/ui";
+import { CenterDialog, Screen, StatePanel } from "../../src/components/ui";
+import { NotificationBell } from "../components/notification-bell";
 import {
   StoryCanvas,
   type StoryBackground,
   type StoryLayout,
 } from "../../src/components/story-canvas";
 import { type MapPoint } from "../../src/components/workout-map.types";
+import { WorkoutMap } from "../../src/components/workout-map";
+import { RouteTrace } from "../../src/components/route-trace";
 import { TapShareIcon } from "../../src/components/tap-icons";
 import { saveRecordGoal } from "../../src/goals";
 import { useAsyncData } from "../../src/hooks/use-async-data";
-import { RecordStudio } from "../components/record-studio";
 import { PostArtwork } from "../components/post-artwork";
+import { FeedLikeSurface } from "../components/feed-like-surface";
+import {
+  feedPostHref,
+  hasFeedVisual,
+  isRecordedFeedPost,
+  rankHomeFeed,
+} from "../components/feed-ranking";
 import { fonts, gradients, radius, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
 type DemoStory = {
   id: string;
+  post?: FeedPost;
   sport: SportType;
   background: StoryBackground;
   photo?: ImageSourcePropType;
@@ -82,10 +93,15 @@ type StoryOwner = {
 
 const runningRoute: MapPoint[] = [
   { latitude: 37.5202, longitude: 126.9944 },
+  { latitude: 37.5208, longitude: 126.9971 },
   { latitude: 37.5215, longitude: 127.0015 },
+  { latitude: 37.5211, longitude: 127.0054 },
   { latitude: 37.5196, longitude: 127.0098 },
+  { latitude: 37.5182, longitude: 127.0137 },
   { latitude: 37.5168, longitude: 127.0172 },
+  { latitude: 37.5173, longitude: 127.0211 },
   { latitude: 37.5191, longitude: 127.0248 },
+  { latitude: 37.5207, longitude: 127.0282 },
   { latitude: 37.5227, longitude: 127.0319 },
 ];
 
@@ -183,7 +199,7 @@ const baseStories: Record<SportType, DemoStory> = {
   ),
 };
 
-const storyOwners: StoryOwner[] = [
+const demoStoryOwners: StoryOwner[] = [
   {
     id: "me",
     name: "내 스토리",
@@ -410,6 +426,24 @@ const feedImageSources: Partial<Record<string, ImageSourcePropType>> = {
   "demo-post-seoa": seoaStory02,
   "demo-post-jiyoung": jiyoungStory01,
   "demo-post-harin": harinStory02,
+  "demo-post-swim-feed": storyPoolLane,
+};
+
+type FeedPresentation =
+  | "photo-only"
+  | "photo-record-overlay"
+  | "photo-route-overlay"
+  | "route-only"
+  | "record-only"
+  | "photo-separate-record";
+
+const feedPresentations: Record<string, FeedPresentation> = {
+  "demo-post-running": "photo-only",
+  "demo-post-cycling": "route-only",
+  "demo-post-strength": "record-only",
+  "demo-post-taeo": "photo-separate-record",
+  "demo-post-jiyoung": "photo-record-overlay",
+  "demo-post-swim-feed": "photo-record-overlay",
 };
 
 export default function FeedScreen() {
@@ -430,11 +464,17 @@ export default function FeedScreen() {
     privacy?: string;
     workoutSessionId?: string;
     post?: string;
+    comments?: string;
   }>();
   const { session } = useAuth();
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
   const sharedPostId = typeof params.post === "string" ? params.post : null;
+  const [timeTick, updateRelativeTimes] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => updateRelativeTimes((value) => value + 1), 30_000);
+    return () => clearInterval(timer);
+  }, []);
   const loader = useCallback(
     async () =>
       sharedPostId
@@ -443,6 +483,61 @@ export default function FeedScreen() {
     [session?.accessToken, sharedPostId],
   );
   const { data: posts, setData: setPosts, error, loading, reload } = useAsyncData(loader);
+  const storyOwners = useMemo(() => {
+    const ownId = session?.user.id;
+    const owners: StoryOwner[] = [
+      {
+        id: "me",
+        ...(ownId ? { profileUserId: ownId } : {}),
+        name: "내 스토리",
+        icon: "M",
+        stories: [],
+      },
+    ];
+    for (const post of posts ?? []) {
+      if (post.contentType !== "story" || !storyIsActive(post)) continue;
+      let owner = owners.find((entry) => entry.profileUserId === post.userId);
+      if (!owner) {
+        owner = {
+          id: post.userId,
+          profileUserId: post.userId,
+          name: post.authorDisplayName,
+          icon: post.authorDisplayName.slice(0, 1),
+          stories: [],
+        };
+        owners.push(owner);
+      }
+      owner.stories.push({ ...baseStories[post.sport], id: post.id, post });
+    }
+    if (usePreviewApi) {
+      for (const owner of demoStoryOwners) {
+        if (
+          !owner.profileUserId ||
+          owners.some((entry) => entry.profileUserId === owner.profileUserId)
+        )
+          continue;
+        if (posts?.some((post) => post.userId === owner.profileUserId)) owners.push(owner);
+      }
+    }
+    return owners;
+    // Re-evaluate expiry even when the feed remains open.
+  }, [posts, session?.user.id, timeTick]);
+  const forwardedDraft = useRef<string | null>(null);
+  useEffect(() => {
+    if (!params.workoutSessionId && !params.photo && !params.draft) return;
+    const key = JSON.stringify([params.workoutSessionId, params.photo, params.draft]);
+    if (forwardedDraft.current === key) return;
+    forwardedDraft.current = key;
+    router.setParams({ workoutSessionId: "", photo: "", draft: "" });
+    router.push({
+      pathname: "/compose",
+      params: {
+        ...(params.workoutSessionId ? { workoutSessionId: params.workoutSessionId } : {}),
+        ...(params.photo ? { photo: params.photo } : {}),
+        ...(params.draft ? { draft: params.draft } : {}),
+      },
+    });
+  }, [params.workoutSessionId, params.photo, params.draft, router]);
   const [selectedStoryOwnerId, setSelectedStoryOwnerId] = useState<string | null>(null);
   const [storyIndex, setStoryIndex] = useState(0);
   const [storyCanvasWidth, setStoryCanvasWidth] = useState(0);
@@ -465,8 +560,12 @@ export default function FeedScreen() {
       }),
     [],
   );
-  const [cheeredPosts, setCheeredPosts] = useState<string[]>([]);
+  const likeRequests = useRef(new Set<string>());
   const [openComments, setOpenComments] = useState<string[]>([]);
+  useEffect(() => {
+    if (sharedPostId && params.comments === "1")
+      setOpenComments((current) => [...new Set([...current, sharedPostId])]);
+  }, [sharedPostId, params.comments]);
   const [bookmarkedPosts, setBookmarkedPosts] = useState<string[]>([]);
   const [deleteTargetPost, setDeleteTargetPost] = useState<FeedPost | null>(null);
   const [deletingPost, setDeletingPost] = useState(false);
@@ -478,9 +577,12 @@ export default function FeedScreen() {
   const refreshBusyRef = useRef(false);
   const [hashtagSearch, setHashtagSearch] = useState("");
   const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
+  const [feedLayout, setFeedLayout] = useState<"cards" | "grid">("cards");
   const [goalPost, setGoalPost] = useState<FeedPost | null>(null);
   const [goalPrivate, setGoalPrivate] = useState(false);
   const [followingIds, setFollowingIds] = useState<string[]>([]);
+  const [unfollowTargetId, setUnfollowTargetId] = useState<string | null>(null);
+  const followRequests = useRef(new Set<string>());
   const [followBusyIds, setFollowBusyIds] = useState<string[]>([]);
   const [currentAvatarUri, setCurrentAvatarUri] = useState<string | null>(() =>
     readPersistedCurrentAvatar(),
@@ -521,7 +623,7 @@ export default function FeedScreen() {
   }, [reload, session]);
   const selectedStoryOwner = useMemo(
     () => storyOwners.find((owner) => owner.id === selectedStoryOwnerId) ?? null,
-    [selectedStoryOwnerId],
+    [selectedStoryOwnerId, storyOwners],
   );
   const activeDemoStory = selectedStoryOwner?.stories[storyIndex] ?? null;
   const storyViewerMaxWidth = Math.min(420, Math.max(240, windowWidth - 28));
@@ -654,20 +756,55 @@ export default function FeedScreen() {
     update(current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
-  async function toggleFollow(userId: string) {
-    if (!session || followBusyIds.includes(userId)) return;
+  async function saveLike(post: FeedPost, liked: boolean) {
+    if (!session) {
+      setFeedNotice("로그인 후 좋아요를 누를 수 있습니다.");
+      return;
+    }
+    if (likeRequests.current.has(post.id) || Boolean(post.likedByMe) === liked) return;
+    likeRequests.current.add(post.id);
+    try {
+      const result = await api.setPostLiked(session.accessToken, post.id, liked);
+      setPosts(
+        (current) =>
+          current?.map((item) =>
+            item.id === post.id
+              ? { ...item, likedByMe: result.liked, likeCount: result.likeCount }
+              : item,
+          ) ?? null,
+      );
+    } catch (caught) {
+      setFeedNotice(caught instanceof Error ? caught.message : "좋아요를 저장하지 못했습니다.");
+    } finally {
+      likeRequests.current.delete(post.id);
+    }
+  }
+
+  async function toggleFollow(userId: string, confirmed = false) {
+    if (!session || followRequests.current.has(userId)) return;
     const following = followingIds.includes(userId);
+    if (following && !confirmed) {
+      setUnfollowTargetId(userId);
+      return;
+    }
+    if (confirmed && !following) {
+      setUnfollowTargetId(null);
+      return;
+    }
+    followRequests.current.add(userId);
     setFollowBusyIds((current) => [...current, userId]);
     setFeedNotice(null);
     try {
       if (following) await api.unfollow(session.accessToken, userId);
       else await api.follow(session.accessToken, userId);
       setFollowingIds((current) =>
-        following ? current.filter((id) => id !== userId) : [...current, userId],
+        following ? current.filter((id) => id !== userId) : [...new Set([...current, userId])],
       );
     } catch (caught) {
       setFeedNotice(caught instanceof Error ? caught.message : "팔로우 상태를 바꾸지 못했습니다.");
     } finally {
+      followRequests.current.delete(userId);
+      setUnfollowTargetId(null);
       setFollowBusyIds((current) => current.filter((id) => id !== userId));
     }
   }
@@ -749,12 +886,27 @@ export default function FeedScreen() {
     setGoalPrivate(false);
   }
 
-  const normalizedHashtag = (activeHashtag ?? hashtagSearch.trim()).replace(/^#/, "").toLowerCase();
+  const normalizedHashtag =
+    feedLayout === "grid" && !sharedPostId
+      ? (activeHashtag ?? hashtagSearch.trim()).replace(/^#/, "").toLowerCase()
+      : "";
   const visiblePosts = posts?.filter(
     (post) =>
-      sharedPostId ||
-      !normalizedHashtag ||
-      extractHashtags(post.content).includes(normalizedHashtag),
+      storyIsActive(post) &&
+      isRecordedFeedPost(post) &&
+      hasFeedVisual(post) &&
+      (sharedPostId ||
+        (post.contentType !== "story" &&
+          (!normalizedHashtag || extractHashtags(post.content).includes(normalizedHashtag)))),
+  );
+  const rankedPosts = useMemo(
+    () =>
+      rankHomeFeed(visiblePosts ?? [], {
+        followingIds,
+        ...(session?.user.id ? { viewerId: session.user.id } : {}),
+        recommendationInterval: 3,
+      }),
+    [followingIds, session?.user.id, visiblePosts],
   );
 
   return (
@@ -763,13 +915,16 @@ export default function FeedScreen() {
       title=""
       onRefresh={refreshFeed}
       refreshing={refreshing}
-      action={
-        <BellButton
-          label="피드 알림 확인"
-          onPress={() => setFeedNotice("오늘 확인할 새로운 피드 알림이 없습니다.")}
-        />
-      }
+      action={<NotificationBell />}
     >
+      <UnfollowDialog
+        visible={unfollowTargetId !== null}
+        busy={unfollowTargetId !== null && followBusyIds.includes(unfollowTargetId)}
+        onClose={() => setUnfollowTargetId(null)}
+        onConfirm={() => {
+          if (unfollowTargetId) void toggleFollow(unfollowTargetId, true);
+        }}
+      />
       <CenterDialog
         message={feedNotice ?? ""}
         onClose={() => setFeedNotice(null)}
@@ -882,7 +1037,10 @@ export default function FeedScreen() {
                   <View>
                     <Text style={styles.storyViewerName}>{selectedStoryOwner.name}</Text>
                     <Text style={styles.storyViewerMeta}>
-                      방금 전 · {storyIndex + 1}/{selectedStoryOwner.stories.length}
+                      {activeDemoStory.post
+                        ? relativeTime(activeDemoStory.post.createdAt)
+                        : "미리보기"}{" "}
+                      · {storyIndex + 1}/{selectedStoryOwner.stories.length}
                     </Text>
                   </View>
                   <Text style={styles.storyViewerProfileHint}>프로필 ›</Text>
@@ -901,31 +1059,67 @@ export default function FeedScreen() {
                 onLayout={(event) => setStoryCanvasWidth(event.nativeEvent.layout.width)}
                 style={styles.storyCanvasTouchArea}
               >
-                <StoryCanvas
-                  background={activeDemoStory.background}
-                  colors={colors}
-                  customText={activeDemoStory.customText}
-                  distance={activeDemoStory.distance}
-                  distanceUnit={activeDemoStory.distanceUnit}
-                  duration={activeDemoStory.duration}
-                  height={storyCanvasHeight}
-                  layout={activeDemoStory.layout}
-                  layers={["record", "route", "text", "points"]}
-                  moveScore={activeDemoStory.points}
-                  pace={activeDemoStory.pace}
-                  {...(activeDemoStory.photo ? { photoSource: activeDemoStory.photo } : {})}
-                  photoUri={null}
-                  routePoints={activeDemoStory.routePoints}
-                  sportLabel={sportLabels[activeDemoStory.sport]}
-                  themeLabel={activeDemoStory.themeLabel}
-                  visibility={{
-                    distance: true,
-                    duration: true,
-                    pace: true,
-                    route: true,
-                    points: true,
-                  }}
-                />
+                {activeDemoStory.post ? (
+                  <View
+                    style={{
+                      height: storyCanvasHeight,
+                      backgroundColor: "#171513",
+                      justifyContent: "center",
+                      overflow: "hidden",
+                      borderRadius: 20,
+                    }}
+                  >
+                    {activeDemoStory.post.mediaUrl ? (
+                      <Image
+                        source={{ uri: activeDemoStory.post.mediaUrl }}
+                        resizeMode="contain"
+                        style={StyleSheet.absoluteFill}
+                      />
+                    ) : (
+                      <View style={{ padding: 28, gap: 24 }}>
+                        <Text
+                          style={{
+                            color: "#FF5A32",
+                            fontFamily: fonts.displayItalic,
+                            fontSize: 22,
+                            fontStyle: "italic",
+                          }}
+                        >
+                          GROOV
+                        </Text>
+                        <Text style={{ color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 26 }}>
+                          {activeDemoStory.post.content}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  <StoryCanvas
+                    background={activeDemoStory.background}
+                    colors={colors}
+                    customText={activeDemoStory.customText}
+                    distance={activeDemoStory.distance}
+                    distanceUnit={activeDemoStory.distanceUnit}
+                    duration={activeDemoStory.duration}
+                    height={storyCanvasHeight}
+                    layout={activeDemoStory.layout}
+                    layers={["record", "route", "text", "points"]}
+                    moveScore={activeDemoStory.points}
+                    pace={activeDemoStory.pace}
+                    {...(activeDemoStory.photo ? { photoSource: activeDemoStory.photo } : {})}
+                    photoUri={null}
+                    routePoints={activeDemoStory.routePoints}
+                    sportLabel={sportLabels[activeDemoStory.sport]}
+                    themeLabel={activeDemoStory.themeLabel}
+                    visibility={{
+                      distance: true,
+                      duration: true,
+                      pace: true,
+                      route: true,
+                      points: true,
+                    }}
+                  />
+                )}
                 <View style={styles.storyTapZones}>
                   <Pressable
                     accessibilityLabel="스토리 화면, 왼쪽은 이전, 오른쪽은 다음"
@@ -973,50 +1167,94 @@ export default function FeedScreen() {
               const selected = selectedStoryOwnerId === owner.id;
               const avatarSource = avatarSourceForUser(owner.profileUserId);
               return (
-                <Pressable
-                  accessibilityLabel={`${owner.name} 스토리 ${owner.stories.length}개 열기`}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  key={owner.id}
-                  onPress={() => openStory(owner.id)}
-                  style={styles.story}
-                >
-                  <View style={[styles.storyRing, selected && styles.storyRingSelected]}>
-                    <View style={[styles.storyAvatar, index === 0 && styles.myStory]}>
-                      {avatarSource ? (
-                        <Image source={avatarSource} style={styles.avatarImage} />
-                      ) : (
-                        <Text style={[styles.storyInitial, index === 0 && styles.myStoryText]}>
-                          {owner.icon}
-                        </Text>
-                      )}
+                <View key={owner.id} style={styles.story}>
+                  <Pressable
+                    accessibilityLabel={`${owner.name} 스토리 ${owner.stories.length}개 열기`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() =>
+                      owner.id === "me" && !owner.stories.length
+                        ? router.push({ pathname: "/compose", params: { kind: "story" } })
+                        : openStory(owner.id)
+                    }
+                    style={styles.story}
+                  >
+                    <View style={[styles.storyRing, selected && styles.storyRingSelected]}>
+                      <View style={[styles.storyAvatar, index === 0 && styles.myStory]}>
+                        {avatarSource ? (
+                          <Image source={avatarSource} style={styles.avatarImage} />
+                        ) : (
+                          <Text style={[styles.storyInitial, index === 0 && styles.myStoryText]}>
+                            {owner.icon}
+                          </Text>
+                        )}
+                      </View>
+                      {owner.id !== "me" ? (
+                        <View style={styles.storyCountBadge}>
+                          <Text style={styles.storyCountText}>{owner.stories.length}</Text>
+                        </View>
+                      ) : null}
                     </View>
-                    <View style={styles.storyCountBadge}>
-                      <Text style={styles.storyCountText}>{owner.stories.length}</Text>
-                    </View>
-                  </View>
-                  <Text numberOfLines={1} style={styles.storyName}>
-                    {owner.name}
-                  </Text>
-                </Pressable>
+                    <Text numberOfLines={1} style={styles.storyName}>
+                      {owner.name}
+                    </Text>
+                  </Pressable>
+                  {owner.id === "me" ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="새 스토리 만들기"
+                      hitSlop={8}
+                      onPress={() =>
+                        router.push({ pathname: "/compose", params: { kind: "story" } })
+                      }
+                      style={[
+                        styles.storyCountBadge,
+                        {
+                          top: 32,
+                          bottom: undefined,
+                          right: -1,
+                          height: 20,
+                          width: 20,
+                          paddingHorizontal: 0,
+                        },
+                      ]}
+                    >
+                      <Plus size={13} color="#FFFFFF" strokeWidth={3} />
+                    </Pressable>
+                  ) : null}
+                </View>
               );
             })}
           </ScrollView>
-
-          <RecordStudio
-            avatarUri={currentAvatarUri}
-            onPosted={reload}
-            initialWorkoutId={
-              typeof params.workoutSessionId === "string" ? params.workoutSessionId : undefined
-            }
-            initialCaption={typeof params.draft === "string" ? params.draft : undefined}
-            initialPhoto={typeof params.photo === "string" ? params.photo : undefined}
-          />
         </>
       ) : null}
-      <View>
-        <Text style={styles.sectionEyebrow}>LATEST FEED</Text>
-        <Text style={styles.sectionTitle}>{sharedPostId ? "공유된 피드" : "최신 피드"}</Text>
+      <View style={styles.feedTitleRow}>
+        <View>
+          <Text style={styles.sectionEyebrow}>LATEST FEED</Text>
+          <Text style={styles.sectionTitle}>{sharedPostId ? "공유된 피드" : "최신 피드"}</Text>
+        </View>
+        {!sharedPostId ? (
+          <Pressable
+            accessibilityLabel={
+              feedLayout === "cards" ? "피드를 4열 목록으로 보기" : "피드를 카드로 보기"
+            }
+            accessibilityRole="button"
+            onPress={() => setFeedLayout((current) => (current === "cards" ? "grid" : "cards"))}
+            style={styles.layoutToggle}
+          >
+            <View style={styles.gridMark}>
+              {[0, 1, 2, 3].map((square) => (
+                <View
+                  key={square}
+                  style={[
+                    styles.gridMarkSquare,
+                    { backgroundColor: feedLayout === "grid" ? colors.primary : colors.ink },
+                  ]}
+                />
+              ))}
+            </View>
+          </Pressable>
+        ) : null}
         {sharedPostId ? (
           <Pressable
             accessibilityRole="button"
@@ -1030,36 +1268,7 @@ export default function FeedScreen() {
           </Pressable>
         ) : null}
       </View>
-      <View style={styles.hashtagSearchRow}>
-        <TextInput
-          accessibilityLabel="해시태그 검색"
-          autoCapitalize="none"
-          onChangeText={(value) => {
-            setHashtagSearch(value);
-            if (!value.trim()) setActiveHashtag(null);
-          }}
-          onSubmitEditing={() =>
-            setActiveHashtag(hashtagSearch.trim().replace(/^#/, "").toLowerCase() || null)
-          }
-          placeholder="#해시태그 검색"
-          placeholderTextColor={colors.muted}
-          returnKeyType="search"
-          style={styles.hashtagSearchInput}
-          value={hashtagSearch}
-        />
-        {normalizedHashtag ? (
-          <Pressable
-            onPress={() => {
-              setActiveHashtag(null);
-              setHashtagSearch("");
-            }}
-            style={styles.hashtagClear}
-          >
-            <Text style={styles.hashtagClearText}>전체</Text>
-          </Pressable>
-        ) : null}
-      </View>
-      {normalizedHashtag ? (
+      {feedLayout === "grid" && !sharedPostId && normalizedHashtag ? (
         <Text style={styles.hashtagResult}>#{normalizedHashtag} 피드만 보기</Text>
       ) : null}
       {loading && posts === null ? (
@@ -1069,213 +1278,284 @@ export default function FeedScreen() {
         <StatePanel state="error" message={error} onRetry={() => void reload()} />
       ) : null}
       {posts?.length === 0 ? <StatePanel state="empty" message="첫 기록을 공유해 보세요." /> : null}
-      {visiblePosts?.map((post) => {
-        const cheered = cheeredPosts.includes(post.id);
-        const commentsOpen = openComments.includes(post.id);
-        const bookmarked = bookmarkedPosts.includes(post.id);
-        const postAvatarSource = avatarSourceForUser(post.userId);
-        const postImageSource = post.mediaUrl ? { uri: post.mediaUrl } : feedImageSources[post.id];
-        return (
-          <View key={post.id} style={styles.post}>
-            <View style={styles.postHeader}>
+      {feedLayout === "grid" && !sharedPostId ? (
+        <View style={styles.feedGrid}>
+          {rankedPosts.map(({ post, source, reason }) => {
+            const postImageSource = post.mediaUrl
+              ? { uri: post.mediaUrl }
+              : feedImageSources[post.id];
+            return (
               <Pressable
-                accessibilityLabel={`${post.authorDisplayName} 프로필 보기`}
-                accessibilityRole="button"
-                onPress={() => openMemberProfile(post.userId)}
-                style={styles.authorRow}
+                key={post.id}
+                accessibilityLabel={`${post.authorDisplayName}의 ${sportLabels[post.sport]} 기록`}
+                onPress={() => router.push(feedPostHref(post.id))}
+                style={styles.feedGridCell}
               >
-                <View style={styles.authorAvatar}>
-                  {postAvatarSource ? (
-                    <Image source={postAvatarSource} style={styles.avatarImage} />
-                  ) : (
-                    <Text style={styles.authorInitial}>{post.authorDisplayName.slice(0, 1)}</Text>
-                  )}
-                </View>
-                <Text style={styles.author}>{post.authorDisplayName}</Text>
-              </Pressable>
-              <View style={styles.postHeaderMeta}>
-                {session?.user.id !== post.userId ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => void toggleFollow(post.userId)}
-                    style={[
-                      styles.followButton,
-                      followingIds.includes(post.userId) && styles.followButtonActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.followText,
-                        followingIds.includes(post.userId) && styles.followTextActive,
-                      ]}
-                    >
-                      {followBusyIds.includes(post.userId)
-                        ? "…"
-                        : followingIds.includes(post.userId)
-                          ? "팔로잉"
-                          : "+ 팔로우"}
+                {postImageSource ? (
+                  <Image source={postImageSource} resizeMode="cover" style={styles.feedGridImage} />
+                ) : post.workoutSummary ? (
+                  <FeedGridWorkoutSummary post={post} styles={styles} />
+                ) : (
+                  <View style={styles.feedGridRecord}>
+                    <Text style={styles.feedGridSport}>{sportLabels[post.sport]}</Text>
+                    <Text numberOfLines={3} style={styles.feedGridCopy}>
+                      {post.content}
                     </Text>
-                  </Pressable>
+                  </View>
+                )}
+                {source === "recommended" ? (
+                  <View style={styles.recommendationDot} accessibilityLabel={`추천: ${reason}`} />
                 ) : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        rankedPosts.map(({ post, source, reason }) => {
+          const cheered = Boolean(post.likedByMe);
+          const commentsOpen = openComments.includes(post.id);
+          const bookmarked = bookmarkedPosts.includes(post.id);
+          const postAvatarSource = avatarSourceForUser(post.userId);
+          const postImageSource = post.mediaUrl
+            ? { uri: post.mediaUrl }
+            : feedImageSources[post.id];
+          return (
+            <Pressable
+              accessibilityHint="해당 피드만 자세히 봅니다."
+              accessibilityLabel={`${post.authorDisplayName}의 ${sportLabels[post.sport]} 피드 열기`}
+              accessibilityRole="button"
+              key={post.id}
+              onPress={() => {
+                if (!sharedPostId) router.push(feedPostHref(post.id));
+              }}
+              style={({ pressed }) => [styles.post, pressed && !sharedPostId && styles.postPressed]}
+            >
+              {source === "recommended" ? (
+                <View style={styles.recommendationLabel}>
+                  <Text style={styles.recommendationLabelText}>추천 · {reason}</Text>
+                </View>
+              ) : null}
+              <View style={styles.postHeader}>
+                <Pressable
+                  accessibilityLabel={`${post.authorDisplayName} 프로필 보기`}
+                  accessibilityRole="button"
+                  onPress={() => openMemberProfile(post.userId)}
+                  style={styles.authorRow}
+                >
+                  <View style={styles.authorAvatar}>
+                    {postAvatarSource ? (
+                      <Image source={postAvatarSource} style={styles.avatarImage} />
+                    ) : (
+                      <Text style={styles.authorInitial}>{post.authorDisplayName.slice(0, 1)}</Text>
+                    )}
+                  </View>
+                  <Text style={styles.author}>{post.authorDisplayName}</Text>
+                </Pressable>
                 {session?.user.id !== post.userId ? (
                   <Pressable
                     accessibilityLabel="게시물 신고"
                     accessibilityRole="button"
+                    hitSlop={8}
                     onPress={() => reportContent("post", post.id)}
+                    style={styles.reportButton}
                   >
                     <Text style={styles.reportText}>신고</Text>
                   </Pressable>
                 ) : null}
-                <Text style={styles.time}>{relativeTime(post.createdAt)}</Text>
-                {session?.user.id === post.userId ? (
-                  <Pressable
-                    accessibilityLabel="내 게시물 삭제"
-                    accessibilityRole="button"
-                    hitSlop={8}
-                    onPress={() => setDeleteTargetPost(post)}
-                    style={styles.deletePostButton}
-                  >
-                    <Text style={styles.deletePostText}>삭제</Text>
-                  </Pressable>
-                ) : null}
+                <View style={styles.postHeaderMeta}>
+                  <Text style={styles.time}>{relativeTime(post.createdAt)}</Text>
+                  {session?.user.id !== post.userId ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => void toggleFollow(post.userId)}
+                      disabled={followBusyIds.includes(post.userId)}
+                      style={[
+                        styles.followButton,
+                        followingIds.includes(post.userId) && styles.followButtonActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.followText,
+                          followingIds.includes(post.userId) && styles.followTextActive,
+                        ]}
+                      >
+                        {followBusyIds.includes(post.userId)
+                          ? "…"
+                          : followingIds.includes(post.userId)
+                            ? "팔로잉"
+                            : "+ 팔로우"}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {session?.user.id === post.userId ? (
+                    <Pressable
+                      accessibilityLabel="내 게시물 삭제"
+                      accessibilityRole="button"
+                      hitSlop={8}
+                      onPress={() => setDeleteTargetPost(post)}
+                      style={styles.deletePostButton}
+                    >
+                      <Text style={styles.deletePostText}>삭제</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               </View>
-            </View>
-            {post.mediaUrl ? (
-              <PostArtwork uri={post.mediaUrl} label={`${sportLabels[post.sport]} 기록 카드`} />
-            ) : postImageSource ? (
-              <ImageBackground
-                accessibilityLabel={`${sportLabels[post.sport]} 운동 기록 사진`}
-                imageStyle={styles.feedArtworkImage}
-                resizeMode="cover"
-                source={postImageSource}
-                style={styles.feedArtwork}
-              >
-                <LinearGradient
-                  colors={gradients.imageOverlay.colors}
-                  end={gradients.imageOverlay.end}
-                  start={gradients.imageOverlay.start}
-                  style={StyleSheet.absoluteFill}
-                />
-                <Text style={styles.feedArtworkBrand}>GROOV STORY</Text>
-                <Text style={styles.feedArtworkSport}>{sportLabels[post.sport]}</Text>
-                <Text style={styles.feedArtworkMeta}>SHARED TODAY</Text>
-              </ImageBackground>
-            ) : (
-              <View
-                accessibilityLabel={`${sportLabels[post.sport]} 사진 없는 운동 기록`}
-                style={[styles.feedArtwork, styles.feedRecordArtwork]}
-              >
-                <Text style={styles.feedArtworkBrand}>GROOV RECORD</Text>
-                <Text style={styles.feedArtworkSport}>{sportLabels[post.sport]}</Text>
-                <Text style={styles.feedArtworkMeta}>VERIFIED ACTIVITY</Text>
-              </View>
-            )}
-            <Text style={styles.postCopy}>
-              {post.content.split(/(\s+)/).map((part, index) =>
-                part.startsWith("#") && part.length > 1 ? (
-                  <Text
-                    key={`${post.id}-tag-${index}`}
-                    onPress={() => {
-                      const tag = part.replace(/^#/, "").replace(/[^0-9A-Za-zㄱ-힝_].*$/, "");
-                      if (sharedPostId) router.setParams({ post: "" });
-                      setActiveHashtag(tag.toLowerCase());
-                      setHashtagSearch(`#${tag}`);
-                    }}
-                    style={styles.inlineHashtag}
-                  >
-                    {part}
-                  </Text>
-                ) : (
-                  part
-                ),
-              )}
-            </Text>
-            <View style={styles.postActions}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => toggle(post.id, cheeredPosts, setCheeredPosts)}
-                style={styles.action}
-              >
-                <Heart
-                  color={cheered ? colors.primary : colors.ink}
-                  fill={cheered ? colors.primary : "transparent"}
-                  size={20}
-                  strokeWidth={2}
-                />
-                <Text style={[styles.actionCount, cheered && styles.activeAction]}>
-                  {cheered ? 43 : 42}
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => toggle(post.id, openComments, setOpenComments)}
-                style={styles.action}
-              >
-                <MessageCircle color={colors.ink} size={20} strokeWidth={2} />
-                <Text style={styles.actionCount}>{post.comments.length}</Text>
-              </Pressable>
-              <Pressable
-                accessibilityLabel="탭에 공유하기"
-                accessibilityRole="button"
-                onPress={() => {
-                  setFeedNotice(null);
-                  setShareTargetPost(post);
-                }}
-                style={styles.action}
-              >
-                <TapShareIcon color={colors.ink} size={24} strokeWidth={2.05} />
-                <Text style={styles.actionCount}>
-                  {sharedCounts[post.id] ?? post.shareCount ?? 0}
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityLabel="이 기록을 존중하고 목표로 설정"
-                accessibilityRole="button"
-                onPress={() => {
-                  setGoalPrivate(false);
-                  setGoalPost(post);
-                }}
-                style={styles.bookmark}
-              >
-                <Bookmark
-                  color={bookmarked ? colors.primary : colors.ink}
-                  fill={bookmarked ? colors.primarySoft : "transparent"}
-                  size={20}
-                  strokeWidth={2}
-                />
-              </Pressable>
-            </View>
-            <View style={!commentsOpen && styles.hiddenComments}>
-              <PostComments
+              <FeedPostVisual
+                imageSource={postImageSource}
+                liked={cheered}
+                onLike={() => void saveLike(post, true)}
                 post={post}
-                token={session?.accessToken}
-                userId={session?.user.id}
-                avatarSource={avatarSourceForUser}
-                onProfile={openMemberProfile}
-                onReport={(id) => reportContent("comment", id)}
-                onNotice={setFeedNotice}
-                onChange={(comment) =>
-                  setPosts(
-                    (current) =>
-                      current?.map((item) =>
-                        item.id !== post.id
-                          ? item
-                          : {
-                              ...item,
-                              comments: item.comments.some((existing) => existing.id === comment.id)
-                                ? item.comments.map((existing) =>
-                                    existing.id === comment.id ? comment : existing,
-                                  )
-                                : [...item.comments, comment],
-                            },
-                      ) ?? null,
-                  )
-                }
+                styles={styles}
               />
-            </View>
+              {post.workoutSummary && feedPresentation(post) === "photo-separate-record" ? (
+                <FeedWorkoutSummary post={post} styles={styles} />
+              ) : null}
+              <Text style={styles.postCopy}>
+                {post.content.split(/(\s+)/).map((part, index) =>
+                  part.startsWith("#") && part.length > 1 ? (
+                    <Text
+                      key={`${post.id}-tag-${index}`}
+                      onPress={() => {
+                        const tag = part.replace(/^#/, "").replace(/[^0-9A-Za-zㄱ-힝_].*$/, "");
+                        if (sharedPostId) router.setParams({ post: "" });
+                        setActiveHashtag(tag.toLowerCase());
+                        setHashtagSearch(`#${tag}`);
+                      }}
+                      style={styles.inlineHashtag}
+                    >
+                      {part}
+                    </Text>
+                  ) : (
+                    part
+                  ),
+                )}
+              </Text>
+              <View style={styles.postActions}>
+                <Pressable
+                  accessibilityLabel={cheered ? "좋아요 취소" : "좋아요"}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: cheered }}
+                  onPress={() => void saveLike(post, !cheered)}
+                  style={styles.action}
+                >
+                  <Heart
+                    color={cheered ? colors.primary : colors.ink}
+                    fill={cheered ? colors.primary : "transparent"}
+                    size={20}
+                    strokeWidth={2}
+                  />
+                  <Text style={[styles.actionCount, cheered && styles.activeAction]}>
+                    {post.likeCount}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => toggle(post.id, openComments, setOpenComments)}
+                  style={styles.action}
+                >
+                  <MessageCircle color={colors.ink} size={20} strokeWidth={2} />
+                  <Text style={styles.actionCount}>{post.comments.length}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="탭에 공유하기"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setFeedNotice(null);
+                    setShareTargetPost(post);
+                  }}
+                  style={styles.action}
+                >
+                  <TapShareIcon color={colors.ink} size={24} strokeWidth={2.05} />
+                  <Text style={styles.actionCount}>
+                    {sharedCounts[post.id] ?? post.shareCount ?? 0}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="이 기록을 존중하고 목표로 설정"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setGoalPrivate(false);
+                    setGoalPost(post);
+                  }}
+                  style={styles.bookmark}
+                >
+                  <Bookmark
+                    color={bookmarked ? colors.primary : colors.ink}
+                    fill={bookmarked ? colors.primarySoft : "transparent"}
+                    size={20}
+                    strokeWidth={2}
+                  />
+                </Pressable>
+              </View>
+              <View style={!commentsOpen && styles.hiddenComments}>
+                <PostComments
+                  post={post}
+                  token={session?.accessToken}
+                  userId={session?.user.id}
+                  avatarSource={avatarSourceForUser}
+                  onProfile={openMemberProfile}
+                  onReport={(id) => reportContent("comment", id)}
+                  onNotice={setFeedNotice}
+                  onChange={(comment) =>
+                    setPosts(
+                      (current) =>
+                        current?.map((item) =>
+                          item.id !== post.id
+                            ? item
+                            : {
+                                ...item,
+                                comments: item.comments.some(
+                                  (existing) => existing.id === comment.id,
+                                )
+                                  ? item.comments.map((existing) =>
+                                      existing.id === comment.id ? comment : existing,
+                                    )
+                                  : [...item.comments, comment],
+                              },
+                        ) ?? null,
+                    )
+                  }
+                />
+              </View>
+            </Pressable>
+          );
+        })
+      )}
+      {feedLayout === "grid" && !sharedPostId ? (
+        <View style={styles.hashtagFooter}>
+          <Text style={styles.hashtagFooterTitle}>해시태그로 기록 찾기</Text>
+          <View style={styles.hashtagSearchRow}>
+            <TextInput
+              accessibilityLabel="해시태그 검색"
+              autoCapitalize="none"
+              onChangeText={(value) => {
+                setHashtagSearch(value);
+                if (!value.trim()) setActiveHashtag(null);
+              }}
+              onSubmitEditing={() =>
+                setActiveHashtag(hashtagSearch.trim().replace(/^#/, "").toLowerCase() || null)
+              }
+              placeholder="#러닝 #오운완"
+              placeholderTextColor={colors.muted}
+              returnKeyType="search"
+              style={styles.hashtagSearchInput}
+              value={hashtagSearch}
+            />
+            {normalizedHashtag ? (
+              <Pressable
+                onPress={() => {
+                  setActiveHashtag(null);
+                  setHashtagSearch("");
+                }}
+                style={styles.hashtagClear}
+              >
+                <Text style={styles.hashtagClearText}>전체</Text>
+              </Pressable>
+            ) : null}
           </View>
-        );
-      })}
+        </View>
+      ) : null}
     </Screen>
   );
 }
@@ -1321,6 +1601,310 @@ function extractHashtags(value: string) {
   return [
     ...new Set((value.match(/#[\p{L}\p{N}_]+/gu) ?? []).map((tag) => tag.slice(1).toLowerCase())),
   ];
+}
+
+function feedPresentation(post: FeedPost): FeedPresentation {
+  const selected = (
+    feedPresentations[post.id] ??
+    (post.mediaUrl ? "photo-separate-record" : post.workoutSummary ? "record-only" : "photo-only")
+  );
+  if ((selected === "photo-route-overlay" || selected === "route-only") && !supportsGpsRoute(post.sport)) {
+    return post.mediaUrl || feedImageSources[post.id] ? "photo-record-overlay" : "record-only";
+  }
+  return selected;
+}
+
+function supportsGpsRoute(sport: SportType) {
+  return sport === "running" || sport === "cycling" || sport === "hiking";
+}
+
+function FeedPostVisual({
+  imageSource,
+  liked,
+  onLike,
+  post,
+  styles,
+}: {
+  imageSource?: ImageSourcePropType | undefined;
+  liked: boolean;
+  onLike: () => void;
+  post: FeedPost;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const presentation = feedPresentation(post);
+  const route = post.sport === "cycling" ? cyclingRoute : post.sport === "hiking" ? hikingRoute : runningRoute;
+  const primary = feedOverlayPrimary(post);
+  return (
+    <FeedLikeSurface
+      label={`${post.authorDisplayName}의 ${sportLabels[post.sport]} 피드`}
+      liked={liked}
+      onLike={onLike}
+    >
+      {presentation === "record-only" && post.workoutSummary ? (
+        <FeedWorkoutSummary post={post} styles={styles} />
+      ) : presentation === "route-only" ? (
+        <View style={styles.routeOnlyVisual}>
+          <WorkoutMap
+            backgroundColor="#E6E3DC"
+            currentPoint={undefined}
+            height={340}
+            isSample
+            minimal
+            points={route}
+            primaryColor="#FF5A36"
+            showBadge={false}
+            staticMode
+          />
+          <View style={styles.routeOnlyMetric}>
+            <Text style={styles.visualEyebrow}>{sportLabels[post.sport]} ROUTE</Text>
+            <Text style={styles.routeOnlyValue}>{primary}</Text>
+          </View>
+        </View>
+      ) : post.mediaUrl ? (
+        <PostArtwork uri={post.mediaUrl} label={`${sportLabels[post.sport]} 기록 카드`} />
+      ) : imageSource ? (
+        <ImageBackground
+          accessibilityLabel={`${sportLabels[post.sport]} 운동 사진`}
+          imageStyle={styles.feedArtworkImage}
+          resizeMode="cover"
+          source={imageSource}
+          style={styles.feedArtwork}
+        >
+          {presentation !== "photo-only" ? (
+            <LinearGradient
+              colors={gradients.imageOverlay.colors}
+              end={gradients.imageOverlay.end}
+              start={gradients.imageOverlay.start}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : null}
+          {presentation === "photo-record-overlay" ? (
+            <View style={styles.photoMetricOverlay}>
+              <Text style={styles.visualEyebrow}>{sportLabels[post.sport]} RECORD</Text>
+              <Text style={styles.photoMetricValue}>{primary}</Text>
+              <Text style={styles.photoMetricMeta}>{feedOverlayMeta(post)}</Text>
+            </View>
+          ) : null}
+          {presentation === "photo-route-overlay" ? (
+            <View style={styles.photoRouteOverlay}>
+              <View style={styles.photoRouteTrace}>
+                <RouteTrace color="#FF5A36" points={route} strokeWidth={4} />
+              </View>
+              <Text style={styles.photoRouteValue}>{primary}</Text>
+            </View>
+          ) : null}
+        </ImageBackground>
+      ) : post.workoutSummary ? (
+        <FeedWorkoutSummary post={post} styles={styles} />
+      ) : null}
+    </FeedLikeSurface>
+  );
+}
+
+function feedOverlayPrimary(post: FeedPost) {
+  const metrics = post.workoutSummary?.metrics ?? {};
+  if (post.sport === "strength") return `${Math.round(metrics.sets ?? 0)} SETS`;
+  if (post.sport === "swimming") return `${Math.round(metrics.distanceM ?? (metrics.distanceKm ?? 0) * 1000)} M`;
+  return `${(metrics.distanceKm ?? (metrics.distanceM ?? 0) / 1000).toFixed(2)} KM`;
+}
+
+function feedOverlayMeta(post: FeedPost) {
+  const metrics = post.workoutSummary?.metrics ?? {};
+  const minutes = Math.round(metrics.durationMinutes ?? 0);
+  if (post.sport === "strength") return `${Math.round(metrics.exerciseCount ?? 0)} MOVES · ${Math.round(metrics.volumeKg ?? 0).toLocaleString()} KG`;
+  if (post.sport === "swimming") return `${minutes} MIN · ${Math.round(metrics.laps ?? 0)} LAPS`;
+  return `${minutes} MIN · ${Math.round(metrics.calories ?? 0)} KCAL`;
+}
+
+function FeedWorkoutSummary({
+  post,
+  styles,
+}: {
+  post: FeedPost;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const summary = post.workoutSummary!;
+  const metrics = summary.metrics;
+  const durationMinutes = Math.max(
+    0,
+    metrics.durationMinutes ??
+      (Date.parse(summary.endedAt) - Date.parse(summary.startedAt)) / 60_000,
+  );
+  const distanceKm = metrics.distanceKm ?? (metrics.distanceM ?? 0) / 1000;
+  const primary =
+    post.sport === "strength"
+      ? { value: `${Math.round(metrics.sets ?? 0)}`, unit: "SETS", label: "완료 세트" }
+      : post.sport === "swimming" && metrics.distanceM
+        ? { value: `${Math.round(metrics.distanceM)}`, unit: "M", label: "수영 거리" }
+        : distanceKm > 0
+          ? { value: distanceKm.toFixed(2), unit: "KM", label: "이동 거리" }
+          : { value: `${Math.round(durationMinutes)}`, unit: "MIN", label: "운동 시간" };
+  const secondary = workoutSecondaryMetrics(post.sport, metrics, durationMinutes).slice(0, 5);
+  const variant = recordCardVariant(post.id);
+  if (variant === "stub") {
+    return (
+      <View style={styles.recordTicketCard}>
+        <View style={styles.recordTicketRail}>
+          <Text style={styles.recordTicketRailText}>GROOV RECORD</Text>
+        </View>
+        <View style={styles.recordTicketBody}>
+          <View style={styles.recordTicketHeader}>
+            <View style={styles.recordTicketVerified}>
+              <Text style={styles.recordTicketVerifiedText}>{sportLabels[post.sport]}</Text>
+            </View>
+            <Text style={styles.recordTicketDate}>TODAY · VERIFIED</Text>
+          </View>
+          <View style={styles.recordTicketPrimary}>
+            <Text style={styles.recordTicketPrimaryValue}>{primary.value}</Text>
+            <Text style={styles.recordTicketPrimaryUnit}>{primary.unit}</Text>
+          </View>
+          <View style={styles.recordTicketCut} />
+          <View style={styles.recordTicketMetrics}>
+            {secondary.map((metric) => (
+              <View key={metric.label} style={styles.recordTicketMetric}>
+                <Text style={styles.recordTicketMetricValue}>{metric.value}</Text>
+                <Text style={styles.recordTicketMetricLabel}>{metric.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+    );
+  }
+  return (
+    <View style={[styles.workoutSummaryCard, styles.recordCardCore]}>
+      <View style={styles.recordCoreTag}>
+        <Text style={styles.recordCoreTagText}>{sportLabels[post.sport]}</Text>
+      </View>
+      <View style={styles.recordCoreCenter}>
+        <Text style={styles.recordCoreLabel}>{primary.label.toUpperCase()}</Text>
+        <Text style={styles.recordCoreValue}>{primary.value}</Text>
+        <Text style={styles.recordCoreUnit}>{primary.unit}</Text>
+      </View>
+      <View style={styles.workoutSummaryMetrics}>
+        {secondary.slice(0, 3).map((metric) => (
+          <View
+            key={metric.label}
+            style={styles.workoutSummaryMetric}
+          >
+            <Text style={styles.workoutSummaryMetricValue}>
+              {metric.value}
+            </Text>
+            <Text style={styles.workoutSummaryMetricLabel}>
+              {metric.label}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function FeedGridWorkoutSummary({
+  post,
+  styles,
+}: {
+  post: FeedPost;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const metrics = post.workoutSummary!.metrics;
+  const durationMinutes = Math.max(
+    0,
+    metrics.durationMinutes ??
+      (Date.parse(post.workoutSummary!.endedAt) - Date.parse(post.workoutSummary!.startedAt)) /
+        60_000,
+  );
+  const distanceKm = metrics.distanceKm ?? (metrics.distanceM ?? 0) / 1000;
+  const primary =
+    post.sport === "strength"
+      ? { value: `${Math.round(metrics.sets ?? 0)}`, unit: "SETS" }
+      : post.sport === "swimming" && metrics.distanceM
+        ? { value: `${Math.round(metrics.distanceM)}`, unit: "M" }
+        : distanceKm > 0
+          ? { value: distanceKm.toFixed(2), unit: "KM" }
+          : { value: `${Math.round(durationMinutes)}`, unit: "MIN" };
+  const secondary = workoutSecondaryMetrics(post.sport, metrics, durationMinutes).slice(0, 3);
+
+  if (recordCardVariant(post.id) === "stub") {
+    return (
+      <View style={styles.feedGridTicket}>
+        <View style={styles.feedGridTicketRail} />
+        <View style={styles.feedGridTicketBody}>
+          <Text style={styles.feedGridTicketSport}>{sportLabels[post.sport]}</Text>
+          <View style={styles.feedGridTicketPrimary}>
+            <Text style={styles.feedGridTicketValue}>{primary.value}</Text>
+            <Text style={styles.feedGridTicketUnit}>{primary.unit}</Text>
+          </View>
+          <View style={styles.feedGridTicketRule} />
+          <Text numberOfLines={1} style={styles.feedGridTicketMeta}>
+            {secondary.map((metric) => metric.value).join(" · ")}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.feedGridCore}>
+      <View style={styles.feedGridCoreTag}>
+        <Text style={styles.feedGridCoreTagText}>{sportLabels[post.sport]}</Text>
+      </View>
+      <View style={styles.feedGridCoreCenter}>
+        <Text style={styles.feedGridCoreValue}>{primary.value}</Text>
+        <Text style={styles.feedGridCoreUnit}>{primary.unit}</Text>
+      </View>
+      <View style={styles.feedGridCoreMetrics}>
+        {secondary.map((metric) => (
+          <Text key={metric.label} numberOfLines={1} style={styles.feedGridCoreMetric}>
+            {metric.value}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function recordCardVariant(postId: string) {
+  const checksum = [...postId].reduce((sum, character) => sum + character.charCodeAt(0), 0);
+  return checksum % 2 === 0 ? "core" : "stub";
+}
+
+function workoutSecondaryMetrics(
+  sport: SportType,
+  metrics: Record<string, number>,
+  durationMinutes: number,
+) {
+  const result = [{ label: "TIME", value: formatFeedDuration(durationMinutes) }];
+  if (sport === "strength") {
+    result.push({ label: "MOVES", value: `${Math.round(metrics.exerciseCount ?? 0)} moves` });
+    result.push({
+      label: "VOLUME",
+      value: `${Math.round(metrics.volumeKg ?? 0).toLocaleString()} kg`,
+    });
+  } else if (sport === "cycling") {
+    result.push({ label: "SPEED", value: `${(metrics.averageSpeedKmh ?? 0).toFixed(1)} km/h` });
+    result.push({ label: "ENERGY", value: `${Math.round(metrics.calories ?? 0)} kcal` });
+  } else if (sport === "running" && metrics.paceSeconds) {
+    result.push({ label: "PACE", value: formatFeedPace(metrics.paceSeconds) });
+    result.push({ label: "ENERGY", value: `${Math.round(metrics.calories ?? 0)} kcal` });
+  } else {
+    result.push({ label: "ELEVATION", value: `${Math.round(metrics.elevationGainM ?? 0)} m` });
+    result.push({ label: "ENERGY", value: `${Math.round(metrics.calories ?? 0)} kcal` });
+  }
+  return result;
+}
+
+function formatFeedDuration(minutes: number) {
+  const rounded = Math.max(0, Math.round(minutes));
+  if (rounded < 60) return `${rounded} min`;
+  const hours = Math.floor(rounded / 60);
+  const remainingMinutes = rounded % 60;
+  return `${hours}h ${String(remainingMinutes).padStart(2, "0")}m`;
+}
+
+function formatFeedPace(seconds: number) {
+  const rounded = Math.max(0, Math.round(seconds));
+  return `${Math.floor(rounded / 60)}′${String(rounded % 60).padStart(2, "0")}″/km`;
 }
 
 function relativeTime(value: string) {
@@ -1713,6 +2297,134 @@ function createStyles(colors: ThemeColors) {
       marginBottom: 4,
     },
     sectionTitle: { color: colors.ink, fontSize: 17, fontFamily: fonts.bold },
+    feedTitleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    layoutToggle: {
+      width: 42,
+      height: 42,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    gridMark: {
+      width: 21,
+      height: 21,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 3,
+    },
+    gridMarkSquare: { width: 9, height: 9, borderRadius: 1.5 },
+    feedGrid: { flexDirection: "row", flexWrap: "wrap", gap: 2 },
+    feedGridCell: {
+      width: "24.4%",
+      aspectRatio: 1,
+      backgroundColor: colors.surfaceMuted,
+      overflow: "hidden",
+      position: "relative",
+    },
+    feedGridImage: { width: "100%", height: "100%" },
+    feedGridRecord: {
+      flex: 1,
+      padding: 7,
+      justifyContent: "space-between",
+      backgroundColor: colors.ink,
+    },
+    feedGridSport: { color: colors.primary, fontSize: 7, fontFamily: fonts.bold },
+    feedGridCopy: {
+      color: colors.background,
+      fontSize: 8,
+      lineHeight: 11,
+      fontFamily: fonts.semibold,
+    },
+    feedGridCore: {
+      flex: 1,
+      backgroundColor: "#0A0A09",
+      padding: 7,
+      justifyContent: "space-between",
+      borderWidth: 1,
+      borderColor: "#2A1712",
+    },
+    feedGridCoreTag: {
+      alignSelf: "flex-start",
+      borderRadius: 8,
+      backgroundColor: colors.primary,
+      paddingHorizontal: 5,
+      paddingVertical: 3,
+    },
+    feedGridCoreTagText: {
+      color: "#0A0A09",
+      fontFamily: fonts.bold,
+      fontSize: 5,
+      letterSpacing: 0.5,
+    },
+    feedGridCoreCenter: { alignItems: "center" },
+    feedGridCoreValue: {
+      color: colors.primary,
+      fontFamily: fonts.displayExtra,
+      fontSize: 24,
+      letterSpacing: -1.5,
+      lineHeight: 27,
+    },
+    feedGridCoreUnit: {
+      color: colors.primary,
+      fontFamily: fonts.displayExtra,
+      fontSize: 5,
+      letterSpacing: 1.2,
+    },
+    feedGridCoreMetrics: {
+      flexDirection: "row",
+      gap: 3,
+      borderTopWidth: 1,
+      borderTopColor: "#2A1712",
+      paddingTop: 4,
+    },
+    feedGridCoreMetric: { flex: 1, color: colors.primary, fontFamily: fonts.bold, fontSize: 5 },
+    feedGridTicket: { flex: 1, flexDirection: "row", backgroundColor: "#0A0A09" },
+    feedGridTicketRail: { width: 13, backgroundColor: colors.primary },
+    feedGridTicketBody: { flex: 1, padding: 7, justifyContent: "space-between" },
+    feedGridTicketSport: { color: colors.primary, fontFamily: fonts.bold, fontSize: 6 },
+    feedGridTicketPrimary: { flexDirection: "row", alignItems: "baseline" },
+    feedGridTicketValue: {
+      color: colors.primary,
+      fontFamily: fonts.displayExtra,
+      fontSize: 22,
+      letterSpacing: -1.5,
+    },
+    feedGridTicketUnit: { color: colors.primary, fontFamily: fonts.bold, fontSize: 5, marginLeft: 3 },
+    feedGridTicketRule: { borderTopWidth: 1, borderStyle: "dashed", borderColor: "#442018" },
+    feedGridTicketMeta: { color: colors.primary, opacity: 0.7, fontFamily: fonts.bold, fontSize: 5 },
+    recommendationDot: {
+      position: "absolute",
+      right: 5,
+      top: 5,
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      backgroundColor: colors.primary,
+      borderWidth: 1,
+      borderColor: "#FFFFFF",
+    },
+    recommendationLabel: {
+      alignSelf: "flex-start",
+      borderRadius: radius.full,
+      backgroundColor: colors.primarySoft,
+      paddingHorizontal: 9,
+      paddingVertical: 4,
+      marginBottom: 8,
+    },
+    recommendationLabelText: { color: colors.primary, fontSize: 8, fontFamily: fonts.bold },
+    hashtagFooter: {
+      marginTop: 8,
+      marginBottom: 18,
+      paddingTop: 18,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      gap: 9,
+    },
+    hashtagFooterTitle: { color: colors.ink, fontSize: 12, fontFamily: fonts.bold },
     hashtagSearchRow: { flexDirection: "row", gap: 8, alignItems: "center" },
     hashtagSearchInput: {
       flex: 1,
@@ -1735,13 +2447,13 @@ function createStyles(colors: ThemeColors) {
     hashtagClearText: { color: colors.ink, fontSize: 10, fontFamily: fonts.bold },
     hashtagResult: { color: colors.primary, fontSize: 10, fontFamily: fonts.bold },
     post: { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: space[5] },
+    postPressed: { opacity: 0.96 },
     postHeader: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between",
       marginBottom: 10,
     },
-    authorRow: { flexDirection: "row", alignItems: "center", gap: 9 },
+    authorRow: { flexDirection: "row", alignItems: "center", gap: 9, minWidth: 0 },
     authorAvatar: {
       width: 31,
       height: 31,
@@ -1752,7 +2464,13 @@ function createStyles(colors: ThemeColors) {
     },
     authorInitial: { color: colors.primary, fontSize: 11, fontFamily: fonts.bold },
     author: { color: colors.ink, fontSize: 13, fontFamily: fonts.semibold },
-    postHeaderMeta: { flexDirection: "row", alignItems: "center", gap: 9 },
+    reportButton: { marginLeft: 7, paddingHorizontal: 2, paddingVertical: 5 },
+    postHeaderMeta: {
+      marginLeft: "auto",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 9,
+    },
     followButton: {
       minHeight: 28,
       borderRadius: 14,
@@ -1764,8 +2482,247 @@ function createStyles(colors: ThemeColors) {
     followButtonActive: { backgroundColor: colors.surfaceMuted },
     followText: { color: "#FFFFFF", fontSize: 9, fontFamily: fonts.bold },
     followTextActive: { color: colors.ink },
-    reportText: { color: colors.muted, fontSize: 9, fontFamily: fonts.medium },
+    reportText: { color: colors.muted, fontSize: 8, fontFamily: fonts.medium },
     time: { color: colors.muted, fontSize: 10, fontFamily: fonts.regular },
+    routeOnlyVisual: {
+      height: 340,
+      overflow: "hidden",
+      borderRadius: radius["2xl"],
+      position: "relative",
+    },
+    routeOnlyMetric: {
+      position: "absolute",
+      left: 16,
+      bottom: 16,
+      borderRadius: radius.md,
+      backgroundColor: "rgba(15,14,13,0.9)",
+      paddingHorizontal: 13,
+      paddingVertical: 10,
+    },
+    routeOnlyValue: { color: "#FFFFFF", fontSize: 22, fontFamily: fonts.displayExtra },
+    visualEyebrow: {
+      color: colors.primary,
+      fontSize: 8,
+      fontFamily: fonts.bold,
+      letterSpacing: 1.1,
+      marginBottom: 5,
+    },
+    photoMetricOverlay: { position: "absolute", left: 22, right: 22, bottom: 24 },
+    photoMetricValue: { color: "#FFFFFF", fontSize: 38, fontFamily: fonts.displayExtra },
+    photoMetricMeta: {
+      color: "rgba(255,255,255,0.72)",
+      fontSize: 9,
+      fontFamily: fonts.bold,
+      letterSpacing: 0.7,
+      marginTop: 3,
+    },
+    photoRouteOverlay: {
+      position: "absolute",
+      right: 18,
+      bottom: 18,
+      width: 150,
+      height: 92,
+      borderRadius: radius.lg,
+      backgroundColor: "rgba(12,12,12,0.72)",
+      overflow: "hidden",
+    },
+    photoRouteTrace: {
+      position: "absolute",
+      left: 8,
+      right: 8,
+      top: 7,
+      bottom: 26,
+    },
+    routeStroke: {
+      position: "absolute",
+      left: 9,
+      top: 38,
+      height: 3,
+      borderRadius: 2,
+      backgroundColor: colors.primary,
+    },
+    routeDot: {
+      position: "absolute",
+      right: 10,
+      top: 37,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: "#FFFFFF",
+      borderWidth: 2,
+      borderColor: colors.primary,
+    },
+    photoRouteValue: {
+      position: "absolute",
+      left: 10,
+      bottom: 8,
+      color: "#FFFFFF",
+      fontSize: 13,
+      fontFamily: fonts.bold,
+    },
+    workoutSummaryCard: {
+      marginTop: 10,
+      aspectRatio: 16 / 9,
+      borderRadius: 28,
+      backgroundColor: "#0A0A09",
+      borderWidth: 1,
+      borderColor: "#2A1712",
+      paddingHorizontal: 20,
+      paddingTop: 19,
+      paddingBottom: 18,
+      overflow: "hidden",
+    },
+    recordCardCore: { justifyContent: "space-between" },
+    recordCoreTag: {
+      alignSelf: "flex-start",
+      backgroundColor: colors.primary,
+      borderRadius: 20,
+      paddingHorizontal: 11,
+      paddingVertical: 6,
+    },
+    recordCoreTagText: {
+      color: "#0A0A09",
+      fontFamily: fonts.bold,
+      fontSize: 8,
+      letterSpacing: 1.2,
+    },
+    recordCoreCenter: { alignItems: "center" },
+    recordCoreLabel: {
+      color: colors.primary,
+      opacity: 0.62,
+      fontFamily: fonts.medium,
+      fontSize: 8,
+      letterSpacing: 1,
+    },
+    recordCoreValue: {
+      color: colors.primary,
+      fontFamily: fonts.displayExtra,
+      fontSize: 78,
+      letterSpacing: -5,
+      lineHeight: 88,
+    },
+    recordCoreUnit: {
+      color: colors.primary,
+      fontFamily: fonts.displayExtra,
+      fontSize: 9,
+      letterSpacing: 3,
+    },
+    recordTicketCard: {
+      marginTop: 10,
+      aspectRatio: 16 / 9,
+      flexDirection: "row",
+      borderRadius: 18,
+      overflow: "hidden",
+      backgroundColor: "#0A0A09",
+      borderWidth: 1,
+      borderColor: "#2A1712",
+    },
+    recordTicketRail: {
+      width: 54,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRightWidth: 2,
+      borderRightColor: "#0A0A09",
+      borderStyle: "dashed",
+    },
+    recordTicketRailText: {
+      color: "#0A0A09",
+      fontFamily: fonts.displayExtra,
+      fontSize: 8,
+      letterSpacing: 1.5,
+      width: 128,
+      textAlign: "center",
+      transform: [{ rotate: "-90deg" }],
+    },
+    recordTicketBody: {
+      flex: 1,
+      padding: 17,
+      justifyContent: "space-between",
+    },
+    recordTicketHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    recordTicketVerified: {
+      backgroundColor: colors.primary,
+      borderRadius: 18,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    recordTicketVerifiedText: {
+      color: "#0A0A09",
+      fontFamily: fonts.bold,
+      fontSize: 8,
+      letterSpacing: 1,
+    },
+    recordTicketDate: {
+      color: colors.primary,
+      opacity: 0.55,
+      fontFamily: fonts.medium,
+      fontSize: 8,
+      letterSpacing: 0.8,
+    },
+    recordTicketPrimary: {
+      flexDirection: "row",
+      alignItems: "baseline",
+      justifyContent: "flex-start",
+      paddingVertical: 6,
+    },
+    recordTicketPrimaryValue: {
+      color: colors.primary,
+      fontFamily: fonts.displayExtra,
+      fontSize: 54,
+      letterSpacing: -4,
+    },
+    recordTicketPrimaryUnit: {
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 10,
+      marginLeft: 7,
+    },
+    recordTicketCut: {
+      borderTopWidth: 1,
+      borderColor: "#442018",
+      borderStyle: "dashed",
+    },
+    recordTicketMetrics: {
+      flexDirection: "row",
+      gap: 8,
+      paddingTop: 10,
+    },
+    recordTicketMetric: { flex: 1 },
+    recordTicketMetricValue: {
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 10,
+    },
+    recordTicketMetricLabel: {
+      color: colors.primary,
+      opacity: 0.45,
+      fontFamily: fonts.medium,
+      fontSize: 7,
+      marginTop: 4,
+    },
+    workoutSummaryMetrics: {
+      flexDirection: "row",
+      gap: 8,
+      borderTopWidth: 1,
+      borderTopColor: "#2A1712",
+      paddingTop: 8,
+    },
+    workoutSummaryMetric: {
+      flex: 1,
+    },
+    workoutSummaryMetricValue: { color: colors.primary, fontSize: 11, fontFamily: fonts.bold },
+    workoutSummaryMetricLabel: {
+      color: colors.primary,
+      opacity: 0.48,
+      fontSize: 7,
+      fontFamily: fonts.medium,
+      marginTop: 3,
+    },
     feedArtwork: {
       width: "100%",
       aspectRatio: 4 / 5,
@@ -1796,6 +2753,14 @@ function createStyles(colors: ThemeColors) {
       letterSpacing: 1.2,
     },
     feedArtworkSport: { color: "#FFFFFF", fontSize: 30, fontFamily: fonts.bold },
+    feedRecordSummary: {
+      color: "rgba(255,255,255,0.82)",
+      fontSize: 12,
+      lineHeight: 17,
+      fontFamily: fonts.medium,
+      marginTop: 7,
+      maxWidth: "86%",
+    },
     feedArtworkMeta: {
       color: "rgba(255,255,255,0.5)",
       fontSize: 8,

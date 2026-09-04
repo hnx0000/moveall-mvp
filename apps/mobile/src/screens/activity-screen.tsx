@@ -3,7 +3,6 @@ import {
   type Medal,
   type Routine,
   type SportType,
-  type UserNotification,
   type WorkoutSession,
 } from "@moveall/contracts";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -32,7 +31,10 @@ import { WorkoutMap } from "../components/workout-map";
 import { type MapPoint } from "../components/workout-map.types";
 import { createGroovPulseAnimation, GroovPulseRings } from "../components/groov-pulse-rings";
 import { SportLogo } from "../../src/components/sport-logo";
-import { BellButton, Card, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
+import { Card, CenterDialog, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
+import { postWorkoutSettings } from "../post-workout-settings";
+import { workoutPostRoute } from "../post-workout-preference";
+import { NotificationBell } from "../components/notification-bell";
 import { markRecordGoalAchieved, readRecordGoals, workoutMeetsRecordGoal } from "../../src/goals";
 import { useAsyncData } from "../../src/hooks/use-async-data";
 import { fonts, radius, shadows, space, typography, type ThemeColors } from "../../src/theme";
@@ -121,9 +123,7 @@ export default function ActivityScreen() {
   const [savingRoutineId, setSavingRoutineId] = useState<string | null>(null);
   const [selectedSport, setSelectedSport] = useState<SportType>("running");
   const [recordingSport, setRecordingSport] = useState<SportType | null>(null);
-  const [notificationOpen, setNotificationOpen] = useState(false);
-  const [notifications, setNotifications] = useState<UserNotification[]>([]);
-  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [workoutToPost, setWorkoutToPost] = useState<WorkoutSession | null>(null);
   const [editingWorkout, setEditingWorkout] = useState<WorkoutSession | null>(null);
   const [editNotes, setEditNotes] = useState("");
   const [editExertion, setEditExertion] = useState("5");
@@ -135,7 +135,8 @@ export default function ActivityScreen() {
   const [previewLocation, setPreviewLocation] = useState<MapPoint | undefined>();
   const [liveTrack, setLiveTrack] = useState<WorkoutTrackPreview | null>(null);
   const currentTrack = recordingSport === selectedSport ? liveTrack : null;
-  const showActivityMap = currentTrack?.usesGps ?? homeGpsSports.includes(selectedSport);
+  const showActivityMap =
+    recordingSport === null && (currentTrack?.usesGps ?? homeGpsSports.includes(selectedSport));
   const mapPoints = currentTrack?.points ?? emptyTrack;
   const mapLocation = mapPoints.at(-1) ?? previewLocation;
   const activityGpsStatus = currentTrack?.status ?? gpsReadiness;
@@ -191,16 +192,6 @@ export default function ActivityScreen() {
       setDashboardLoading(false);
     }
   }, [session]);
-
-  useEffect(() => {
-    if (!notificationOpen || !session) return;
-    setNotificationsLoading(true);
-    void api
-      .notifications(session.accessToken)
-      .then(setNotifications)
-      .catch(() => setNotifications([]))
-      .finally(() => setNotificationsLoading(false));
-  }, [notificationOpen, session]);
 
   useFocusEffect(
     useCallback(() => {
@@ -453,43 +444,7 @@ export default function ActivityScreen() {
   }
 
   return (
-    <Screen
-      title=""
-      action={<BellButton onPress={() => setNotificationOpen((current) => !current)} />}
-    >
-      {notificationOpen ? (
-        <View style={styles.notice}>
-          {notificationsLoading ? (
-            <Text style={styles.noticeText}>알림을 불러오는 중입니다.</Text>
-          ) : notifications.length ? (
-            notifications.slice(0, 8).map((notification) => (
-              <Pressable
-                key={notification.id}
-                onPress={() => {
-                  if (!session || notification.readAt) return;
-                  void api
-                    .markNotificationRead(session.accessToken, notification.id)
-                    .then((updated) =>
-                      setNotifications((current) =>
-                        current.map((item) => (item.id === updated.id ? updated : item)),
-                      ),
-                    );
-                }}
-                style={[styles.noticeItem, notification.readAt && styles.noticeItemRead]}
-              >
-                <Text style={styles.noticeTitle}>{notification.title}</Text>
-                <Text style={styles.noticeText}>{notification.body}</Text>
-              </Pressable>
-            ))
-          ) : (
-            <Text style={styles.noticeText}>오늘 확인할 새 알림이 없습니다.</Text>
-          )}
-          <Pressable accessibilityRole="button" onPress={() => setNotificationOpen(false)}>
-            <Text style={styles.noticeClose}>닫기</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
+    <Screen title="" action={<NotificationBell />}>
       <View style={styles.activitySection}>
         <View style={styles.activityHeading}>
           <View>
@@ -681,12 +636,15 @@ export default function ActivityScreen() {
                   history={workouts}
                   onTrackChange={setLiveTrack}
                   onClose={() => setRecordingSport(null)}
-                  onSaved={async () => {
+                  onSaved={async (workout) => {
                     setRecordingSport(null);
-                    await loadDashboard();
+                    if (session && (await postWorkoutSettings.read(session.user.id))) {
+                      setWorkoutToPost(workout);
+                    }
+                    void loadDashboard();
                   }}
                   routines={routines}
-                  showMap={false}
+                  showMap
                   sport={recordingSport}
                 />
               ) : null}
@@ -696,6 +654,22 @@ export default function ActivityScreen() {
       </View>
 
       {dashboardError ? <Text style={styles.dashboardError}>{dashboardError}</Text> : null}
+
+      <CenterDialog
+        visible={workoutToPost !== null}
+        eyebrow="WORKOUT SAVED"
+        title="피드에 게시할까요?"
+        message="운동 기록은 저장됐어요. 사진과 기록을 꾸며 피드에 공유해보세요. 이 안내는 계정 및 보안 설정에서 끌 수 있어요."
+        confirmLabel="게시하기"
+        cancelLabel="기록만 저장"
+        onClose={() => setWorkoutToPost(null)}
+        onConfirm={() => {
+          if (!workoutToPost) return;
+          const route = workoutPostRoute(workoutToPost.id);
+          setWorkoutToPost(null);
+          router.push(route);
+        }}
+      />
 
       <Modal
         animationType="none"

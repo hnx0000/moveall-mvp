@@ -24,6 +24,7 @@ export type NativeHealthBridge = {
 const readTypesByPermission: Partial<Record<HealthPermission, string[]>> = {
   workout: [WorkoutTypeIdentifier],
   "heart-rate": ["HKQuantityTypeIdentifierHeartRate"],
+  "respiratory-rate": ["HKQuantityTypeIdentifierRespiratoryRate"],
   steps: ["HKQuantityTypeIdentifierStepCount"],
   distance: [
     "HKQuantityTypeIdentifierDistanceWalkingRunning",
@@ -103,11 +104,20 @@ const bridge: NativeHealthBridge = {
       workouts.map(async (workout): Promise<WorkoutSessionCreateInput | null> => {
         const sport = sportByActivityType.get(workout.workoutActivityType);
         if (!sport || workout.endDate <= workout.startDate) return null;
-        const [heartRates, steps] = await Promise.all([
+        const [heartRates, respiratoryRates, steps] = await Promise.all([
           safeQuantities("HKQuantityTypeIdentifierHeartRate", workout.startDate, workout.endDate),
+          safeQuantities(
+            "HKQuantityTypeIdentifierRespiratoryRate",
+            workout.startDate,
+            workout.endDate,
+          ),
           safeQuantities("HKQuantityTypeIdentifierStepCount", workout.startDate, workout.endDate),
         ]);
         const heartValues = heartRates.map((sample) => {
+          if (sample.unit === "count/s") return sample.quantity * 60;
+          return sample.quantity;
+        });
+        const respiratoryValues = respiratoryRates.map((sample) => {
           if (sample.unit === "count/s") return sample.quantity * 60;
           return sample.quantity;
         });
@@ -134,6 +144,9 @@ const bridge: NativeHealthBridge = {
                   averageHeartRateBpm: average(heartValues),
                   maximumHeartRateBpm: Math.max(...heartValues),
                 }
+              : {}),
+            ...(respiratoryValues.length
+              ? { averageRespiratoryRatePerMinute: average(respiratoryValues) }
               : {}),
             ...(workout.totalSwimmingStrokeCount?.quantity
               ? { totalStrokes: workout.totalSwimmingStrokeCount.quantity }
