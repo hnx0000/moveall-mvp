@@ -75,5 +75,14 @@ test("mobile league typography keeps long ranks and scores on one line", () => {
 test("district map labels show district, live rank and point value separately", () => {
   assert.match(regional, /item\.name\.replace\("구", ""\)/);
   assert.match(regional, /#\{regionRank\}/);
-  assert.match(regional, /region\.score\.toLocaleString\("ko-KR"\)\}pt/);
+  assert.match(regional, /area\.score\.toLocaleString\("ko-KR"\)\}pt/);
+  assert.match(regional, /mapSelectionCard/);
+});
+
+test("district interactions separate selection from double-tap zoom", () => {
+  assert.match(regional, /function handleAreaPress/);
+  assert.match(regional, /isDoubleTap/);
+  assert.match(regional, /now - lastAreaTap\.current\.at < 340/);
+  assert.match(regional, /if \(isDoubleTap && item\.province === "서울"\)/);
+  assert.match(regional, /level <= 2 && viewport\.width <= SEOUL_VIEW\.width/);
 });

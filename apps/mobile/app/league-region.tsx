@@ -59,6 +59,7 @@ export default function LeagueRegionScreen() {
   const [sport, setSport] = useState<(typeof sports)[number]>("전체");
   const [period, setPeriod] = useState<(typeof periods)[number]>("이번 주");
   const dragOrigin = useRef(viewport);
+  const lastAreaTap = useRef({ code: "", at: 0 });
   const selectedArea =
     koreaMunicipalities.find((item) => item.code === selectedCode) ?? seoulAreas[0]!;
   const ranked = useMemo(
@@ -95,7 +96,17 @@ export default function LeagueRegionScreen() {
 
   function selectArea(item: KoreaMunicipality) {
     setSelectedCode(item.code);
-    if (item.province === "서울") setViewport(focusViewport(item.center));
+  }
+
+  function handleAreaPress(item: KoreaMunicipality) {
+    const now = Date.now();
+    const isDoubleTap = lastAreaTap.current.code === item.code && now - lastAreaTap.current.at < 340;
+    lastAreaTap.current = { code: item.code, at: now };
+    setSelectedCode(item.code);
+    if (isDoubleTap && item.province === "서울") {
+      setViewport(focusViewport(item.center));
+      lastAreaTap.current = { code: "", at: 0 };
+    }
   }
 
   return (
@@ -145,7 +156,7 @@ export default function LeagueRegionScreen() {
                   d={item.path}
                   fill={heatColor(item.heat, selected)}
                   key={item.code}
-                  onPress={() => selectArea(item)}
+                  onPress={() => handleAreaPress(item)}
                   stroke={selected ? "#FFFFFF" : "rgba(255,224,210,.72)"}
                   strokeLinejoin="round"
                   strokeWidth={
@@ -157,22 +168,21 @@ export default function LeagueRegionScreen() {
               );
             })}
           </G>
-          {viewport.width <= SEOUL_VIEW.width * 1.15
+          {level <= 2 && viewport.width <= SEOUL_VIEW.width * 1.15
             ? seoulAreas.map((item) => {
                 const selected = selectedCode === item.code;
-                const region = detail(item, sport, period);
                 const regionRank = ranked.findIndex((candidate) => candidate.code === item.code) + 1;
-                const nameSize = Math.max(0.5, viewport.width / 29) * (selected ? 1.12 : 1);
-                const metaSize = Math.max(0.28, viewport.width / 52);
+                const nameSize = Math.max(0.34, viewport.width / 39) * (selected ? 1.08 : 1);
+                const metaSize = Math.max(0.2, viewport.width / 68);
                 return (
-                  <G key={`label-${item.code}`} onPress={() => selectArea(item)}>
+                  <G key={`label-${item.code}`} pointerEvents="none">
                     <SvgText
                       fill={selected ? "#FFFFFF" : "rgba(255,255,255,.88)"}
                       fontSize={nameSize}
                       fontWeight="800"
                       textAnchor="middle"
                       x={item.center[0]}
-                      y={item.center[1] - 0.34}
+                      y={item.center[1] - 0.12}
                     >
                       {item.name.replace("구", "")}
                     </SvgText>
@@ -182,19 +192,9 @@ export default function LeagueRegionScreen() {
                       fontWeight="700"
                       textAnchor="middle"
                       x={item.center[0]}
-                      y={item.center[1] + 0.16}
+                      y={item.center[1] + 0.3}
                     >
                       #{regionRank}
-                    </SvgText>
-                    <SvgText
-                      fill={selected ? "#FFFFFF" : "rgba(255,255,255,.64)"}
-                      fontSize={metaSize}
-                      fontWeight="600"
-                      textAnchor="middle"
-                      x={item.center[0]}
-                      y={item.center[1] + 0.6}
-                    >
-                      {region.score.toLocaleString("ko-KR")}pt
                     </SvgText>
                   </G>
                 );
@@ -205,34 +205,37 @@ export default function LeagueRegionScreen() {
                 const angle = (Math.PI * 2 * index) / neighborhoods.length;
                 const x = area.center[0] + Math.cos(angle) * 1.35;
                 const y = area.center[1] + Math.sin(angle) * 0.85;
+                const hotspotNameSize = Math.max(0.1, viewport.width / 42);
+                const hotspotMetaSize = Math.max(0.075, viewport.width / 58);
+                const hotspotRadius = Math.max(0.08, viewport.width / 90);
                 return (
                   <G key={name}>
                     <Circle
                       cx={x}
                       cy={y}
                       fill={index === 0 ? colors.primary : "rgba(255,255,255,.16)"}
-                      r={0.2 + index * 0.025}
+                      r={hotspotRadius}
                       stroke="#FFFFFF"
-                      strokeWidth={0.04}
+                      strokeWidth={Math.max(0.018, viewport.width / 360)}
                     />
                     <SvgText
                       fill="#FFFFFF"
-                      fontSize={0.34}
+                      fontSize={hotspotNameSize}
                       fontWeight="700"
                       textAnchor="middle"
                       x={x}
-                      y={y - 0.32}
+                      y={y - hotspotRadius - hotspotNameSize * 0.55}
                     >
                       {name}
                     </SvgText>
                     <SvgText
                       fill="rgba(255,255,255,.7)"
-                      fontSize={0.27}
+                      fontSize={hotspotMetaSize}
                       textAnchor="middle"
                       x={x}
-                      y={y + 0.5}
+                      y={y + hotspotRadius + hotspotMetaSize * 1.5}
                     >
-                      #{index + 1} · {(area.score - index * 690).toLocaleString("ko-KR")}
+                      #{index + 1} · {(area.score - index * 690).toLocaleString("ko-KR")}pt
                     </SvgText>
                   </G>
                 );
@@ -262,12 +265,20 @@ export default function LeagueRegionScreen() {
             <LocateFixed color="#FFFFFF" size={16} />
           </Pressable>
         </View>
-        <View pointerEvents="none" style={styles.mapStatus}>
-          <Text style={styles.mapStatusTitle}>
-            {level > 2 ? "동네 핫스폿" : viewport.width > 80 ? "전국" : "서울 25개 구"}
-          </Text>
-          <Text style={styles.mapStatusCopy}>드래그 · 확대 · 지역 선택</Text>
-        </View>
+        <Pressable
+          accessibilityLabel={`${area.name} ${rank}위 ${area.score.toLocaleString("ko-KR")}포인트, 선택 지역 확대`}
+          onPress={() => area.province === "서울" && setViewport(focusViewport(area.center))}
+          style={({ pressed }) => [styles.mapSelectionCard, pressed && styles.mapSelectionCardPressed]}
+        >
+          <Text style={styles.mapSelectionEyebrow}>{area.province} · {period}</Text>
+          <Text numberOfLines={1} style={styles.mapSelectionName}>{area.name.replace("구", "")}</Text>
+          <View style={styles.mapSelectionStats}>
+            <Text style={styles.mapSelectionRank}>#{rank}</Text>
+            <View style={styles.mapSelectionDivider} />
+            <Text adjustsFontSizeToFit minimumFontScale={0.72} numberOfLines={1} style={styles.mapSelectionScore}>{area.score.toLocaleString("ko-KR")}pt</Text>
+          </View>
+          <Text style={styles.mapSelectionHint}>{level > 2 ? "동네 핫스폿 · 서울 전체로 복귀 가능" : "한 번 선택 · 두 번 확대"}</Text>
+        </Pressable>
       </View>
       <View style={styles.mapQuick}>
         <Pressable onPress={() => setViewport(NATIONAL_VIEW)}>
@@ -479,21 +490,30 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "center",
     },
-    mapStatus: {
+    mapSelectionCard: {
       position: "absolute",
       left: 12,
       bottom: 12,
-      backgroundColor: "rgba(20,17,15,.82)",
-      borderRadius: radius.md,
-      paddingHorizontal: 11,
-      paddingVertical: 8,
+      width: 176,
+      backgroundColor: "rgba(16,14,13,.9)",
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,.18)",
+      paddingHorizontal: 13,
+      paddingVertical: 11,
     },
-    mapStatusTitle: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
-    mapStatusCopy: {
+    mapSelectionCardPressed: { transform: [{ scale: 0.98 }], borderColor: colors.primary },
+    mapSelectionEyebrow: { color: colors.primary, fontFamily: fonts.displayExtra, fontSize: 8, letterSpacing: 0.8 },
+    mapSelectionName: { color: "#FFFFFF", fontFamily: fonts.displayExtra, fontSize: 24, letterSpacing: -0.8, marginTop: 3 },
+    mapSelectionStats: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 2 },
+    mapSelectionRank: { color: colors.primary, fontFamily: fonts.displayExtra, fontSize: 15 },
+    mapSelectionDivider: { width: 1, height: 13, backgroundColor: "rgba(255,255,255,.2)" },
+    mapSelectionScore: { flex: 1, color: "#FFFFFF", fontFamily: fonts.displayExtra, fontSize: 14 },
+    mapSelectionHint: {
       color: "rgba(255,255,255,.55)",
       fontFamily: fonts.regular,
       fontSize: 8,
-      marginTop: 2,
+      marginTop: 5,
     },
     mapQuick: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 9 },
     quickText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
