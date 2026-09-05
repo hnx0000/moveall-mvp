@@ -62,3 +62,18 @@ test("regional dashboard includes heat, participation, score, ranker and rivals"
     assert.match(regional, new RegExp(label));
   assert.match(regional, /router\.back\(\)/);
 });
+
+test("mobile league typography keeps long ranks and scores on one line", () => {
+  assert.match(league, /useWindowDimensions/);
+  assert.match(league, /heroStatsCompact/);
+  assert.match(league, /adjustsFontSizeToFit/);
+  assert.match(league, /rankNumber: \{ width: 40/);
+  assert.match(regional, /minimumFontScale=\{0\.65\}/);
+  assert.match(regional, /rankNumber: \{[^}]*width: 38/);
+});
+
+test("district map labels show district, live rank and point value separately", () => {
+  assert.match(regional, /item\.name\.replace\("구", ""\)/);
+  assert.match(regional, /#\{regionRank\}/);
+  assert.match(regional, /region\.score\.toLocaleString\("ko-KR"\)\}pt/);
+});

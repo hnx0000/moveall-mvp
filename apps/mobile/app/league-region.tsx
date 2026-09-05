@@ -158,20 +158,47 @@ export default function LeagueRegionScreen() {
             })}
           </G>
           {viewport.width <= SEOUL_VIEW.width * 1.15
-            ? seoulAreas.map((item) => (
-                <SvgText
-                  fill={selectedCode === item.code ? "#FFFFFF" : "rgba(255,255,255,.82)"}
-                  fontSize={Math.max(0.48, viewport.width / 26)}
-                  fontWeight="700"
-                  key={`label-${item.code}`}
-                  onPress={() => selectArea(item)}
-                  textAnchor="middle"
-                  x={item.center[0]}
-                  y={item.center[1]}
-                >
-                  {item.name.replace("구", "")}
-                </SvgText>
-              ))
+            ? seoulAreas.map((item) => {
+                const selected = selectedCode === item.code;
+                const region = detail(item, sport, period);
+                const regionRank = ranked.findIndex((candidate) => candidate.code === item.code) + 1;
+                const nameSize = Math.max(0.5, viewport.width / 29) * (selected ? 1.12 : 1);
+                const metaSize = Math.max(0.28, viewport.width / 52);
+                return (
+                  <G key={`label-${item.code}`} onPress={() => selectArea(item)}>
+                    <SvgText
+                      fill={selected ? "#FFFFFF" : "rgba(255,255,255,.88)"}
+                      fontSize={nameSize}
+                      fontWeight="800"
+                      textAnchor="middle"
+                      x={item.center[0]}
+                      y={item.center[1] - 0.34}
+                    >
+                      {item.name.replace("구", "")}
+                    </SvgText>
+                    <SvgText
+                      fill={selected ? "#FFFFFF" : "rgba(255,255,255,.72)"}
+                      fontSize={metaSize}
+                      fontWeight="700"
+                      textAnchor="middle"
+                      x={item.center[0]}
+                      y={item.center[1] + 0.16}
+                    >
+                      #{regionRank}
+                    </SvgText>
+                    <SvgText
+                      fill={selected ? "#FFFFFF" : "rgba(255,255,255,.64)"}
+                      fontSize={metaSize}
+                      fontWeight="600"
+                      textAnchor="middle"
+                      x={item.center[0]}
+                      y={item.center[1] + 0.6}
+                    >
+                      {region.score.toLocaleString("ko-KR")}pt
+                    </SvgText>
+                  </G>
+                );
+              })
             : null}
           {level > 2
             ? neighborhoods.map((name, index) => {
@@ -257,7 +284,7 @@ export default function LeagueRegionScreen() {
       <FilterRow values={sports} selected={sport} onSelect={setSport} styles={styles} />
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
-          <View>
+          <View style={styles.panelHeaderCopy}>
             <Text style={styles.eyebrow}>
               {area.province} · {area.heatLevel} {area.heat}° · {period}
             </Text>
@@ -266,7 +293,7 @@ export default function LeagueRegionScreen() {
               {area.change >= 0 ? `▲ ${area.change}` : `▼ ${Math.abs(area.change)}`} 지난 기간 대비
             </Text>
           </View>
-          <Text style={styles.place}>#{rank}</Text>
+          <Text adjustsFontSizeToFit minimumFontScale={0.65} numberOfLines={1} style={styles.place}>#{rank}</Text>
         </View>
         <View style={styles.stats}>
           <Stat label="지역 인원" value={area.members.toLocaleString("ko-KR")} styles={styles} />
@@ -320,13 +347,13 @@ export default function LeagueRegionScreen() {
         {rankerNames.slice(0, 5).map((name, index) => (
           <View key={name} style={styles.rankRow}>
             <Text style={styles.rankNumber}>{index + 1}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rankName}>{name}</Text>
-              <Text style={styles.rankMeta}>
+            <View style={styles.rankCopy}>
+              <Text numberOfLines={1} style={styles.rankName}>{name}</Text>
+              <Text numberOfLines={1} style={styles.rankMeta}>
                 {sport} · 활동 {9 - index}회 · {index < 2 ? "▲ 상승" : "— 유지"}
               </Text>
             </View>
-            <Text style={styles.rankScore}>{(area.score * 0.09 - index * 287).toFixed(0)}pt</Text>
+            <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={styles.rankScore}>{(area.score * 0.09 - index * 287).toFixed(0)}pt</Text>
           </View>
         ))}
       </View>
@@ -334,14 +361,14 @@ export default function LeagueRegionScreen() {
         <Text style={styles.sectionTitle}>인접 경쟁 지역</Text>
         {rivals.map((item) => (
           <Pressable key={item.code} onPress={() => selectArea(item)} style={styles.rivalRow}>
-            <View>
-              <Text style={styles.rankName}>{item.name}</Text>
-              <Text style={styles.rankMeta}>
+            <View style={styles.rivalCopy}>
+              <Text numberOfLines={1} style={styles.rankName}>{item.name}</Text>
+              <Text numberOfLines={1} style={styles.rankMeta}>
                 {item.heatLevel} · 우리 지역과{" "}
                 {Math.abs(item.score - area.score).toLocaleString("ko-KR")}점 차이
               </Text>
             </View>
-            <Text style={styles.rankScore}>{item.score.toLocaleString("ko-KR")}pt</Text>
+            <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={styles.rankScore}>{item.score.toLocaleString("ko-KR")}pt</Text>
           </Pressable>
         ))}
       </View>
@@ -406,7 +433,7 @@ function Stat({
 }) {
   return (
     <View style={styles.stat}>
-      <Text style={styles.statValue}>{value}</Text>
+      <Text adjustsFontSizeToFit minimumFontScale={0.68} numberOfLines={1} style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
@@ -491,10 +518,11 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.surface,
       padding: 16,
     },
-    panelHeader: { flexDirection: "row", justifyContent: "space-between" },
+    panelHeader: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
+    panelHeaderCopy: { flex: 1, minWidth: 0 },
     districtName: { color: colors.ink, fontFamily: fonts.bold, fontSize: 25, marginTop: 2 },
     change: { color: colors.muted, fontFamily: fonts.medium, fontSize: 8, marginTop: 3 },
-    place: { color: colors.primary, fontFamily: fonts.displayExtra, fontSize: 35 },
+    place: { maxWidth: 104, flexShrink: 1, color: colors.primary, fontFamily: fonts.displayExtra, fontSize: 35, textAlign: "right" },
     stats: {
       flexDirection: "row",
       borderTopWidth: 1,
@@ -503,9 +531,9 @@ function createStyles(colors: ThemeColors) {
       paddingVertical: 13,
       marginTop: 10,
     },
-    stat: { flex: 1, paddingHorizontal: 4 },
-    statValue: { color: colors.ink, fontFamily: fonts.displayExtra, fontSize: 14 },
-    statLabel: { color: colors.muted, fontFamily: fonts.regular, fontSize: 7, marginTop: 2 },
+    stat: { flex: 1, minWidth: 0, paddingHorizontal: 3 },
+    statValue: { maxWidth: "100%", color: colors.ink, fontFamily: fonts.displayExtra, fontSize: 14 },
+    statLabel: { color: colors.muted, fontFamily: fonts.regular, fontSize: 8, marginTop: 2 },
     panelSubTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 10 },
     trend: { paddingTop: 13, gap: 8 },
     trendBars: { height: 42, flexDirection: "row", alignItems: "flex-end", gap: 5 },
@@ -533,10 +561,11 @@ function createStyles(colors: ThemeColors) {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
-    rankNumber: { color: colors.primary, fontFamily: fonts.displayExtra, fontSize: 17, width: 24 },
+    rankNumber: { color: colors.primary, fontFamily: fonts.displayExtra, fontSize: 17, width: 38, flexShrink: 0, textAlign: "center" },
+    rankCopy: { flex: 1, minWidth: 0 },
     rankName: { color: colors.ink, fontFamily: fonts.bold, fontSize: 11 },
     rankMeta: { color: colors.muted, fontFamily: fonts.regular, fontSize: 8, marginTop: 2 },
-    rankScore: { color: colors.ink, fontFamily: fonts.displayExtra, fontSize: 13 },
+    rankScore: { maxWidth: 104, flexShrink: 1, color: colors.ink, fontFamily: fonts.displayExtra, fontSize: 13, textAlign: "right" },
     rivalRow: {
       minHeight: 58,
       flexDirection: "row",
@@ -545,6 +574,7 @@ function createStyles(colors: ThemeColors) {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
+    rivalCopy: { flex: 1, minWidth: 0, paddingRight: 10 },
     notice: {
       flexDirection: "row",
       gap: 10,
