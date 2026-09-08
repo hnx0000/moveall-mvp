@@ -4,6 +4,7 @@ import {
   type Routine,
   type SportType,
   type WorkoutSession,
+  type WorkoutSessionCreateInput,
 } from "@moveall/contracts";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Location from "expo-location";
@@ -21,13 +22,20 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { createMutationAttempt } from "../api/mutation-attempt";
+import { activeWorkouts } from "../features/location/active-workout-runtime";
+import type { ActiveWorkoutCheckpoint } from "../features/location/active-workout-recovery";
+import { readBackgroundTrack, stopBackgroundTrack } from "../features/location/background-location";
+import { mergeTrackPointSources } from "../features/location/gps-track";
+import { pendingSaves, subscribePendingSaves } from "../api/pending-save-runtime";
+import { isNotificationIdentity } from "../features/notifications/push-lifecycle";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import {
   LiveWorkoutRecorder,
   type WorkoutTrackPreview,
 } from "../../src/components/live-workout-recorder";
-import { WorkoutMap } from "../components/workout-map";
+import { GroovCourseMap } from "../components/groov-course-map";
 import { type MapPoint } from "../components/workout-map.types";
 import { createGroovPulseAnimation, GroovPulseRings } from "../components/groov-pulse-rings";
 import { SportLogo } from "../../src/components/sport-logo";
@@ -40,6 +48,7 @@ import { useAsyncData } from "../../src/hooks/use-async-data";
 import { fonts, radius, shadows, space, typography, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 import { sortWorkoutsForDisplay } from "../../src/workout-display";
+import { formatWorkoutClock, workoutDurationMilliseconds } from "../workout-duration";
 import { aggregateSensorMetrics, formatSensorMetricLine } from "../../src/workout-metrics";
 
 const homeSportOrder: SportType[] = [
@@ -108,7 +117,13 @@ const workoutMetricEditFields: Record<
 
 export default function ActivityScreen() {
   const router = useRouter();
-  const { session } = useAuth();
+  const { session, loginLifetime } = useAuth();
+  const routineAttempts = useRef(
+    new Map<
+      string,
+      ReturnType<typeof createMutationAttempt<WorkoutSessionCreateInput, WorkoutSession>>
+    >(),
+  );
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
   const loader = useCallback(() => api.sports(), []);
@@ -123,6 +138,105 @@ export default function ActivityScreen() {
   const [savingRoutineId, setSavingRoutineId] = useState<string | null>(null);
   const [selectedSport, setSelectedSport] = useState<SportType>("running");
   const [recordingSport, setRecordingSport] = useState<SportType | null>(null);
+  const [recoverable, setRecoverable] = useState<ActiveWorkoutCheckpoint | null>(null);
+  const [restoredWorkout, setRestoredWorkout] = useState<ActiveWorkoutCheckpoint | null>(null);
+  const [recoveryReady, setRecoveryReady] = useState(false);
+  const [recoverySaving, setRecoverySaving] = useState(false);
+  const [confirmDiscardRecovery, setConfirmDiscardRecovery] = useState(false);
+  const recoveryBusyRef = useRef(false);
+  const [recoveryWorking, setRecoveryWorking] = useState(false);
+  useEffect(() => {
+    setRecordingSport(null);
+    setRestoredWorkout(null);
+    setRecoverable(null);
+    setRecoveryReady(false);
+    recoveryBusyRef.current = false;
+    setRecoveryWorking(false);
+    setConfirmDiscardRecovery(false);
+  }, [session?.user.id, loginLifetime]);
+  const recoveryCheck = useCallback(async () => {
+    if (!session) return;
+    const owner = session.user.id,
+      epoch = loginLifetime;
+    setRecoveryReady(false);
+    try {
+      const item = await activeWorkouts.read(owner);
+      const pending = await pendingSaves.list(owner);
+      if (!isNotificationIdentity(owner, epoch)) return;
+      setRecoverable(item);
+      setRecoverySaving(
+        !!item && pending.some((p) => p.kind === "workout.create" && p.key === item.id),
+      );
+      setRecoveryReady(true);
+    } catch {
+      if (isNotificationIdentity(owner, epoch))
+        setDashboardError(
+          "중단된 운동을 확인하지 못했습니다. 임시 기록을 보호하기 위해 새 측정을 잠시 잠갔습니다.",
+        );
+    }
+  }, [session?.user.id, loginLifetime]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!recordingSport) void recoveryCheck();
+    }, [recordingSport, recoveryCheck]),
+  );
+  useEffect(
+    () =>
+      subscribePendingSaves(() => {
+        if (!recordingSport) void recoveryCheck();
+      }),
+    [recordingSport, recoveryCheck],
+  );
+  const recoverWorkout = async () => {
+    if (
+      !session ||
+      !recoverable ||
+      recoverySaving ||
+      recoveryBusyRef.current ||
+      recoverable.owner !== session.user.id
+    )
+      return;
+    recoveryBusyRef.current = true;
+    setRecoveryWorking(true);
+    const owner = session.user.id,
+      epoch = loginLifetime;
+    try {
+      await stopBackgroundTrack();
+      const pending = await pendingSaves.list(owner);
+      if (!isNotificationIdentity(owner, epoch)) return;
+      if (pending.some((p) => p.key === recoverable.id)) {
+        setRecoverySaving(true);
+        return;
+      }
+      const buffered = await readBackgroundTrack(recoverable.id);
+      if (!isNotificationIdentity(owner, epoch)) return;
+      // Only previously confirmed time; do not fabricate movement across process death.
+      const points = mergeTrackPointSources(
+        recoverable.points,
+        buffered.filter((p) => p.timestamp <= recoverable.savedAt),
+        recoverable.sport,
+        recoverable.pauseBoundaries,
+      );
+      const restored = { ...recoverable, points };
+      const accepted = await activeWorkouts.write(restored);
+      if (!accepted) {
+        await recoveryCheck();
+        return;
+      }
+      if (!isNotificationIdentity(owner, epoch)) return;
+      setRestoredWorkout(restored);
+      setSelectedSport(restored.sport);
+      setRecordingSport(restored.sport);
+    } catch {
+      if (isNotificationIdentity(owner, epoch))
+        setDashboardError("임시 운동을 복구하지 못했습니다. 원본은 유지했습니다.");
+    } finally {
+      if (isNotificationIdentity(owner, epoch)) {
+        recoveryBusyRef.current = false;
+        setRecoveryWorking(false);
+      }
+    }
+  };
   const [workoutToPost, setWorkoutToPost] = useState<WorkoutSession | null>(null);
   const [editingWorkout, setEditingWorkout] = useState<WorkoutSession | null>(null);
   const [editNotes, setEditNotes] = useState("");
@@ -180,12 +294,16 @@ export default function ActivityScreen() {
       setRoutines(nextRoutines);
       setWorkouts(nextWorkouts);
       setMedals(nextMedals);
-      readRecordGoals()
-        .filter(
-          (goal) =>
-            !goal.achieved && nextWorkouts.some((workout) => workoutMeetsRecordGoal(goal, workout)),
-        )
-        .forEach((goal) => markRecordGoalAchieved(goal.id));
+      const goals = await readRecordGoals(session.user.id);
+      await Promise.all(
+        goals
+          .filter(
+            (goal) =>
+              !goal.achieved &&
+              nextWorkouts.some((workout) => workoutMeetsRecordGoal(goal, workout)),
+          )
+          .map((goal) => markRecordGoalAchieved(session.user.id, goal.id)),
+      );
     } catch {
       setDashboardError("운동 기록을 불러오지 못했습니다.");
     } finally {
@@ -313,6 +431,15 @@ export default function ActivityScreen() {
       completedSteps.length !== routineItems.length
     )
       return;
+    const owner = session.user.id,
+      lifetime = loginLifetime;
+    const isCurrent = () => isNotificationIdentity(owner, lifetime);
+    const attemptKey = `${owner}:${routine.id}:${new Date().toLocaleDateString("en-CA")}`;
+    let attempt = routineAttempts.current.get(attemptKey);
+    if (!attempt) {
+      attempt = createMutationAttempt<WorkoutSessionCreateInput, WorkoutSession>();
+      routineAttempts.current.set(attemptKey, attempt);
+    }
     setSavingRoutineId(routine.id);
     setDashboardError(null);
     try {
@@ -325,29 +452,36 @@ export default function ActivityScreen() {
       const previouslyEarned = new Set(
         medals.filter((medal) => medal.earned).map((medal) => medal.id),
       );
-      await api.createWorkoutSession(session.accessToken, {
-        sport: routine.sport,
-        startedAt: new Date(endedAt.getTime() - durationMinutes * 60_000).toISOString(),
-        endedAt: endedAt.toISOString(),
-        perceivedExertion: 6,
-        notes: `[routine:${routine.id}] ${routine.title} 완료`,
-        metrics: {
-          routineCompletion: 1,
-          calories: routineItems.length * 70,
-          ...(routine.sport === "strength"
-            ? {
-                exerciseCount: routineItems.length,
-                cycles: routineItems.length,
-                sets: strengthTotals.sets || routineItems.length,
-              }
-            : {}),
-        },
-        source: "manual",
-      });
+      await attempt.run(
+        owner,
+        async () => ({
+          sport: routine.sport,
+          startedAt: new Date(endedAt.getTime() - durationMinutes * 60_000).toISOString(),
+          endedAt: endedAt.toISOString(),
+          perceivedExertion: 6,
+          notes: `[routine:${routine.id}] ${routine.title} 완료`,
+          metrics: {
+            routineCompletion: 1,
+            calories: routineItems.length * 70,
+            ...(routine.sport === "strength"
+              ? {
+                  exerciseCount: routineItems.length,
+                  cycles: routineItems.length,
+                  sets: strengthTotals.sets || routineItems.length,
+                }
+              : {}),
+          },
+          source: "manual",
+        }),
+        (input, idempotencyKey) =>
+          api.createWorkoutSession(session.accessToken, input, { idempotencyKey }),
+        isCurrent,
+      );
       const [nextWorkouts, nextMedals] = await Promise.all([
         api.workouts(session.accessToken),
         api.medals(session.accessToken),
       ]);
+      if (!isCurrent()) return;
       const newMedal = nextMedals.find((medal) => medal.earned && !previouslyEarned.has(medal.id));
       setWorkouts(nextWorkouts);
       setMedals(nextMedals);
@@ -364,9 +498,14 @@ export default function ActivityScreen() {
       });
       setCompletionMessage(nextCompletionMessage);
     } catch {
-      setDashboardError("루틴 완료 기록을 저장하지 못했습니다.");
+      if (isCurrent())
+        setDashboardError(
+          attempt.committed
+            ? "루틴은 저장되었습니다. 다시 누르면 저장된 결과를 불러옵니다."
+            : "저장 결과를 확인하지 못했습니다. 다시 누르면 같은 요청을 확인합니다.",
+        );
     } finally {
-      setSavingRoutineId(null);
+      if (isCurrent()) setSavingRoutineId(null);
     }
   }
 
@@ -398,6 +537,7 @@ export default function ActivityScreen() {
       const rawValue = editMetrics[field.key]?.trim() ?? "";
       if (!rawValue) {
         delete nextMetrics[field.key];
+        if (field.key === "durationMinutes") delete nextMetrics.durationMilliseconds;
         continue;
       }
       const numericValue = Number(rawValue);
@@ -406,6 +546,9 @@ export default function ActivityScreen() {
         return;
       }
       nextMetrics[field.key] = numericValue;
+      if (field.key === "durationMinutes") {
+        nextMetrics.durationMilliseconds = Math.round(numericValue * 60_000);
+      }
     }
     setSavingRecordAction(true);
     setRecordActionError(null);
@@ -513,6 +656,77 @@ export default function ActivityScreen() {
               })}
             </ScrollView>
 
+            {recoverable && !recordingSport ? (
+              <Card>
+                <Text style={{ color: colors.ink, fontWeight: "700" }}>
+                  중단된 {sportLabels[recoverable.sport]} 운동이 있습니다
+                </Text>
+                <Text style={{ color: colors.muted }}>
+                  마지막 확인 시점까지 복구합니다. GPS와 타이머는 자동 재시작하지 않습니다.
+                </Text>
+                {recoverySaving ? (
+                  <Text style={{ color: colors.primary }}>
+                    미확인 저장 요청이 있습니다. 이전 저장 결과부터 확인해 주세요.
+                  </Text>
+                ) : (
+                  <>
+                    <PrimaryButton
+                      label="일시정지 상태로 불러오기"
+                      disabled={recoveryWorking}
+                      onPress={() => void recoverWorkout()}
+                    />
+                    <Pressable
+                      disabled={recoveryWorking}
+                      onPress={() => {
+                        if (!recoveryBusyRef.current) setConfirmDiscardRecovery(true);
+                      }}
+                    >
+                      <Text style={{ color: colors.muted }}>임시 기록 삭제</Text>
+                    </Pressable>
+                  </>
+                )}
+              </Card>
+            ) : null}
+            <CenterDialog
+              visible={confirmDiscardRecovery}
+              busy={recoveryWorking}
+              title="중단된 임시 기록을 삭제할까요?"
+              message="서버에 저장된 운동은 지우지 않습니다. 이 기기의 미저장 운동만 삭제합니다."
+              confirmLabel="임시 기록 삭제"
+              onClose={() => setConfirmDiscardRecovery(false)}
+              onConfirm={() => {
+                if (
+                  !session ||
+                  !recoverable ||
+                  recoverable.owner !== session.user.id ||
+                  recoveryBusyRef.current ||
+                  recoverySaving
+                )
+                  return;
+                recoveryBusyRef.current = true;
+                setRecoveryWorking(true);
+                const item = recoverable,
+                  epoch = loginLifetime;
+                void activeWorkouts
+                  .complete(session.user.id, item.id)
+                  .then(() => {
+                    if (isNotificationIdentity(item.owner, epoch)) {
+                      setConfirmDiscardRecovery(false);
+                      setRecoverable(null);
+                    }
+                  })
+                  .catch(() => {
+                    if (isNotificationIdentity(item.owner, epoch))
+                      setDashboardError("임시 기록을 삭제하지 못했습니다.");
+                  })
+                  .finally(() => {
+                    if (isNotificationIdentity(item.owner, epoch)) {
+                      recoveryBusyRef.current = false;
+                      setRecoveryWorking(false);
+                    }
+                  });
+              }}
+            />
             <Card style={styles.activityRecordCard}>
               <View style={styles.activityRecordedRow}>
                 <View>
@@ -539,7 +753,7 @@ export default function ActivityScreen() {
 
               {showActivityMap ? (
                 <View style={styles.activityMap}>
-                  <WorkoutMap
+                  <GroovCourseMap
                     backgroundColor={colors.map}
                     compact
                     currentPoint={mapLocation}
@@ -564,9 +778,10 @@ export default function ActivityScreen() {
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  disabled={recordingSport !== null}
+                  disabled={recordingSport !== null || !recoveryReady || !!recoverable}
                   onPress={() => {
                     setLiveTrack(null);
+                    setRestoredWorkout(null);
                     setRecordingSport(selectedSport);
                   }}
                   style={[
@@ -633,11 +848,18 @@ export default function ActivityScreen() {
 
               {recordingSport === selectedSport ? (
                 <LiveWorkoutRecorder
+                  key={restoredWorkout?.id ?? recordingSport}
+                  recovery={restoredWorkout}
                   history={workouts}
                   onTrackChange={setLiveTrack}
-                  onClose={() => setRecordingSport(null)}
+                  onClose={() => {
+                    setRecordingSport(null);
+                    setRestoredWorkout(null);
+                  }}
                   onSaved={async (workout) => {
                     setRecordingSport(null);
+                    setRestoredWorkout(null);
+                    setRecoverable(null);
                     if (session && (await postWorkoutSettings.read(session.user.id))) {
                       setWorkoutToPost(workout);
                     }
@@ -909,8 +1131,11 @@ export default function ActivityScreen() {
             </Text>
             <Pressable
               accessibilityRole="button"
-              disabled={recordingSport !== null}
-              onPress={() => setRecordingSport(selectedSport)}
+              disabled={recordingSport !== null || !recoveryReady || !!recoverable}
+              onPress={() => {
+                setRestoredWorkout(null);
+                setRecordingSport(selectedSport);
+              }}
               style={styles.historyStartButton}
             >
               <Text style={styles.historyStartButtonText}>첫 기록 시작</Text>
@@ -1370,8 +1595,7 @@ function averageMetricValues(values: number[]) {
 }
 
 function workoutDuration(workout: WorkoutSession) {
-  const elapsed = (Date.parse(workout.endedAt) - Date.parse(workout.startedAt)) / 1000;
-  return Math.max(0, Number.isFinite(elapsed) ? elapsed : 0);
+  return workoutDurationMilliseconds(workout) / 1000;
 }
 
 function strengthRoutineTotals(items: Routine["items"]) {
@@ -1407,14 +1631,7 @@ function weightedPace(workouts: WorkoutSession[], durationSeconds: number, dista
 }
 
 function formatClock(seconds: number) {
-  const centiseconds = Math.max(0, Math.round(seconds * 100));
-  const hours = Math.floor(centiseconds / 360_000);
-  const minutes = Math.floor((centiseconds % 360_000) / 6_000);
-  const remainingSeconds = Math.floor((centiseconds % 6_000) / 100);
-  const hundredths = centiseconds % 100;
-  return [hours, minutes, remainingSeconds, hundredths]
-    .map((value) => String(value).padStart(2, "0"))
-    .join(":");
+  return formatWorkoutClock(Math.round(seconds * 1000));
 }
 
 function formatPace(seconds: number) {

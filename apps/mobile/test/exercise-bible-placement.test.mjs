@@ -44,5 +44,6 @@ test("old feed links still redirect to Home with their parameters", () => {
 test("League no longer renders or loads the exercise Bible", () => {
   const league = read("../app/(tabs)/knowledge.tsx");
   assert.doesNotMatch(league, /운동 바이블|ExerciseBibleScreen|api\.knowledge/);
-  assert.match(league, /SEASON MATCH/);
+  assert.match(league, /REGIONAL LEAGUE \/ LIVE/);
+  assert.match(league, /api\.league/);
 });

@@ -14,3 +14,11 @@ apps/mobile/web-build/
 backups/
 *.dump
 *.dump.enc
+
+# Local working artifacts and private attachments are not source deliverables.
+/artifacts/
+/tmp/
+/.codex-remote-attachments/
+
+# Generated reusable map runtime (synced for dev/export).
+apps/mobile/public/groov-maps/

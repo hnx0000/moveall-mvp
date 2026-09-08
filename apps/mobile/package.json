@@ -4,11 +4,11 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "dev": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "build": "expo export --platform web --output-dir dist",
+    "dev": "node ../../scripts/sync-map-runtime.mjs && expo start",
+    "android": "node ../../scripts/sync-map-runtime.mjs && expo start --android",
+    "ios": "node ../../scripts/sync-map-runtime.mjs && expo start --ios",
+    "web": "node ../../scripts/sync-map-runtime.mjs && expo start --web",
+    "build": "node ../../scripts/sync-map-runtime.mjs && expo export --platform web --output-dir dist",
     "test": "node --experimental-strip-types --test test/*.test.mjs",
     "typecheck": "tsc --noEmit"
   },
@@ -56,6 +56,7 @@
     "react-native-svg": "15.15.4",
     "react-native-view-shot": "5.1.0",
     "react-native-web": "0.21.2",
+    "react-native-webview": "13.16.1",
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {

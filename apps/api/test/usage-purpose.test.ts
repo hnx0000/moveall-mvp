@@ -87,6 +87,7 @@ describe("stored signup intent", () => {
 
   it("enforces administrator access and returns aggregates without account data over HTTP", async () => {
     const store = new MemoryStore();
+    const adminUserIds: string[] = [];
     const app = await createApp({
       store,
       config: {
@@ -100,6 +101,7 @@ describe("stored signup intent", () => {
         googleClientIds: [],
         appleClientIds: [],
         adminEmails: ["admin@purpose.test"],
+        adminUserIds,
         devAuthBypass: false,
         mediaStorage: "disabled",
         supabaseMediaBucket: "groov-media",
@@ -122,6 +124,7 @@ describe("stored signup intent", () => {
         return { headers: { authorization: `Bearer ${data.accessToken}` }, id: data.user.id };
       };
       const admin = await register("admin");
+      adminUserIds.push(admin.id);
       const reader = await register("reader");
       const demo = await store.createUser({
         email: "minji@groov.demo",

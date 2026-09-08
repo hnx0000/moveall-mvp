@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#080808" />
+    <title>GROOV · 랭킹지도</title>
+    <link rel="stylesheet" href="assets/maplibre-gl.css" />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="map-upgrade.css" />
+    <link rel="stylesheet" href="mobile-map.css" />
+    <link rel="stylesheet" href="national-hud.css" />
+    <link rel="stylesheet" href="map-toolbar.css" />
+    <link rel="stylesheet" href="map-brand.css" />
+  </head>
+  <body>
+    <main class="game-shell" aria-label="GROOV 랭킹지도">
+      <div
+        id="map"
+        role="application"
+        aria-label="드래그와 확대가 가능한 대한민국 지역 리그 지도"
+      ></div>
+      <div class="map-noise" aria-hidden="true"></div>
+      <div class="map-grid" aria-hidden="true"></div>
+      <div class="edge-vignette" aria-hidden="true"></div>
+
+      <div class="skin-scan is-active" id="skin-scan" aria-hidden="true">
+        <img id="skin-image" src="assets/korea.png" alt="" />
+        <span></span>
+      </div>
+
+      <header class="top-hud map-header">
+        <div class="brand-lockup">
+          <div class="map-brand" aria-label="GROOV Street Atlas 2.5D">
+            <b class="map-brand-name">GROOV</b>
+            <i class="map-brand-divider" aria-hidden="true"></i>
+            <div class="map-brand-meta">STREET ATLAS <span>2.5D</span></div>
+          </div>
+          <a class="street-atlas-link" href="detail.html?view=explore">코스 지도 ↗</a>
+        </div>
+        <div class="season-lockup">
+          <span class="live-dot"></span>
+          <div>
+            <small>SEASON 01 · MVP SIMULATION</small><strong id="season-clock">06:18:42</strong>
+          </div>
+        </div>
+      </header>
+      <div class="national-region-switcher">
+      <button id="region-toggle" class="region-button is-active" type="button" aria-label="지역 선택" aria-expanded="false" aria-controls="region-menu">
+        <span id="region-short-code">KR</span><b id="region-current-name">전국</b>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <nav id="region-menu" class="region-rail" aria-label="지도 권역 선택" hidden>
+        <button class="region-button is-active" type="button" data-region="korea">
+          <span>KR</span><b>전국</b>
+        </button>
+        <button class="region-button" type="button" data-region="seoul">
+          <span>SL</span><b>서울</b>
+        </button>
+        <button class="region-button" type="button" data-region="gyeonggi">
+          <span>GG</span><b>경기</b>
+        </button>
+        <button class="region-button" type="button" data-region="gangwon">
+          <span>GW</span><b>강원</b>
+        </button>
+        <button class="region-button" type="button" data-region="chungcheong">
+          <span>CC</span><b>충청</b>
+        </button>
+        <button class="region-button" type="button" data-region="jeolla">
+          <span>JL</span><b>전라</b>
+        </button>
+        <button class="region-button" type="button" data-region="gyeongsang">
+          <span>GS</span><b>경상</b>
+        </button>
+        <button class="region-button" type="button" data-region="jeju">
+          <span>JJ</span><b>제주</b>
+        </button>
+      </nav>
+      </div>
+
+      <section class="score-hud" aria-label="전국 실시간 점수 현황">
+        <small id="score-eyebrow">NATIONAL SCORE BOARD</small>
+        <div class="score-main"><strong id="total-score">0</strong><span>PT</span></div>
+        <div class="score-sub">
+          <span><b id="active-people">0</b> 참여</span>
+          <span><b id="hot-count">0</b> 과열 지역</span>
+        </div>
+      </section>
+
+      <aside class="ranking-panel" id="ranking-panel" role="dialog" aria-modal="false" aria-labelledby="ranking-title" hidden>
+        <header>
+          <div>
+            <small id="ranking-eyebrow">NATIONAL FRONT</small>
+            <h1 id="ranking-title">전국 지역 랭킹</h1>
+          </div>
+          <div class="ranking-header-actions">
+            <button id="ranking-minimize" type="button" aria-label="랭킹 박스 접기" title="랭킹 박스 접기" aria-controls="ranking-content" aria-expanded="true">−</button>
+            <button id="ranking-close" type="button" aria-label="랭킹 모드 종료" title="랭킹 모드 종료">×</button>
+          </div>
+        </header>
+        <div class="ranking-content" id="ranking-content">
+        <section class="selection-card" id="selection-card" aria-live="polite">
+          <div class="selection-image"><img id="selection-image" src="assets/korea.png" alt="선택 지역 지도 스킨" /></div>
+          <div class="selection-copy">
+            <small id="selection-state">OVERHEAT FRONT</small>
+            <h2 id="selection-name">서울 · 성동구</h2>
+            <div class="selection-score"><strong id="selection-score">997,400</strong><span>PT</span><b id="selection-rank">#1</b></div>
+            <p><span id="selection-rate">84%</span> 참여 · 오늘 <b id="selection-delta">+2,481</b></p>
+          </div>
+          <button id="selection-focus" type="button">지역 집중 보기 ↗</button>
+        </section>
+        <p class="mobile-rank-summary" id="mobile-rank-summary"></p>
+        <ol id="ranking-list" class="ranking-list" aria-live="off"></ol>
+        <footer>
+          <div><span>MVP 점수 시뮬레이션</span><b id="last-sync">JUST NOW</b></div>
+          <button class="live-switch is-live" id="live-switch" type="button" aria-pressed="true" aria-label="점수 시뮬레이션 재생"><i></i><span>LIVE</span></button>
+        </footer>
+        </div>
+      </aside>
+
+      <div class="map-controls" aria-label="지도 조작">
+        <button type="button" id="tilt-toggle" aria-label="평면으로 전환"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5"/></svg></button>
+        <button type="button" id="compass" class="compass-button" aria-label="방향 초기화">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 7 17-7-4-7 4 7-17Zm0 0v13"/></svg>
+        </button>
+        <div class="zoom-control" role="group" aria-label="지도 확대·축소">
+          <button type="button" id="zoom-in" aria-label="지도 확대">＋</button>
+          <output id="national-zoom-value" aria-label="현재 지도 확대 배율" aria-live="off">—</output>
+          <button type="button" id="zoom-out" aria-label="지도 축소">−</button>
+        </div>
+        <button type="button" id="gps-locate" aria-label="현재 GPS 위치">
+          <span class="target-icon">⌾</span>
+        </button>
+        <button type="button" id="open-course" aria-label="이 위치에서 코스 설계">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="19" r="2"/><path d="M7 19h4c4 0 7-3 7-7M22 6c0 3-4 6-4 6s-4-3-4-6a4 4 0 0 1 8 0Z"/><circle cx="18" cy="6" r="1.2" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button type="button" id="ranking-toggle" aria-label="랭킹" aria-controls="ranking-panel" aria-expanded="false" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16M6 16v-5h4v5m4 0V4h4v12"/></svg>
+        </button>
+        <button type="button" id="reset-view" aria-label="전국 보기">↺</button>
+      </div>
+
+      <div class="heat-legend" aria-label="지역 열기 범례">
+        <span><i class="heat-stable"></i>안정</span>
+        <span><i class="heat-battle"></i>접전</span>
+        <span><i class="heat-over"></i>과열</span>
+        <em>밝기 = 열기</em>
+      </div>
+
+      <div class="gesture-hint">
+        <span>DRAG</span> 이동 · <span>PINCH / WHEEL</span> 확대 · <span>CLICK</span> 지역 선택
+      </div>
+      <div class="motion-burst" id="motion-burst" aria-hidden="true"></div>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+      <div class="loading-scene" id="loading-scene" aria-live="polite">
+        <img src="assets/korea.png" alt="" />
+        <div class="loading-core"><i></i><b>GROOV</b><span>BUILDING THE FRONT</span></div>
+        <div class="loading-progress"><i id="loading-progress"></i></div>
+      </div>
+
+    </main>
+
+    <script src="assets/maplibre-gl.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

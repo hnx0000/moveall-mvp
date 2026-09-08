@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { AppError } from "../domain/errors.js";
+import { requireNewFeedContent } from "../domain/post-content.js";
+import { MemoryOperationLedger, type OperationContext } from "../domain/mutation-operation.js";
 import {
   audienceAllows,
+  calculateLeaguePoints,
   firstUsagePurposeResponse,
   summarizeUsagePurposes,
   type UsagePurposeCohort,
@@ -19,6 +23,8 @@ import type {
   FeedPost,
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
+  LeagueQuery,
+  LeagueSnapshot,
   ModerationReportUpdateInput,
   OnboardingInput,
   OnboardingProfile,
@@ -43,11 +49,21 @@ import type {
   StoredPushDevice,
   User,
 } from "../domain/store.js";
+import {
+  buildLeagueSnapshot,
+  createLeagueEntry,
+  leagueRegionIdentity,
+  type LeagueActivity,
+  type LeagueEntry,
+  type LeagueMember,
+} from "../domain/league.js";
 
 export class MemoryStore implements AppStore {
+  private readonly operations = new MemoryOperationLedger();
   private readonly users = new Map<string, User>();
   private readonly routines: Routine[] = [];
   private readonly workouts: WorkoutSession[] = [];
+  private readonly leagueEntries: LeagueEntry[] = [];
   private readonly posts: FeedPost[] = [];
   private readonly sharingCrews: SharingCrew[] = [];
   private readonly commentLikes = new Map<string, Set<string>>();
@@ -123,6 +139,9 @@ export class MemoryStore implements AppStore {
     displayName: string;
     passwordHash: string;
   }): Promise<User> {
+    if ([...this.users.values()].some((user) => user.email === input.email)) {
+      throw new AppError(409, "EMAIL_EXISTS", "이미 가입된 이메일입니다.");
+    }
     const user: User = {
       id: randomUUID(),
       ...input,
@@ -143,17 +162,22 @@ export class MemoryStore implements AppStore {
     const linkedUserId = this.oauthIdentities.get(identityKey);
     if (linkedUserId) return this.users.get(linkedUserId)!;
 
-    const existing = await this.findUserByEmail(input.email);
-    const user =
-      existing ??
-      ({
-        id: randomUUID(),
-        email: input.email,
-        displayName: input.displayName,
-        avatarDataUri: null,
-        passwordHash: null,
-        createdAt: new Date().toISOString(),
-      } satisfies User);
+    // This check and insert must not yield between them.
+    if ([...this.users.values()].some((user) => user.email === input.email)) {
+      throw new AppError(
+        409,
+        "OAUTH_ACCOUNT_LINK_REQUIRED",
+        "이 이메일의 기존 계정이 있습니다. 기존 로그인 방식으로 로그인해 주세요. 계정은 자동으로 합쳐지지 않습니다.",
+      );
+    }
+    const user = {
+      id: randomUUID(),
+      email: input.email,
+      displayName: input.displayName,
+      avatarDataUri: null,
+      passwordHash: null,
+      createdAt: new Date().toISOString(),
+    } satisfies User;
     this.users.set(user.id, user);
     this.oauthIdentities.set(identityKey, user.id);
     return user;
@@ -166,13 +190,16 @@ export class MemoryStore implements AppStore {
     for (const session of this.authSessions.values()) {
       if (session.userId === userId) session.revokedAt = new Date().toISOString();
     }
+    for (const device of this.pushDevices) if (device.userId === userId) device.enabled = false;
     return true;
   }
 
   async deleteUserAccount(userId: string): Promise<boolean> {
     if (!this.users.delete(userId)) return false;
+    this.operations.clear(userId);
     this.removeWhere(this.routines, (item) => item.userId === userId);
     this.removeWhere(this.workouts, (item) => item.userId === userId);
+    this.removeWhere(this.leagueEntries, (item) => item.userId === userId);
     this.removeWhere(this.posts, (item) => item.userId === userId);
     this.removeWhere(this.sharingCrews, (item) => item.userId === userId);
     for (const crew of this.sharingCrews)
@@ -271,10 +298,12 @@ export class MemoryStore implements AppStore {
 
   async rotateAuthSession(input: {
     sessionId: string;
+    previousRefreshTokenHash: string;
     refreshTokenHash: string;
     expiresAt: string;
   }): Promise<StoredAuthSession | null> {
     const session = this.authSessions.get(input.sessionId);
+    if (session?.refreshTokenHash !== input.previousRefreshTokenHash) return null;
     if (!session || session.revokedAt || Date.parse(session.expiresAt) <= Date.now()) return null;
     const updated = {
       ...session,
@@ -289,6 +318,8 @@ export class MemoryStore implements AppStore {
   async revokeAuthSession(sessionId: string): Promise<void> {
     const session = this.authSessions.get(sessionId);
     if (session) session.revokedAt = new Date().toISOString();
+    for (const device of this.pushDevices)
+      if (device.sessionId === sessionId) device.enabled = false;
   }
 
   async listAuthSessions(userId: string): Promise<StoredAuthSession[]> {
@@ -450,7 +481,22 @@ export class MemoryStore implements AppStore {
   async createWorkoutSession(
     userId: string,
     input: WorkoutSessionCreateInput,
+    operation?: OperationContext,
   ): Promise<WorkoutSession> {
+    const result = await this.operations.run(
+      userId,
+      operation,
+      () => this.createWorkoutRaw(userId, input),
+      async (id) => this.workouts.find((item) => item.id === id && item.userId === userId) ?? null,
+    );
+    return structuredClone(result!);
+  }
+  private async createWorkoutRaw(
+    userId: string,
+    input: WorkoutSessionCreateInput,
+  ): Promise<WorkoutSession> {
+    if (!this.users.has(userId))
+      throw new AppError(401, "AUTH_INVALID", "사용자를 찾을 수 없습니다.");
     const workout: WorkoutSession = {
       id: randomUUID(),
       userId,
@@ -458,7 +504,19 @@ export class MemoryStore implements AppStore {
       createdAt: new Date().toISOString(),
     };
     this.workouts.push(workout);
-    return workout;
+    const leagueEntry = createLeagueEntry(
+      userId,
+      workout,
+      this.onboardingProfiles.get(userId) ?? null,
+    );
+    if (leagueEntry) this.leagueEntries.push(leagueEntry);
+    return {
+      ...workout,
+      metrics: { ...workout.metrics },
+      ...(workout.routePoints
+        ? { routePoints: workout.routePoints.map((point) => ({ ...point })) }
+        : {}),
+    };
   }
 
   async listWorkoutSessions(userId: string): Promise<WorkoutSession[]> {
@@ -487,6 +545,13 @@ export class MemoryStore implements AppStore {
       workout.perceivedExertion = input.perceivedExertion;
     }
     if (input.metrics !== undefined) workout.metrics = { ...input.metrics };
+    const leagueEntry = this.leagueEntries.find((item) => item.workoutId === workoutId);
+    if (leagueEntry) {
+      if (leagueEntry.eligibility === "eligible") {
+        leagueEntry.points = calculateLeaguePoints(workout);
+      }
+      leagueEntry.scoredAt = new Date().toISOString();
+    }
     return { ...workout, metrics: { ...workout.metrics } };
   }
 
@@ -496,14 +561,64 @@ export class MemoryStore implements AppStore {
     );
     if (index < 0) return false;
     this.workouts.splice(index, 1);
+    this.removeWhere(this.leagueEntries, (item) => item.workoutId === workoutId);
     return true;
+  }
+
+  async leagueSnapshot(userId: string, query: LeagueQuery): Promise<LeagueSnapshot> {
+    const members: LeagueMember[] = [...this.onboardingProfiles].flatMap(([memberId, profile]) => {
+      const identity = leagueRegionIdentity(profile);
+      const user = this.users.get(memberId);
+      return identity && user && profile.neighborhood
+        ? [
+            {
+              userId: memberId,
+              displayName: user.displayName,
+              ...identity,
+              verifiedAt: profile.neighborhood.verifiedAt,
+            },
+          ]
+        : [];
+    });
+    const activities: LeagueActivity[] = this.workouts.map((workout) => ({
+      userId: workout.userId,
+      sport: workout.sport,
+      startedAt: workout.startedAt,
+    }));
+    return buildLeagueSnapshot({
+      viewerId: userId,
+      viewerProfile: this.onboardingProfiles.get(userId) ?? null,
+      query,
+      members,
+      entries: this.leagueEntries,
+      activities,
+    });
   }
 
   async createPost(
     userId: string,
     authorDisplayName: string,
     input: PostCreateInput,
+    operation?: OperationContext,
   ): Promise<FeedPost | null> {
+    return this.operations.run(
+      userId,
+      operation,
+      () => this.createPostRaw(userId, authorDisplayName, input),
+      async (id) => {
+        const post = this.posts.find((item) => item.id === id && item.userId === userId);
+        return post ? this.clonePost(post, userId) : null;
+      },
+    );
+  }
+  private async createPostRaw(
+    userId: string,
+    authorDisplayName: string,
+    input: PostCreateInput,
+  ): Promise<FeedPost | null> {
+    requireNewFeedContent(input);
+    if (!this.users.has(userId))
+      throw new AppError(401, "AUTH_INVALID", "사용자를 찾을 수 없습니다.");
     if (
       input.workoutSessionId &&
       !this.workouts.some(
@@ -519,6 +634,17 @@ export class MemoryStore implements AppStore {
     }
 
     const crews = await this.listSharingCrews(userId);
+    const selectedCrews = [input.audience, input.commentAudience]
+      .filter((a) => a?.scope === "crews")
+      .flatMap((a) => a?.crewIds ?? []);
+    if (selectedCrews.some((id) => !crews.some((crew) => crew.id === id)))
+      throw new AppError(
+        400,
+        "POST_INPUT_NOT_CREATED",
+        "본인의 공유 크루를 다시 선택해 주세요. 게시물은 생성되지 않았습니다.",
+      );
+    if (!this.users.has(userId))
+      throw new AppError(401, "AUTH_INVALID", "사용자를 찾을 수 없습니다.");
     const post: FeedPost = {
       id: randomUUID(),
       userId,
@@ -821,12 +947,30 @@ export class MemoryStore implements AppStore {
 
   async registerPushDevice(
     userId: string,
+    sessionId: string,
     input: PushDeviceRegistrationInput,
   ): Promise<StoredPushDevice> {
+    const authSession = this.authSessions.get(sessionId);
+    if (
+      !authSession ||
+      authSession.userId !== userId ||
+      authSession.revokedAt ||
+      Date.parse(authSession.expiresAt) <= Date.now()
+    )
+      throw new AppError(401, "AUTH_SESSION_EXPIRED", "로그인 세션이 만료되었습니다.");
     const now = new Date().toISOString();
     const existing = this.pushDevices.find((device) => device.token === input.token);
     if (existing) {
+      const sessionOrder = [...this.authSessions.keys()];
+      if (sessionOrder.indexOf(existing.sessionId) > sessionOrder.indexOf(sessionId))
+        throw new AppError(
+          409,
+          "PUSH_DEVICE_NEWER_SESSION",
+          "이 기기는 더 최근 로그인에 연결되어 있습니다.",
+        );
       existing.userId = userId;
+      existing.sessionId = sessionId;
+      existing.enabled = true;
       existing.platform = input.platform;
       if (input.deviceName === undefined) delete existing.deviceName;
       else existing.deviceName = input.deviceName;
@@ -836,6 +980,8 @@ export class MemoryStore implements AppStore {
     const device: StoredPushDevice = {
       id: randomUUID(),
       userId,
+      sessionId,
+      enabled: true,
       ...input,
       createdAt: now,
       updatedAt: now,
@@ -844,16 +990,24 @@ export class MemoryStore implements AppStore {
     return { ...device };
   }
 
-  async unregisterPushDevice(userId: string, token: string): Promise<void> {
-    this.removeWhere(
-      this.pushDevices,
-      (device) => device.userId === userId && device.token === token,
-    );
+  async unregisterPushDevice(userId: string, sessionId: string, token: string): Promise<void> {
+    for (const device of this.pushDevices)
+      if (device.userId === userId && device.sessionId === sessionId && device.token === token)
+        device.enabled = false;
   }
 
   async listPushDeviceTokens(userId: string): Promise<string[]> {
     return this.pushDevices
-      .filter((device) => device.userId === userId)
+      .filter((device) => {
+        const session = this.authSessions.get(device.sessionId);
+        return (
+          device.enabled &&
+          device.userId === userId &&
+          session?.userId === userId &&
+          !session.revokedAt &&
+          Date.parse(session.expiresAt) > Date.now()
+        );
+      })
       .map((device) => device.token);
   }
 

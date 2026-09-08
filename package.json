@@ -19,6 +19,9 @@
     "build": "pnpm --filter @moveall/contracts build && pnpm --filter @moveall/api build && pnpm --filter @moveall/mobile build",
     "build:site": "node scripts/build-site.mjs",
     "dashboard:sync": "node scripts/sync-validation-dashboard.mjs",
+    "characters:docs": "pnpm --filter @moveall/contracts build && node scripts/characters.mjs docs",
+    "characters:assets": "pnpm --filter @moveall/contracts build && node scripts/characters.mjs assets",
+    "characters:generate": "pnpm --filter @moveall/contracts build && node scripts/characters.mjs",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm security:secrets",
     "audit:dependencies": "pnpm audit --prod --audit-level high",
     "security:secrets": "node scripts/check-secrets.mjs"

@@ -1,112 +1,143 @@
-import { useRouter } from "expo-router";
-import {
-  ChevronLeft,
-  Flame,
-  LocateFixed,
-  Minus,
-  Plus,
-  ShieldCheck,
-  Trophy,
-} from "lucide-react-native";
-import { useMemo, useRef, useState } from "react";
-import { PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Svg, { Circle, G, Path, Text as SvgText } from "react-native-svg";
-import { Screen } from "../src/components/ui";
+import type { LeagueMode, LeaguePeriod, LeagueSnapshot } from "@moveall/contracts";
+import { useFocusEffect, useRouter } from "expo-router";
+import { ChevronLeft, Flame, ShieldCheck, Trophy } from "lucide-react-native";
+import { useCallback, useMemo, useState } from "react";
+import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { GroovRankingMap } from "../src/components/groov-map-frame";
+import { api } from "../src/api/client";
+import { useAuth } from "../src/auth/auth-context";
+import { Screen, StatePanel } from "../src/components/ui";
 import { koreaMunicipalities, type KoreaMunicipality } from "../src/assets/korea-municipal-paths";
-import {
-  NATIONAL_VIEW,
-  SEOUL_VIEW,
-  focusViewport,
-  panViewport,
-  zoomLevel,
-  zoomViewport,
-  type LeagueViewport,
-} from "../src/components/league-map-model";
 import { fonts, radius, type ThemeColors } from "../src/theme";
 import { useAppTheme } from "../src/theme-context";
 
-const sports = ["전체", "러닝", "근력", "사이클", "등산", "수영"] as const;
+const sports = ["전체", "러닝", "근력", "사이클", "등산", "수영", "다이빙"] as const;
 const periods = ["이번 주", "이번 달", "시즌"] as const;
-const rankerNames = ["하늘", "준", "지영", "태오", "서아", "민지", "도윤", "유나"];
 const seoulAreas = koreaMunicipalities.filter((area) => area.province === "서울");
-const neighborhoodNames: Record<string, string[]> = {
-  "11100": ["창동", "방학동", "쌍문동", "도봉동"],
-  "11230": ["역삼동", "대치동", "압구정동", "세곡동"],
-  "11140": ["합정동", "연남동", "망원동", "상암동"],
+const sportModes: Record<(typeof sports)[number], LeagueMode> = {
+  전체: "activity",
+  러닝: "running",
+  근력: "strength",
+  사이클: "cycling",
+  등산: "hiking",
+  수영: "swimming",
+  다이빙: "diving",
+};
+const periodModes: Record<(typeof periods)[number], LeaguePeriod> = {
+  "이번 주": "week",
+  "이번 달": "month",
+  시즌: "season",
 };
 
-function detail(area: KoreaMunicipality, sport = "전체", period = "이번 주") {
-  const seed =
-    Number(area.code) +
-    sports.indexOf(sport as (typeof sports)[number]) * 17 +
-    periods.indexOf(period as (typeof periods)[number]) * 31;
-  const members = 850 + ((seed * 7) % 6200);
-  const active = Math.round(members * (0.28 + (area.heat % 20) / 100));
-  const participants = Math.round(active * (0.42 + (area.heat % 27) / 100));
-  const score = 42000 + area.heat * 470 + (seed % 1700);
-  const heatLevel =
-    area.heat >= 76 ? "과열" : area.heat >= 60 ? "버닝" : area.heat >= 42 ? "활성" : "기본";
-  return { ...area, members, active, participants, score, heatLevel, change: (seed % 9) - 3 };
+function normalizeAdministrativeName(value: string) {
+  return value
+    .normalize("NFKC")
+    .replace(/\s/g, "")
+    .replace(/(특별자치도|특별자치시|특별시|광역시|도|시)$/u, "");
+}
+
+function municipalityStanding(snapshot: LeagueSnapshot | null, area: KoreaMunicipality) {
+  return (
+    snapshot?.regions.find((region) => {
+      const sameMunicipality =
+        normalizeAdministrativeName(region.regionName) === normalizeAdministrativeName(area.name);
+      const sameProvince =
+        !region.province ||
+        normalizeAdministrativeName(region.province) === normalizeAdministrativeName(area.province);
+      return sameMunicipality && sameProvince;
+    }) ?? null
+  );
 }
 
 export default function LeagueRegionScreen() {
   const router = useRouter();
+  const { session } = useAuth();
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [selectedCode, setSelectedCode] = useState("11100");
-  const [viewport, setViewport] = useState<LeagueViewport>(SEOUL_VIEW);
-  const [surface, setSurface] = useState({ width: 1, height: 1 });
+  const [mapFocus, setMapFocus] = useState(0);
   const [sport, setSport] = useState<(typeof sports)[number]>("전체");
   const [period, setPeriod] = useState<(typeof periods)[number]>("이번 주");
-  const dragOrigin = useRef(viewport);
-  const lastAreaTap = useRef({ code: "", at: 0 });
+  const [snapshot, setSnapshot] = useState<LeagueSnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedRegionKey, setSelectedRegionKey] = useState<string | undefined>();
   const selectedArea =
     koreaMunicipalities.find((item) => item.code === selectedCode) ?? seoulAreas[0]!;
-  const ranked = useMemo(
-    () => seoulAreas.map((item) => detail(item, sport, period)).sort((a, b) => b.score - a.score),
-    [sport, period],
-  );
-  const area = detail(selectedArea, sport, period);
-  const rank = ranked.findIndex((item) => item.code === area.code) + 1;
+  const maxPoints = Math.max(0, ...(snapshot?.regions.map((region) => region.points) ?? []));
+  const regionAreas = koreaMunicipalities.map((item) => {
+    const standing = municipalityStanding(snapshot, item);
+    const heat = maxPoints > 0 && standing ? Math.round((standing.points / maxPoints) * 100) : 0;
+    const heatLevel = heat >= 76 ? "과열" : heat >= 60 ? "버닝" : heat >= 42 ? "활성" : "기본";
+    return { ...item, standing, heat, heatLevel, score: standing?.points ?? 0 };
+  });
+  const ranked = regionAreas.filter((item) => item.standing).sort((a, b) => b.score - a.score);
+  const area = regionAreas.find((item) => item.code === selectedArea.code) ?? {
+    ...selectedArea,
+    standing: null,
+    heat: 0,
+    heatLevel: "기본",
+    score: 0,
+  };
+  const rank = area.standing?.rank ?? null;
+  const selectedPlayers =
+    snapshot && snapshot.region?.regionKey === area.standing?.regionKey ? snapshot.players : [];
   const rivals = ranked
     .filter((item) => item.code !== area.code)
     .sort((a, b) => Math.abs(a.score - area.score) - Math.abs(b.score - area.score))
     .slice(0, 2);
-  const neighborhoods = neighborhoodNames[area.code] ?? [
-    `${area.name.replace("구", "")}1동`,
-    `${area.name.replace("구", "")}2동`,
-    `${area.name.replace("구", "")}3동`,
-  ];
-  const level = zoomLevel(viewport);
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gesture) =>
-          Math.abs(gesture.dx) + Math.abs(gesture.dy) > 5,
-        onPanResponderGrant: () => {
-          dragOrigin.current = viewport;
-        },
-        onPanResponderMove: (_event, gesture) =>
-          setViewport(
-            panViewport(dragOrigin.current, gesture.dx, gesture.dy, surface.width, surface.height),
-          ),
-      }),
-    [surface.height, surface.width, viewport],
-  );
 
+  const reload = useCallback(async () => {
+    if (!session) return;
+    try {
+      const next = await api.league(session.accessToken, {
+        mode: sportModes[sport],
+        period: periodModes[period],
+        ...(selectedRegionKey ? { regionKey: selectedRegionKey } : {}),
+      });
+      setSnapshot(next);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "지역 집계를 불러오지 못했어요.");
+    }
+  }, [period, selectedRegionKey, session, sport]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void reload();
+      const timer = setInterval(() => {
+        if (AppState.currentState === "active") void reload();
+      }, 3_000);
+      return () => clearInterval(timer);
+    }, [reload]),
+  );
   function selectArea(item: KoreaMunicipality) {
     setSelectedCode(item.code);
+    setSelectedRegionKey(municipalityStanding(snapshot, item)?.regionKey ?? `empty:${item.code}`);
   }
 
-  function handleAreaPress(item: KoreaMunicipality) {
-    const now = Date.now();
-    const isDoubleTap = lastAreaTap.current.code === item.code && now - lastAreaTap.current.at < 340;
-    lastAreaTap.current = { code: item.code, at: now };
-    setSelectedCode(item.code);
-    if (isDoubleTap && item.province === "서울") {
-      setViewport(focusViewport(item.center));
-      lastAreaTap.current = { code: "", at: 0 };
+  function selectMyRegion() {
+    const viewerStanding = snapshot?.regions.find(
+      (region) => region.regionKey === snapshot.viewer.regionKey,
+    );
+    const mine = viewerStanding
+      ? koreaMunicipalities.find((item) => {
+          const sameMunicipality =
+            normalizeAdministrativeName(viewerStanding.regionName) ===
+            normalizeAdministrativeName(item.name);
+          const sameProvince =
+            !viewerStanding.province ||
+            normalizeAdministrativeName(viewerStanding.province) ===
+              normalizeAdministrativeName(item.province);
+          return sameMunicipality && sameProvince;
+        })
+      : undefined;
+    if (mine) {
+      setSelectedCode(mine.code);
+      setSelectedRegionKey(viewerStanding?.regionKey);
+      setMapFocus((value) => value + 1);
+      return;
     }
+    setSelectedRegionKey(undefined);
   }
 
   return (
@@ -120,176 +151,29 @@ export default function LeagueRegionScreen() {
           <ChevronLeft color={colors.ink} size={25} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={styles.eyebrow}>MUNICIPAL LEAGUE / SAMPLE</Text>
+          <Text style={styles.eyebrow}>MUNICIPAL LEAGUE / LIVE</Text>
           <Text style={styles.title}>지역 리그</Text>
         </View>
-        <Pressable onPress={() => selectArea(seoulAreas.find((item) => item.code === "11100")!)}>
+        <Pressable onPress={selectMyRegion}>
           <Text style={styles.myRegion}>내 지역</Text>
         </Pressable>
       </View>
       <View style={styles.intro}>
         <View>
           <Text style={styles.introTitle}>움직임이 도시를 달군다</Text>
-          <Text style={styles.introCopy}>실제 인접 관계를 유지한 단순화 경계 · 점수는 샘플</Text>
+          <Text style={styles.introCopy}>운동 저장 즉시 서버 집계 · 3초 간격 순위 갱신</Text>
         </View>
         <Flame color={colors.primary} fill={colors.primary} size={25} />
       </View>
+      {error ? <StatePanel state="error" message={error} onRetry={() => void reload()} /> : null}
 
-      <View
-        onLayout={(event) => setSurface(event.nativeEvent.layout)}
-        style={styles.map}
-        {...panResponder.panHandlers}
-      >
-        <Svg
-          accessibilityLabel="서울 25개 구와 전국 시군구를 탐색하는 지역 리그 지도"
-          height="100%"
-          viewBox={`${viewport.x} ${viewport.y} ${viewport.width} ${viewport.height}`}
-          width="100%"
-        >
-          <G>
-            {koreaMunicipalities.map((item) => {
-              const selected = selectedCode === item.code;
-              const region = detail(item, sport, period);
-              return (
-                <Path
-                  accessibilityLabel={`${item.province} ${item.name}, ${region.heatLevel}, ${region.score.toLocaleString("ko-KR")}점`}
-                  d={item.path}
-                  fill={heatColor(item.heat, selected)}
-                  key={item.code}
-                  onPress={() => handleAreaPress(item)}
-                  stroke={selected ? "#FFFFFF" : "rgba(255,224,210,.72)"}
-                  strokeLinejoin="round"
-                  strokeWidth={
-                    selected
-                      ? Math.max(0.12, viewport.width / 170)
-                      : Math.max(0.035, viewport.width / 650)
-                  }
-                />
-              );
-            })}
-          </G>
-          {level <= 2 && viewport.width <= SEOUL_VIEW.width * 1.15
-            ? seoulAreas.map((item) => {
-                const selected = selectedCode === item.code;
-                const regionRank = ranked.findIndex((candidate) => candidate.code === item.code) + 1;
-                const nameSize = Math.max(0.34, viewport.width / 39) * (selected ? 1.08 : 1);
-                const metaSize = Math.max(0.2, viewport.width / 68);
-                return (
-                  <G key={`label-${item.code}`} pointerEvents="none">
-                    <SvgText
-                      fill={selected ? "#FFFFFF" : "rgba(255,255,255,.88)"}
-                      fontSize={nameSize}
-                      fontWeight="800"
-                      textAnchor="middle"
-                      x={item.center[0]}
-                      y={item.center[1] - 0.12}
-                    >
-                      {item.name.replace("구", "")}
-                    </SvgText>
-                    <SvgText
-                      fill={selected ? "#FFFFFF" : "rgba(255,255,255,.72)"}
-                      fontSize={metaSize}
-                      fontWeight="700"
-                      textAnchor="middle"
-                      x={item.center[0]}
-                      y={item.center[1] + 0.3}
-                    >
-                      #{regionRank}
-                    </SvgText>
-                  </G>
-                );
-              })
-            : null}
-          {level > 2
-            ? neighborhoods.map((name, index) => {
-                const angle = (Math.PI * 2 * index) / neighborhoods.length;
-                const x = area.center[0] + Math.cos(angle) * 1.35;
-                const y = area.center[1] + Math.sin(angle) * 0.85;
-                const hotspotNameSize = Math.max(0.1, viewport.width / 42);
-                const hotspotMetaSize = Math.max(0.075, viewport.width / 58);
-                const hotspotRadius = Math.max(0.08, viewport.width / 90);
-                return (
-                  <G key={name}>
-                    <Circle
-                      cx={x}
-                      cy={y}
-                      fill={index === 0 ? colors.primary : "rgba(255,255,255,.16)"}
-                      r={hotspotRadius}
-                      stroke="#FFFFFF"
-                      strokeWidth={Math.max(0.018, viewport.width / 360)}
-                    />
-                    <SvgText
-                      fill="#FFFFFF"
-                      fontSize={hotspotNameSize}
-                      fontWeight="700"
-                      textAnchor="middle"
-                      x={x}
-                      y={y - hotspotRadius - hotspotNameSize * 0.55}
-                    >
-                      {name}
-                    </SvgText>
-                    <SvgText
-                      fill="rgba(255,255,255,.7)"
-                      fontSize={hotspotMetaSize}
-                      textAnchor="middle"
-                      x={x}
-                      y={y + hotspotRadius + hotspotMetaSize * 1.5}
-                    >
-                      #{index + 1} · {(area.score - index * 690).toLocaleString("ko-KR")}pt
-                    </SvgText>
-                  </G>
-                );
-              })
-            : null}
-        </Svg>
-        <View style={styles.mapControls}>
-          <Pressable
-            accessibilityLabel="지도 확대"
-            onPress={() => setViewport((current) => zoomViewport(current, 0.72))}
-            style={styles.mapButton}
-          >
-            <Plus color="#FFFFFF" size={17} />
-          </Pressable>
-          <Pressable
-            accessibilityLabel="지도 축소"
-            onPress={() => setViewport((current) => zoomViewport(current, 1.38))}
-            style={styles.mapButton}
-          >
-            <Minus color="#FFFFFF" size={17} />
-          </Pressable>
-          <Pressable
-            accessibilityLabel="서울 전체 보기"
-            onPress={() => setViewport(SEOUL_VIEW)}
-            style={styles.mapButton}
-          >
-            <LocateFixed color="#FFFFFF" size={16} />
-          </Pressable>
-        </View>
-        <Pressable
-          accessibilityLabel={`${area.name} ${rank}위 ${area.score.toLocaleString("ko-KR")}포인트, 선택 지역 확대`}
-          onPress={() => area.province === "서울" && setViewport(focusViewport(area.center))}
-          style={({ pressed }) => [styles.mapSelectionCard, pressed && styles.mapSelectionCardPressed]}
-        >
-          <Text style={styles.mapSelectionEyebrow}>{area.province} · {period}</Text>
-          <Text numberOfLines={1} style={styles.mapSelectionName}>{area.name.replace("구", "")}</Text>
-          <View style={styles.mapSelectionStats}>
-            <Text style={styles.mapSelectionRank}>#{rank}</Text>
-            <View style={styles.mapSelectionDivider} />
-            <Text adjustsFontSizeToFit minimumFontScale={0.72} numberOfLines={1} style={styles.mapSelectionScore}>{area.score.toLocaleString("ko-KR")}pt</Text>
-          </View>
-          <Text style={styles.mapSelectionHint}>{level > 2 ? "동네 핫스폿 · 서울 전체로 복귀 가능" : "한 번 선택 · 두 번 확대"}</Text>
-        </Pressable>
-      </View>
-      <View style={styles.mapQuick}>
-        <Pressable onPress={() => setViewport(NATIONAL_VIEW)}>
-          <Text style={styles.quickText}>전국</Text>
-        </Pressable>
-        <Pressable onPress={() => setViewport(SEOUL_VIEW)}>
-          <Text style={styles.quickText}>서울 전체</Text>
-        </Pressable>
-        <View style={styles.legendDot} />
-        <Text style={styles.legendText}>기본 → 활성 → 버닝 → 과열</Text>
-      </View>
+      <GroovRankingMap
+        state={{ league: snapshot, selection: { code: selectedCode, focus: mapFocus } }}
+        onRegionSelect={({ code }) => {
+          const item = koreaMunicipalities.find((candidate) => candidate.code === code);
+          if (item) selectArea(item);
+        }}
+      />
 
       <FilterRow values={periods} selected={period} onSelect={setPeriod} styles={styles} />
       <FilterRow values={sports} selected={sport} onSelect={setSport} styles={styles} />
@@ -301,107 +185,115 @@ export default function LeagueRegionScreen() {
             </Text>
             <Text style={styles.districtName}>{area.name}</Text>
             <Text style={styles.change}>
-              {area.change >= 0 ? `▲ ${area.change}` : `▼ ${Math.abs(area.change)}`} 지난 기간 대비
+              {snapshot
+                ? `${new Date(snapshot.generatedAt).toLocaleTimeString("ko-KR")} 기준`
+                : "집계 연결 중"}
             </Text>
           </View>
-          <Text adjustsFontSizeToFit minimumFontScale={0.65} numberOfLines={1} style={styles.place}>#{rank}</Text>
+          <Text adjustsFontSizeToFit minimumFontScale={0.65} numberOfLines={1} style={styles.place}>
+            {rank ? `#${rank}` : "—"}
+          </Text>
         </View>
         <View style={styles.stats}>
-          <Stat label="지역 인원" value={area.members.toLocaleString("ko-KR")} styles={styles} />
+          <Stat
+            label="지역 인원"
+            value={(area.standing?.memberCount ?? 0).toLocaleString("ko-KR")}
+            styles={styles}
+          />
           <Stat
             label="리그 참여"
-            value={area.participants.toLocaleString("ko-KR")}
+            value={(area.standing?.participantCount ?? 0).toLocaleString("ko-KR")}
             styles={styles}
           />
           <Stat
             label="참여율"
-            value={`${((area.participants / area.active) * 100).toFixed(1)}%`}
+            value={`${(area.standing?.participationRate ?? 0).toFixed(1)}%`}
             styles={styles}
           />
           <Stat label="지역 점수" value={area.score.toLocaleString("ko-KR")} styles={styles} />
         </View>
-        <View style={styles.trend}>
-          <Text style={styles.panelSubTitle}>최근 활동량</Text>
-          <View style={styles.trendBars}>
-            {[42, 55, 48, 68, 62, 78, area.heat].map((value, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.trendBar,
-                  { height: 8 + value * 0.34 },
-                  index === 6 && styles.trendBarActive,
-                ]}
-              />
-            ))}
+        {area.standing?.leader ? (
+          <View style={styles.leader}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{area.standing.leader.displayName.slice(0, 1)}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.eyebrow}>THIS REGION RANKER</Text>
+              <Text style={styles.leaderName}>{area.standing.leader.displayName}</Text>
+              <Text style={styles.leaderTitle}>
+                {sport} 기여 1위 · {area.standing.leader.points.toLocaleString("ko-KR")}pt
+              </Text>
+            </View>
+            <Trophy color={colors.primary} size={24} />
           </View>
-        </View>
-        <View style={styles.leader}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {rankerNames[Number(area.code) % rankerNames.length]!.slice(0, 1)}
-            </Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.eyebrow}>THIS REGION RANKER</Text>
-            <Text style={styles.leaderName}>
-              {rankerNames[Number(area.code) % rankerNames.length]}
-            </Text>
-            <Text style={styles.leaderTitle}>
-              {sport} 기여 1위 · {Math.round(area.score * 0.078).toLocaleString("ko-KR")}pt
-            </Text>
-          </View>
-          <Trophy color={colors.primary} size={24} />
-        </View>
+        ) : (
+          <Text style={styles.emptyCopy}>이 지역에는 아직 집계된 기록이 없습니다.</Text>
+        )}
       </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{area.name} 지역 내 순위</Text>
-        {rankerNames.slice(0, 5).map((name, index) => (
-          <View key={name} style={styles.rankRow}>
-            <Text style={styles.rankNumber}>{index + 1}</Text>
-            <View style={styles.rankCopy}>
-              <Text numberOfLines={1} style={styles.rankName}>{name}</Text>
-              <Text numberOfLines={1} style={styles.rankMeta}>
-                {sport} · 활동 {9 - index}회 · {index < 2 ? "▲ 상승" : "— 유지"}
+        {selectedPlayers.length > 0 ? (
+          selectedPlayers.map((player) => (
+            <View key={player.userId} style={styles.rankRow}>
+              <Text style={styles.rankNumber}>{player.rank}</Text>
+              <View style={styles.rankCopy}>
+                <Text numberOfLines={1} style={styles.rankName}>
+                  {player.displayName}
+                  {player.mine ? " · 나" : ""}
+                </Text>
+                <Text numberOfLines={1} style={styles.rankMeta}>
+                  {sport} · 집계 기록 {player.activityCount}회
+                </Text>
+              </View>
+              <Text
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                numberOfLines={1}
+                style={styles.rankScore}
+              >
+                {player.points.toLocaleString("ko-KR")}pt
               </Text>
             </View>
-            <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={styles.rankScore}>{(area.score * 0.09 - index * 287).toFixed(0)}pt</Text>
-          </View>
-        ))}
+          ))
+        ) : (
+          <Text style={styles.emptyCopy}>선택 지역의 참여 기록이 없습니다.</Text>
+        )}
       </View>
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>인접 경쟁 지역</Text>
+        <Text style={styles.sectionTitle}>점수 차가 가까운 지역</Text>
         {rivals.map((item) => (
           <Pressable key={item.code} onPress={() => selectArea(item)} style={styles.rivalRow}>
             <View style={styles.rivalCopy}>
-              <Text numberOfLines={1} style={styles.rankName}>{item.name}</Text>
+              <Text numberOfLines={1} style={styles.rankName}>
+                {item.name}
+              </Text>
               <Text numberOfLines={1} style={styles.rankMeta}>
                 {item.heatLevel} · 우리 지역과{" "}
                 {Math.abs(item.score - area.score).toLocaleString("ko-KR")}점 차이
               </Text>
             </View>
-            <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={styles.rankScore}>{item.score.toLocaleString("ko-KR")}pt</Text>
+            <Text
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              numberOfLines={1}
+              style={styles.rankScore}
+            >
+              {item.score.toLocaleString("ko-KR")}pt
+            </Text>
           </Pressable>
         ))}
       </View>
       <View style={styles.notice}>
         <ShieldCheck color={colors.primary} size={19} />
         <Text style={styles.noticeText}>
-          경계는 통계청 시군구 자료를 인접 관계가 깨지지 않도록 단순화했습니다. 동네
-          핫스폿·순위·점수는 실제 GROOV 기록 연동 전 샘플이며 정확한 사용자 위치나 운동 경로는
-          표시하지 않습니다.
+          지도 경계는 통계청 시군구 자료를 단순화한 시각 정보입니다. 점수·인원·참여율·순위는 서버의
+          실제 운동 원장에서 집계하며, 사용자의 정확한 위치와 운동 경로는 공개하지 않습니다.
         </Text>
       </View>
     </Screen>
   );
 }
 
-function heatColor(heat: number, selected: boolean) {
-  if (selected) return "#FF5A32";
-  if (heat >= 76) return "rgba(255,72,35,.92)";
-  if (heat >= 60) return "rgba(255,90,50,.68)";
-  if (heat >= 42) return "rgba(255,120,77,.42)";
-  return "rgba(255,210,190,.16)";
-}
 function FilterRow<T extends string>({
   values,
   selected,
@@ -444,7 +336,9 @@ function Stat({
 }) {
   return (
     <View style={styles.stat}>
-      <Text adjustsFontSizeToFit minimumFontScale={0.68} numberOfLines={1} style={styles.statValue}>{value}</Text>
+      <Text adjustsFontSizeToFit minimumFontScale={0.68} numberOfLines={1} style={styles.statValue}>
+        {value}
+      </Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
@@ -470,55 +364,6 @@ function createStyles(colors: ThemeColors) {
     intro: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     introTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 18 },
     introCopy: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9, marginTop: 3 },
-    map: {
-      height: 470,
-      borderRadius: radius["2xl"],
-      overflow: "hidden",
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: "#15110F",
-      position: "relative",
-    },
-    mapControls: { position: "absolute", right: 10, top: 10, gap: 6 },
-    mapButton: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: "rgba(20,17,15,.82)",
-      borderWidth: 1,
-      borderColor: "rgba(255,255,255,.2)",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    mapSelectionCard: {
-      position: "absolute",
-      left: 12,
-      bottom: 12,
-      width: 176,
-      backgroundColor: "rgba(16,14,13,.9)",
-      borderRadius: radius.lg,
-      borderWidth: 1,
-      borderColor: "rgba(255,255,255,.18)",
-      paddingHorizontal: 13,
-      paddingVertical: 11,
-    },
-    mapSelectionCardPressed: { transform: [{ scale: 0.98 }], borderColor: colors.primary },
-    mapSelectionEyebrow: { color: colors.primary, fontFamily: fonts.displayExtra, fontSize: 8, letterSpacing: 0.8 },
-    mapSelectionName: { color: "#FFFFFF", fontFamily: fonts.displayExtra, fontSize: 24, letterSpacing: -0.8, marginTop: 3 },
-    mapSelectionStats: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 2 },
-    mapSelectionRank: { color: colors.primary, fontFamily: fonts.displayExtra, fontSize: 15 },
-    mapSelectionDivider: { width: 1, height: 13, backgroundColor: "rgba(255,255,255,.2)" },
-    mapSelectionScore: { flex: 1, color: "#FFFFFF", fontFamily: fonts.displayExtra, fontSize: 14 },
-    mapSelectionHint: {
-      color: "rgba(255,255,255,.55)",
-      fontFamily: fonts.regular,
-      fontSize: 8,
-      marginTop: 5,
-    },
-    mapQuick: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 9 },
-    quickText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
-    legendDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
-    legendText: { color: colors.muted, fontFamily: fonts.regular, fontSize: 8 },
     filters: { gap: 6 },
     filter: {
       borderRadius: radius.full,
@@ -542,7 +387,14 @@ function createStyles(colors: ThemeColors) {
     panelHeaderCopy: { flex: 1, minWidth: 0 },
     districtName: { color: colors.ink, fontFamily: fonts.bold, fontSize: 25, marginTop: 2 },
     change: { color: colors.muted, fontFamily: fonts.medium, fontSize: 8, marginTop: 3 },
-    place: { maxWidth: 104, flexShrink: 1, color: colors.primary, fontFamily: fonts.displayExtra, fontSize: 35, textAlign: "right" },
+    place: {
+      maxWidth: 104,
+      flexShrink: 1,
+      color: colors.primary,
+      fontFamily: fonts.displayExtra,
+      fontSize: 35,
+      textAlign: "right",
+    },
     stats: {
       flexDirection: "row",
       borderTopWidth: 1,
@@ -552,7 +404,12 @@ function createStyles(colors: ThemeColors) {
       marginTop: 10,
     },
     stat: { flex: 1, minWidth: 0, paddingHorizontal: 3 },
-    statValue: { maxWidth: "100%", color: colors.ink, fontFamily: fonts.displayExtra, fontSize: 14 },
+    statValue: {
+      maxWidth: "100%",
+      color: colors.ink,
+      fontFamily: fonts.displayExtra,
+      fontSize: 14,
+    },
     statLabel: { color: colors.muted, fontFamily: fonts.regular, fontSize: 8, marginTop: 2 },
     panelSubTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 10 },
     trend: { paddingTop: 13, gap: 8 },
@@ -572,6 +429,12 @@ function createStyles(colors: ThemeColors) {
     leaderName: { color: colors.ink, fontFamily: fonts.bold, fontSize: 12, marginTop: 2 },
     leaderTitle: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9, marginTop: 2 },
     section: { gap: 2 },
+    emptyCopy: {
+      color: colors.muted,
+      fontFamily: fonts.regular,
+      fontSize: 10,
+      paddingVertical: 14,
+    },
     sectionTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 14, marginBottom: 5 },
     rankRow: {
       minHeight: 56,
@@ -581,11 +444,25 @@ function createStyles(colors: ThemeColors) {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
-    rankNumber: { color: colors.primary, fontFamily: fonts.displayExtra, fontSize: 17, width: 38, flexShrink: 0, textAlign: "center" },
+    rankNumber: {
+      color: colors.primary,
+      fontFamily: fonts.displayExtra,
+      fontSize: 17,
+      width: 38,
+      flexShrink: 0,
+      textAlign: "center",
+    },
     rankCopy: { flex: 1, minWidth: 0 },
     rankName: { color: colors.ink, fontFamily: fonts.bold, fontSize: 11 },
     rankMeta: { color: colors.muted, fontFamily: fonts.regular, fontSize: 8, marginTop: 2 },
-    rankScore: { maxWidth: 104, flexShrink: 1, color: colors.ink, fontFamily: fonts.displayExtra, fontSize: 13, textAlign: "right" },
+    rankScore: {
+      maxWidth: 104,
+      flexShrink: 1,
+      color: colors.ink,
+      fontFamily: fonts.displayExtra,
+      fontSize: 13,
+      textAlign: "right",
+    },
     rivalRow: {
       minHeight: 58,
       flexDirection: "row",

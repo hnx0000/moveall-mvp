@@ -1,6 +1,8 @@
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   appendTrackPointResult,
   calculateTrackDistance,
+  mergeTrackPointSources,
   type RecordedTrackPoint as TrackPoint,
 } from "../features/location/gps-track";
 import { sportLabels, type Routine, type SportType, type WorkoutSession } from "@moveall/contracts";
@@ -33,17 +35,26 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { api } from "../api/client";
+import { createMutationAttempt, makeOperationKey } from "../api/mutation-attempt";
+import { activeWorkouts } from "../features/location/active-workout-runtime";
+import type { ActiveWorkoutCheckpoint } from "../features/location/active-workout-recovery";
+import { isNotificationIdentity } from "../features/notifications/push-lifecycle";
+import { indoorSwimMetrics, requiresOutdoorGps } from "../features/location/swim-metrics";
+import {
+  createTrackingLifetime,
+  createSerialTaskQueue,
+} from "../features/location/tracking-lifecycle";
 import { useAuth } from "../auth/auth-context";
 import {
   clearBackgroundTrack,
-  consumeBackgroundTrack,
   readBackgroundTrack,
   startBackgroundTrack,
   stopBackgroundTrack,
 } from "../features/location/background-location";
 import { fonts, radius, space, type ThemeColors } from "../theme";
+import { formatWorkoutClock } from "../workout-duration";
 import { useAppTheme } from "../theme-context";
-import { WorkoutMap } from "./workout-map";
+import { GroovCourseMap } from "./groov-course-map";
 import { type MapPoint } from "./workout-map.types";
 import { createGroovPulseAnimation, GroovPulseRings } from "./groov-pulse-rings";
 
@@ -77,6 +88,7 @@ export function LiveWorkoutRecorder({
   onSaved,
   onTrackChange,
   showMap = true,
+  recovery,
 }: {
   sport: SportType;
   routines: Routine[];
@@ -85,49 +97,153 @@ export function LiveWorkoutRecorder({
   onSaved: (workout: WorkoutSession) => void | Promise<void>;
   onTrackChange?: (track: WorkoutTrackPreview) => void;
   showMap?: boolean;
+  recovery?: ActiveWorkoutCheckpoint | null;
 }) {
-  const { session } = useAuth();
+  const { session, loginLifetime } = useAuth();
+  const recorderOwner = useRef({ userId: session?.user.id, loginLifetime }).current;
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
   const window = useWindowDimensions();
+  const mapInsets = useSafeAreaInsets();
+  const recoveryField = (key: string, fallback = "") =>
+    typeof recovery?.fields[key] === "string" ? (recovery.fields[key] as string) : fallback;
+  const checkpointId = useRef(recovery?.id ?? makeOperationKey()).current;
+  const workoutStartedAt = useRef<number | null>(recovery?.startedAt ?? null);
+  const checkpointEnabled = useRef(!!recovery);
+  const checkpointEndedAt = useRef(recovery?.savedAt ?? Date.now());
   const [phase, setPhase] = useState<RecorderPhase>(
-    setupSports.includes(sport) ? "setup" : "starting",
+    recovery
+      ? sport === "diving"
+        ? "review"
+        : "paused"
+      : setupSports.includes(sport)
+        ? "setup"
+        : "starting",
   );
-  const [elapsedMilliseconds, setElapsedMilliseconds] = useState(0);
-  const [points, setPoints] = useState<TrackPoint[]>([]);
-  const [gpsStatus, setGpsStatus] = useState("GPS 준비 중");
-  const [error, setError] = useState<string | null>(null);
-  const [bodyWeight, setBodyWeight] = useState("70");
-  const [averageHeartRate, setAverageHeartRate] = useState("");
-  const [maximumHeartRate, setMaximumHeartRate] = useState("");
-  const [strengthVolume, setStrengthVolume] = useState("");
-  const [runningSteps, setRunningSteps] = useState("");
-  const [averageCadence, setAverageCadence] = useState("");
-  const [swimEnvironment, setSwimEnvironment] = useState<SwimEnvironment>("indoor");
-  const [poolLength, setPoolLength] = useState("25");
-  const [swimStrokeCount, setSwimStrokeCount] = useState("");
-  const [swimAverageSwolf, setSwimAverageSwolf] = useState("");
-  const [selectedRoutineId, setSelectedRoutineId] = useState("");
-  const [completedRoutineSets, setCompletedRoutineSets] = useState<string[]>([]);
-  const [divingSource, setDivingSource] = useState<DivingSource>("device");
-  const [divingDevice, setDivingDevice] = useState("다이빙 컴퓨터");
-  const [maxDepth, setMaxDepth] = useState("");
-  const [dynamicDistance, setDynamicDistance] = useState("");
-  const [waterTemperature, setWaterTemperature] = useState("");
-  const [devicePrepared, setDevicePrepared] = useState(false);
+  const [elapsedMilliseconds, setElapsedMilliseconds] = useState(recovery?.elapsedMs ?? 0);
+  const [points, setPoints] = useState<TrackPoint[]>(recovery?.points ?? []);
+  const [gpsStatus, setGpsStatus] = useState("기록 준비 중");
+  const [error, setError] = useState<string | null>(
+    recovery
+      ? "중단된 운동을 마지막 확인 시점까지 복구했습니다. 확인되지 않은 시간은 더하지 않았습니다. 재개를 눌러야 다시 측정합니다."
+      : null,
+  );
+  const [bodyWeight, setBodyWeight] = useState(recoveryField("bodyWeight", "70"));
+  const [averageHeartRate, setAverageHeartRate] = useState(recoveryField("averageHeartRate", ""));
+  const [maximumHeartRate, setMaximumHeartRate] = useState(recoveryField("maximumHeartRate", ""));
+  const [strengthVolume, setStrengthVolume] = useState(recoveryField("strengthVolume", ""));
+  const [runningSteps, setRunningSteps] = useState(recoveryField("runningSteps", ""));
+  const [averageCadence, setAverageCadence] = useState(recoveryField("averageCadence", ""));
+  const [swimEnvironment, setSwimEnvironment] = useState<SwimEnvironment>(
+    recoveryField("swimEnvironment", "indoor") as SwimEnvironment,
+  );
+  const [poolLength, setPoolLength] = useState(recoveryField("poolLength", "25"));
+  const [completedLengths, setCompletedLengths] = useState(recoveryField("completedLengths", ""));
+  const [swimStrokeCount, setSwimStrokeCount] = useState(recoveryField("swimStrokeCount", ""));
+  const [swimAverageSwolf, setSwimAverageSwolf] = useState(recoveryField("swimAverageSwolf", ""));
+  const [selectedRoutineId, setSelectedRoutineId] = useState(
+    recoveryField("selectedRoutineId", ""),
+  );
+  const [completedRoutineSets, setCompletedRoutineSets] = useState<string[]>(
+    Array.isArray(recovery?.fields.completedRoutineSets)
+      ? recovery.fields.completedRoutineSets
+      : [],
+  );
+  const [divingSource, setDivingSource] = useState<DivingSource>(
+    recoveryField("divingSource", "device") as DivingSource,
+  );
+  const [divingDevice, setDivingDevice] = useState(recoveryField("divingDevice", "다이빙 컴퓨터"));
+  const [maxDepth, setMaxDepth] = useState(recoveryField("maxDepth", ""));
+  const [dynamicDistance, setDynamicDistance] = useState(recoveryField("dynamicDistance", ""));
+  const [waterTemperature, setWaterTemperature] = useState(recoveryField("waterTemperature", ""));
+  const [devicePrepared, setDevicePrepared] = useState(!!recovery);
   const [targetAlert, setTargetAlert] = useState<string | null>(null);
   const [finishConfirmationOpen, setFinishConfirmationOpen] = useState(false);
   const [mapFullscreen, setMapFullscreen] = useState(false);
-  const [startConfirmationOpen, setStartConfirmationOpen] = useState(!setupSports.includes(sport));
+  const [startConfirmationOpen, setStartConfirmationOpen] = useState(
+    !recovery && !setupSports.includes(sport),
+  );
   const [countdownValue, setCountdownValue] = useState<CountdownValue | null>(null);
-  const watchRef = useRef<Location.LocationSubscription | null>(null);
-  const pointsRef = useRef<TrackPoint[]>([]);
+  const lifetime = useRef(createTrackingLifetime()).current;
+  const drainQueue = useRef(createSerialTaskQueue()).current;
+  const stopBarrier = useRef<Promise<unknown>>(Promise.resolve());
+  const trackingCutoff = useRef<number | null>(recovery?.savedAt ?? null);
+  const pendingResumeBreak = useRef(false);
+  const pauseBoundaries = useRef<number[]>(recovery?.pauseBoundaries ?? []);
+  const pointsRef = useRef<TrackPoint[]>(recovery?.points ?? []);
   const savingRef = useRef(false);
+  const saveAttempt = useRef(
+    createMutationAttempt<Parameters<typeof api.createWorkoutSession>[1], WorkoutSession>(
+      () => checkpointId,
+    ),
+  ).current;
   const targetAlertKeysRef = useRef<string[]>([]);
-  const elapsedBaseMsRef = useRef(0);
+  const elapsedBaseMsRef = useRef(recovery?.elapsedMs ?? 0);
   const timerStartedAtMsRef = useRef<number | null>(null);
   const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const finishedRef = useRef(false);
+  const checkpointFields = useRef<Record<string, string | string[]>>({});
+  checkpointFields.current = {
+    bodyWeight,
+    averageHeartRate,
+    maximumHeartRate,
+    strengthVolume,
+    runningSteps,
+    averageCadence,
+    swimEnvironment,
+    poolLength,
+    completedLengths,
+    swimStrokeCount,
+    swimAverageSwolf,
+    selectedRoutineId,
+    completedRoutineSets,
+    divingSource,
+    divingDevice,
+    maxDepth,
+    dynamicDistance,
+    waterTemperature,
+  };
+  const writeCheckpoint = useCallback(async () => {
+    if (
+      !session ||
+      session.user.id !== recorderOwner.userId ||
+      loginLifetime !== recorderOwner.loginLifetime ||
+      !checkpointEnabled.current ||
+      workoutStartedAt.current === null ||
+      !isNotificationIdentity(session.user.id, loginLifetime)
+    )
+      return;
+    const runningSince = timerStartedAtMsRef.current;
+    if (runningSince !== null) checkpointEndedAt.current = Date.now();
+    await activeWorkouts.write({
+      version: 1,
+      id: checkpointId,
+      owner: session.user.id,
+      sport,
+      startedAt: workoutStartedAt.current,
+      savedAt: checkpointEndedAt.current,
+      elapsedMs: elapsedBaseMsRef.current + (runningSince === null ? 0 : Date.now() - runningSince),
+      points: pointsRef.current,
+      pauseBoundaries: pauseBoundaries.current,
+      fields: checkpointFields.current,
+    });
+  }, [checkpointId, session?.user.id, loginLifetime, sport, recorderOwner]);
+  const checkpointError = useCallback(() => {
+    if (lifetime.isMounted())
+      setError("임시 기록을 보관하지 못했습니다. 앱을 닫지 말고 저장을 다시 시도해 주세요.");
+  }, [lifetime]);
+  useEffect(() => {
+    if (!["recording", "paused", "review"].includes(phase)) return;
+    void writeCheckpoint().catch(checkpointError);
+    const timer = setInterval(() => void writeCheckpoint().catch(checkpointError), 5000);
+    const state = AppState.addEventListener("change", () => {
+      void writeCheckpoint().catch(checkpointError);
+    });
+    return () => {
+      clearInterval(timer);
+      state.remove();
+    };
+  }, [phase, writeCheckpoint, checkpointError]);
   const countdownEntrance = useRef(new Animated.Value(0)).current;
   const countdownPulse = useRef(new Animated.Value(0)).current;
 
@@ -154,7 +270,10 @@ export function LiveWorkoutRecorder({
       completedRoutineSets.includes(routineSetKey(itemIndex, setIndex)),
     ).every(Boolean),
   ).length;
-  const distanceKm = useMemo(() => calculateTrackDistance(points), [points]);
+  const indoorSwim = indoorSwimMetrics(poolLength, completedLengths);
+  const isIndoorSwim = sport === "swimming" && swimEnvironment === "indoor";
+  const gpsDistanceKm = useMemo(() => calculateTrackDistance(points), [points]);
+  const distanceKm = isIndoorSwim ? (indoorSwim.distanceM ?? 0) / 1000 : gpsDistanceKm;
   const elevation = useMemo(() => calculateElevation(points), [points]);
   const elapsedSeconds = elapsedMilliseconds / 1000;
   const weightKg = clampNumber(bodyWeight, 30, 250, 70);
@@ -163,8 +282,7 @@ export function LiveWorkoutRecorder({
   const averageSpeedKmh = elapsedSeconds > 0 ? distanceKm / (elapsedSeconds / 3600) : 0;
   const distanceM = distanceKm * 1000;
   const poolLengthM = clampNumber(poolLength, 10, 100, 25);
-  const laps =
-    swimEnvironment === "indoor" && poolLengthM > 0 ? Math.floor(distanceM / poolLengthM) : 0;
+  const laps = isIndoorSwim ? (indoorSwim.laps ?? 0) : 0;
   const swimPaceSeconds = distanceM >= 25 ? elapsedSeconds / (distanceM / 100) : 0;
   const measuredSwimStrokes = optionalMetric(swimStrokeCount, 1, 100_000);
   const calculatedSwolf =
@@ -185,10 +303,9 @@ export function LiveWorkoutRecorder({
   );
   const active = phase === "recording";
   const canClose = phase === "setup" || phase === "done" || phase === "starting";
-  const usesOutdoorGps =
-    gpsSports.includes(sport) && (sport !== "swimming" || swimEnvironment === "outdoor");
-  const mapFrameWidth = Math.min(window.width, window.height * (9 / 16));
-  const mapFrameHeight = mapFrameWidth * (16 / 9);
+  const usesOutdoorGps = requiresOutdoorGps(sport, swimEnvironment);
+  const mapFrameWidth = window.width;
+  const mapFrameHeight = window.height;
 
   useEffect(() => {
     onTrackChange?.({
@@ -199,16 +316,21 @@ export function LiveWorkoutRecorder({
   }, [gpsStatus, onTrackChange, points, usesOutdoorGps]);
 
   const stopGps = useCallback(() => {
-    watchRef.current?.remove();
-    watchRef.current = null;
-  }, []);
+    lifetime.invalidate();
+  }, [lifetime]);
 
   const appendPoint = useCallback(
     (point: TrackPoint, reset = false) => {
-      const result = appendTrackPointResult(reset ? [] : pointsRef.current, point, sport, {
-        receivedAt: Date.now(),
-      });
+      const result = appendTrackPointResult(
+        reset ? [] : pointsRef.current,
+        pendingResumeBreak.current ? { ...point, breakBefore: true, breakReason: "pause" } : point,
+        sport,
+        {
+          receivedAt: Date.now(),
+        },
+      );
       if (result.accepted) {
+        pendingResumeBreak.current = false;
         pointsRef.current = result.points;
         setPoints(result.points);
       }
@@ -217,15 +339,32 @@ export function LiveWorkoutRecorder({
     [sport],
   );
 
-  const drainBackgroundPoints = useCallback(async (consume = false) => {
-    const buffered = consume ? await consumeBackgroundTrack() : await readBackgroundTrack();
-    if (buffered.length === 0) return pointsRef.current;
-    let next = pointsRef.current;
-    for (const point of buffered) next = appendTrackPointResult(next, point, sport).points;
-    pointsRef.current = next;
-    setPoints(next);
-    return next;
-  }, [sport]);
+  const drainBackgroundPoints = useCallback(
+    (consume = false) => {
+      const currentWorkout = lifetime.scope();
+      return drainQueue(async () => {
+        if (!currentWorkout()) return pointsRef.current;
+        const buffered = (await readBackgroundTrack(checkpointId)).filter(
+          (point) => trackingCutoff.current === null || point.timestamp <= trackingCutoff.current,
+        );
+        if (!currentWorkout()) return pointsRef.current;
+        if (buffered.length === 0) return pointsRef.current;
+        const known = new Set(pointsRef.current.map((point) => point.timestamp));
+        if (buffered.every((point) => known.has(point.timestamp))) return pointsRef.current;
+        const next = mergeTrackPointSources(
+          pointsRef.current,
+          buffered,
+          sport,
+          pauseBoundaries.current,
+        );
+        pointsRef.current = next;
+        setPoints(next);
+        if (consume) await writeCheckpoint();
+        return next;
+      });
+    },
+    [drainQueue, lifetime, sport, checkpointId, writeCheckpoint],
+  );
 
   const clearCountdown = useCallback(() => {
     countdownTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
@@ -236,6 +375,7 @@ export function LiveWorkoutRecorder({
   const freezeTimer = useCallback(() => {
     if (timerStartedAtMsRef.current === null) return elapsedBaseMsRef.current;
     const frozen = elapsedBaseMsRef.current + (Date.now() - timerStartedAtMsRef.current);
+    checkpointEndedAt.current = Date.now();
     elapsedBaseMsRef.current = frozen;
     timerStartedAtMsRef.current = null;
     setElapsedMilliseconds(frozen);
@@ -253,16 +393,21 @@ export function LiveWorkoutRecorder({
   }, [phase]);
 
   useEffect(() => {
-    if (phase !== "recording" || !gpsSports.includes(sport)) return undefined;
-    const drain = setInterval(() => void drainBackgroundPoints(), 3_000);
+    if (phase !== "recording" || !usesOutdoorGps) return undefined;
+    const drainSafely = () =>
+      void drainBackgroundPoints().catch(() => {
+        if (lifetime.isMounted())
+          setError("GPS 임시 기록을 읽지 못했습니다. 기록을 유지하며 다시 시도합니다.");
+      });
+    const drain = setInterval(drainSafely, 3_000);
     const appStateSubscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void drainBackgroundPoints();
+      if (state === "active") drainSafely();
     });
     return () => {
       clearInterval(drain);
       appStateSubscription.remove();
     };
-  }, [drainBackgroundPoints, phase, sport]);
+  }, [drainBackgroundPoints, lifetime, phase, usesOutdoorGps]);
 
   useEffect(() => {
     if (!countdownValue) return undefined;
@@ -308,32 +453,48 @@ export function LiveWorkoutRecorder({
     });
   }, [distanceKm, elapsedSeconds, phase, selectedRoutine, selectedRoutineItems, sport]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    lifetime.mount();
+    return () => {
+      lifetime.unmount();
       stopGps();
-      void stopBackgroundTrack();
+      void stopBackgroundTrack().catch(() => undefined);
       countdownTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
-    },
-    [stopGps],
-  );
+    };
+  }, [lifetime, stopGps]);
 
   const beginGps = useCallback(
     async (reset: boolean) => {
-      if (finishedRef.current) return;
+      if (finishedRef.current || !lifetime.isMounted()) return;
+      const isCurrent = lifetime.begin();
+      const startedAt = Date.now();
       setError(null);
       setGpsStatus("GPS 연결 중");
-      if (reset) {
-        elapsedBaseMsRef.current = 0;
-        timerStartedAtMsRef.current = null;
-        setElapsedMilliseconds(0);
-        setPoints([]);
-        pointsRef.current = [];
-        await clearBackgroundTrack();
-      }
       try {
+        await stopBarrier.current.catch(async () => {
+          await stopBackgroundTrack(trackingCutoff.current ?? Date.now());
+          await drainBackgroundPoints(true);
+        });
+        if (!isCurrent() || finishedRef.current) return;
+        stopBarrier.current = Promise.resolve();
+        trackingCutoff.current = null;
+        pendingResumeBreak.current = !reset;
+        if (reset) pauseBoundaries.current = [];
+        else pauseBoundaries.current.push(startedAt);
+        if (reset) {
+          elapsedBaseMsRef.current = 0;
+          timerStartedAtMsRef.current = null;
+          setElapsedMilliseconds(0);
+          setPoints([]);
+          pointsRef.current = [];
+        }
+        await writeCheckpoint();
+        await clearBackgroundTrack();
+        if (!isCurrent()) return;
         const permission = await Location.requestForegroundPermissionsAsync();
-        if (finishedRef.current) return;
+        if (!isCurrent()) return;
         if (!permission.granted) {
+          freezeTimer();
           setPhase(setupSports.includes(sport) ? "setup" : "paused");
           setGpsStatus("GPS 권한 필요");
           setError("실시간 거리 기록을 위해 위치 권한을 허용해 주세요.");
@@ -342,26 +503,23 @@ export function LiveWorkoutRecorder({
         const current = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
         });
-        if (finishedRef.current) return;
+        if (!isCurrent()) return;
         const firstPoint = toTrackPoint(current);
-        const initialResult = appendPoint({ ...firstPoint, breakBefore: !reset }, reset);
+        const initialResult = appendPoint(firstPoint, reset);
         setPhase("recording");
         setGpsStatus(
           initialResult.accepted
             ? describeGpsAccuracy(firstPoint.accuracy)
             : describeGpsRejection(initialResult.reason),
         );
-        const backgroundActive = await startBackgroundTrack(sport).catch(() => false);
-        if (!backgroundActive) setGpsStatus("GPS 기록 중 · 화면 유지 권장");
-        stopGps();
-        watchRef.current = await Location.watchPositionAsync(
+        const subscription = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.BestForNavigation,
             timeInterval: 1000,
             distanceInterval: 2,
           },
           (nextLocation) => {
-            if (finishedRef.current) return;
+            if (!isCurrent() || finishedRef.current) return;
             const nextPoint = toTrackPoint(nextLocation);
             const result = appendPoint(nextPoint);
             setGpsStatus(
@@ -371,22 +529,45 @@ export function LiveWorkoutRecorder({
             );
           },
           () => {
+            if (!isCurrent() || finishedRef.current) return;
             setGpsStatus("GPS 연결 끊김");
             setError("GPS 수신이 끊겼습니다. 타이머는 계속 기록됩니다.");
           },
         );
+        lifetime.attach(subscription, isCurrent);
+        if (!isCurrent()) return;
+        const backgroundActive = await startBackgroundTrack(
+          sport,
+          isCurrent,
+          startedAt,
+          checkpointId,
+        ).catch(() => false);
+        if (!isCurrent()) return;
+        if (!backgroundActive) setGpsStatus("GPS 기록 중 · 화면 유지 권장");
       } catch {
-        if (finishedRef.current) return;
+        if (!isCurrent()) return;
+        freezeTimer();
+        stopGps();
+        void stopBackgroundTrack().catch(() => undefined);
         setPhase(setupSports.includes(sport) ? "setup" : "paused");
         setGpsStatus("GPS 연결 실패");
-        setError("현재 위치를 가져오지 못했습니다. 야외에서 다시 시도해 주세요.");
+        setError("GPS 기록을 시작하지 못했습니다. 임시 기록을 유지했습니다. 다시 시도해 주세요.");
       }
     },
-    [appendPoint, sport, stopGps],
+    [
+      appendPoint,
+      drainBackgroundPoints,
+      freezeTimer,
+      lifetime,
+      sport,
+      stopGps,
+      checkpointId,
+      writeCheckpoint,
+    ],
   );
 
   function startCountdown(onComplete: () => void) {
-    if (finishedRef.current) return;
+    if (finishedRef.current || !lifetime.isMounted()) return;
     clearCountdown();
     setPhase("starting");
     setCountdownValue("3");
@@ -397,21 +578,39 @@ export function LiveWorkoutRecorder({
     ];
     countdownTimeoutsRef.current = sequence.map(({ delay, value }) =>
       setTimeout(() => {
-        if (!finishedRef.current) setCountdownValue(value);
+        if (!finishedRef.current && lifetime.isMounted()) setCountdownValue(value);
       }, delay),
     );
     countdownTimeoutsRef.current.push(
       setTimeout(() => {
         countdownTimeoutsRef.current = [];
         setCountdownValue(null);
-        if (!finishedRef.current) onComplete();
+        if (!finishedRef.current && lifetime.isMounted()) onComplete();
       }, 3040),
     );
   }
 
-  function beginWorkoutNow(reset: boolean) {
-    if (finishedRef.current) return;
+  async function beginWorkoutNow(reset: boolean) {
+    if (finishedRef.current || !lifetime.isMounted()) return;
     setError(null);
+    if (workoutStartedAt.current === null) {
+      workoutStartedAt.current = Date.now();
+      checkpointEndedAt.current = workoutStartedAt.current;
+    }
+    checkpointEnabled.current = true;
+    try {
+      await writeCheckpoint();
+    } catch {
+      checkpointError();
+      setPhase("paused");
+      return;
+    }
+    if (
+      !lifetime.isMounted() ||
+      !session ||
+      !isNotificationIdentity(session.user.id, loginLifetime)
+    )
+      return;
     if (reset) {
       elapsedBaseMsRef.current = 0;
       timerStartedAtMsRef.current = null;
@@ -420,10 +619,11 @@ export function LiveWorkoutRecorder({
       setTargetAlert(null);
       targetAlertKeysRef.current = [];
     }
-    if (gpsSports.includes(sport)) {
+    if (usesOutdoorGps) {
       void beginGps(reset);
       return;
     }
+    setGpsStatus("시간 기록");
     setPhase("recording");
   }
 
@@ -431,8 +631,8 @@ export function LiveWorkoutRecorder({
     if (finishedRef.current) return;
     setError(null);
     if (sport === "swimming" && swimEnvironment === "indoor") {
-      if (!Number.isFinite(Number(poolLength)) || Number(poolLength) < 10) {
-        setError("수영장 길이를 10m 이상으로 설정해 주세요.");
+      if (indoorSwim.error) {
+        setError(indoorSwim.error);
         return;
       }
     }
@@ -440,17 +640,26 @@ export function LiveWorkoutRecorder({
   }
 
   function pauseWorkout() {
+    trackingCutoff.current = Date.now();
     freezeTimer();
     stopGps();
-    void stopBackgroundTrack()
-      .then(() => drainBackgroundPoints(true))
-      .catch(() => undefined);
+    stopBarrier.current = usesOutdoorGps
+      ? stopBackgroundTrack(trackingCutoff.current).then(() => drainBackgroundPoints(true))
+      : Promise.resolve();
+    void stopBarrier.current.catch(() => {
+      if (lifetime.isMounted())
+        setError("GPS 임시 기록을 읽지 못했습니다. 종료 또는 재시도로 다시 확인해 주세요.");
+    });
     setPhase("paused");
-    if (gpsSports.includes(sport)) setGpsStatus("일시정지");
+    if (usesOutdoorGps) setGpsStatus("일시정지");
   }
 
   function resumeWorkout() {
     if (finishedRef.current) return;
+    if (saveAttempt.prepared) {
+      setError("이전 저장 결과 확인이 필요합니다. 종료 및 저장을 다시 눌러 주세요.");
+      return;
+    }
     startCountdown(() => beginWorkoutNow(false));
   }
 
@@ -463,18 +672,39 @@ export function LiveWorkoutRecorder({
 
   async function finishWorkout() {
     if (finishedRef.current) return;
+    if (isIndoorSwim && indoorSwim.error) {
+      setError(indoorSwim.error);
+      setFinishConfirmationOpen(true);
+      return;
+    }
     finishedRef.current = true;
+    trackingCutoff.current ??= Date.now();
     clearCountdown();
     setStartConfirmationOpen(false);
     freezeTimer();
     stopGps();
-    await stopBackgroundTrack().catch(() => undefined);
-    await drainBackgroundPoints(true);
-    if (sport === "diving") {
-      setPhase("review");
-      return;
+    try {
+      await stopBarrier.current.catch(() => undefined);
+      if (usesOutdoorGps) {
+        await stopBackgroundTrack(trackingCutoff.current);
+        await drainBackgroundPoints(true);
+      }
+      if (!lifetime.isMounted()) return;
+      if (sport === "diving") {
+        setPhase("review");
+        return;
+      }
+      await persistWorkout();
+    } catch (caught) {
+      if (!lifetime.isMounted()) return;
+      finishedRef.current = false;
+      setPhase("paused");
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "종료 전 GPS 기록을 확인하지 못했습니다. 다시 저장해 주세요.",
+      );
     }
-    await persistWorkout();
   }
 
   async function persistWorkout() {
@@ -497,11 +727,18 @@ export function LiveWorkoutRecorder({
     savingRef.current = true;
     setPhase("saving");
     setError(null);
-    const endedAt = new Date();
+    const endedAt = new Date(
+      Math.max(
+        (workoutStartedAt.current ?? checkpointEndedAt.current) + 10,
+        checkpointEndedAt.current,
+      ),
+    );
     const recordedElapsedMs = Math.max(10, elapsedBaseMsRef.current);
-    const startedAt = new Date(endedAt.getTime() - recordedElapsedMs);
-    const savedPoints = pointsRef.current;
-    const savedDistanceKm = calculateTrackDistance(savedPoints);
+    const startedAt = new Date(workoutStartedAt.current ?? endedAt.getTime() - recordedElapsedMs);
+    const savedPoints = usesOutdoorGps ? pointsRef.current : [];
+    const savedDistanceKm = isIndoorSwim
+      ? (indoorSwim.distanceM ?? 0) / 1000
+      : calculateTrackDistance(savedPoints);
     const savedDistanceM = savedDistanceKm * 1000;
     const savedElevation = calculateElevation(savedPoints);
     const savedElapsedSeconds = recordedElapsedMs / 1000;
@@ -515,10 +752,7 @@ export function LiveWorkoutRecorder({
         : savedEstimatedCadence > 0
           ? Math.round((savedElapsedSeconds / 60) * savedEstimatedCadence)
           : 0;
-    const savedLaps =
-      swimEnvironment === "indoor" && poolLengthM > 0
-        ? Math.floor(savedDistanceM / poolLengthM)
-        : 0;
+    const savedLaps = isIndoorSwim ? (indoorSwim.laps ?? 0) : 0;
     const savedSwimPaceSeconds =
       savedDistanceM >= 25 ? savedElapsedSeconds / (savedDistanceM / 100) : 0;
     const savedCalculatedSwolf =
@@ -530,103 +764,122 @@ export function LiveWorkoutRecorder({
     const divingDeviceCode = divingSource === "device" ? deviceCode(divingDevice) : 0;
     let savedWorkout: WorkoutSession | null = null;
     try {
-      savedWorkout = await api.createWorkoutSession(session.accessToken, {
-        sport,
-        startedAt: startedAt.toISOString(),
-        endedAt: endedAt.toISOString(),
-        perceivedExertion: 5,
-        routePoints: savedPoints,
-        notes: buildWorkoutNotes({
+      await writeCheckpoint();
+      checkpointEnabled.current = false;
+      savedWorkout = await saveAttempt.run(
+        session.user.id,
+        async () => ({
           sport,
-          selectedRoutine,
-          completed: completedRoutineExerciseCount,
-          total: selectedRoutineItems.length,
-          divingSource,
-          divingDevice,
+          startedAt: startedAt.toISOString(),
+          endedAt: endedAt.toISOString(),
+          perceivedExertion: 5,
+          routePoints: savedPoints,
+          notes: isIndoorSwim
+            ? "실내 수영 · 편도 횟수 직접 입력"
+            : buildWorkoutNotes({
+                sport,
+                selectedRoutine,
+                completed: completedRoutineExerciseCount,
+                total: selectedRoutineItems.length,
+                divingSource,
+                divingDevice,
+              }),
+          metrics: {
+            durationMilliseconds: Math.round(recordedElapsedMs),
+            durationMinutes: recordedElapsedMs / 60_000,
+            calories,
+            ...(optionalMetric(averageHeartRate, 30, 250) !== undefined
+              ? { averageHeartRateBpm: Math.round(optionalMetric(averageHeartRate, 30, 250)!) }
+              : {}),
+            ...(optionalMetric(maximumHeartRate, 30, 250) !== undefined
+              ? { maximumHeartRateBpm: Math.round(optionalMetric(maximumHeartRate, 30, 250)!) }
+              : {}),
+            ...(savedDistanceKm > 0 || (isIndoorSwim && indoorSwim.distanceM === 0)
+              ? {
+                  distanceKm: Number(savedDistanceKm.toFixed(3)),
+                  distanceM: Math.round(savedDistanceM),
+                }
+              : {}),
+            ...(usesOutdoorGps
+              ? {
+                  elevationGainM: Math.round(savedElevation.gain),
+                  maxElevationM: Math.round(savedElevation.max),
+                  gpsPointCount: savedPoints.length,
+                }
+              : {}),
+            ...((sport === "running" || sport === "hiking") &&
+            (optionalMetric(runningSteps, 1, 200_000) !== undefined || savedEstimatedSteps > 0)
+              ? {
+                  steps: Math.round(
+                    optionalMetric(runningSteps, 1, 200_000) ?? savedEstimatedSteps,
+                  ),
+                }
+              : {}),
+            ...(sport === "running" && savedPaceSecondsPerKm > 0
+              ? {
+                  paceSeconds: Number(savedPaceSecondsPerKm.toFixed(1)),
+                  ...(optionalMetric(averageCadence, 1, 300) !== undefined ||
+                  savedEstimatedCadence > 0
+                    ? {
+                        averageCadenceSpm: Math.round(
+                          optionalMetric(averageCadence, 1, 300) ?? savedEstimatedCadence,
+                        ),
+                      }
+                    : {}),
+                }
+              : {}),
+            ...(sport === "cycling" && savedDistanceKm > 0
+              ? {
+                  paceSeconds: Number(savedPaceSecondsPerKm.toFixed(1)),
+                  averageSpeedKmh: Number(savedAverageSpeedKmh.toFixed(1)),
+                }
+              : {}),
+            ...(sport === "swimming"
+              ? {
+                  swimEnvironmentCode: swimEnvironment === "indoor" ? 1 : 2,
+                  poolLengthM: swimEnvironment === "indoor" ? poolLengthM : 0,
+                  ...(isIndoorSwim && indoorSwim.laps !== undefined ? { laps: savedLaps } : {}),
+                  swimPaceSeconds: Number(savedSwimPaceSeconds.toFixed(1)),
+                  totalStrokes: Math.round(measuredSwimStrokes ?? 0),
+                  averageSwolf: Number(
+                    (optionalMetric(swimAverageSwolf, 1, 300) ?? savedCalculatedSwolf).toFixed(1),
+                  ),
+                }
+              : {}),
+            ...(sport === "strength"
+              ? {
+                  exerciseCount: completedRoutineExerciseCount,
+                  sets: completedRoutineSets.length,
+                  volumeKg: Math.max(0, optionalMetric(strengthVolume, 1, 1_000_000) ?? 0),
+                  routineCompletion: allRoutineItemsCompleted ? 1 : 0,
+                }
+              : {}),
+            ...(sport === "diving"
+              ? {
+                  maxDepthM: Math.max(0, Number(maxDepth) || 0),
+                  dynamicDistanceM: Math.max(0, Number(dynamicDistance) || 0),
+                  waterTemperatureC: Math.max(0, optionalMetric(waterTemperature, 1, 45) ?? 0),
+                  divingDeviceCode,
+                }
+              : {}),
+          },
+          source: sport === "diving" && divingSource === "device" ? "wearable" : "manual",
         }),
-        metrics: {
-          durationMinutes: Number((recordedElapsedMs / 60_000).toFixed(4)),
-          calories,
-          ...(optionalMetric(averageHeartRate, 30, 250) !== undefined
-            ? { averageHeartRateBpm: Math.round(optionalMetric(averageHeartRate, 30, 250)!) }
-            : {}),
-          ...(optionalMetric(maximumHeartRate, 30, 250) !== undefined
-            ? { maximumHeartRateBpm: Math.round(optionalMetric(maximumHeartRate, 30, 250)!) }
-            : {}),
-          ...(savedDistanceKm > 0
-            ? {
-                distanceKm: Number(savedDistanceKm.toFixed(3)),
-                distanceM: Math.round(savedDistanceM),
-              }
-            : {}),
-          ...(gpsSports.includes(sport)
-            ? {
-                elevationGainM: Math.round(savedElevation.gain),
-                maxElevationM: Math.round(savedElevation.max),
-                gpsPointCount: savedPoints.length,
-              }
-            : {}),
-          ...((sport === "running" || sport === "hiking") &&
-          (optionalMetric(runningSteps, 1, 200_000) !== undefined || savedEstimatedSteps > 0)
-            ? {
-                steps: Math.round(optionalMetric(runningSteps, 1, 200_000) ?? savedEstimatedSteps),
-              }
-            : {}),
-          ...(sport === "running" && savedPaceSecondsPerKm > 0
-            ? {
-                paceSeconds: Number(savedPaceSecondsPerKm.toFixed(1)),
-                ...(optionalMetric(averageCadence, 1, 300) !== undefined ||
-                savedEstimatedCadence > 0
-                  ? {
-                      averageCadenceSpm: Math.round(
-                        optionalMetric(averageCadence, 1, 300) ?? savedEstimatedCadence,
-                      ),
-                    }
-                  : {}),
-              }
-            : {}),
-          ...(sport === "cycling" && savedDistanceKm > 0
-            ? {
-                paceSeconds: Number(savedPaceSecondsPerKm.toFixed(1)),
-                averageSpeedKmh: Number(savedAverageSpeedKmh.toFixed(1)),
-              }
-            : {}),
-          ...(sport === "swimming"
-            ? {
-                swimEnvironmentCode: swimEnvironment === "indoor" ? 1 : 2,
-                poolLengthM: swimEnvironment === "indoor" ? poolLengthM : 0,
-                laps: savedLaps,
-                swimPaceSeconds: Number(savedSwimPaceSeconds.toFixed(1)),
-                totalStrokes: Math.round(measuredSwimStrokes ?? 0),
-                averageSwolf: Number(
-                  (optionalMetric(swimAverageSwolf, 1, 300) ?? savedCalculatedSwolf).toFixed(1),
-                ),
-              }
-            : {}),
-          ...(sport === "strength"
-            ? {
-                exerciseCount: completedRoutineExerciseCount,
-                sets: completedRoutineSets.length,
-                volumeKg: Math.max(0, optionalMetric(strengthVolume, 1, 1_000_000) ?? 0),
-                routineCompletion: allRoutineItemsCompleted ? 1 : 0,
-              }
-            : {}),
-          ...(sport === "diving"
-            ? {
-                maxDepthM: Math.max(0, Number(maxDepth) || 0),
-                dynamicDistanceM: Math.max(0, Number(dynamicDistance) || 0),
-                waterTemperatureC: Math.max(0, optionalMetric(waterTemperature, 1, 45) ?? 0),
-                divingDeviceCode,
-              }
-            : {}),
-        },
-        source: sport === "diving" && divingSource === "device" ? "wearable" : "manual",
-      });
+        (input, key) =>
+          api.createWorkoutSession(session.accessToken, input, { idempotencyKey: key }),
+        () => lifetime.isMounted() && isNotificationIdentity(session.user.id, loginLifetime),
+      );
+      if (!lifetime.isMounted() || !isNotificationIdentity(session.user.id, loginLifetime)) return;
+      await activeWorkouts.complete(session.user.id, checkpointId);
+      if (!lifetime.isMounted() || !isNotificationIdentity(session.user.id, loginLifetime)) return;
       setPhase("done");
     } catch (caught) {
+      if (!lifetime.isMounted() || !isNotificationIdentity(session.user.id, loginLifetime)) return;
       finishedRef.current = false;
       setPhase(sport === "diving" ? "review" : "paused");
-      setError(caught instanceof Error ? caught.message : "운동 기록을 저장하지 못했습니다.");
+      setError(
+        `${caught instanceof Error ? caught.message : "운동 기록을 저장하지 못했습니다."} 종료 및 저장을 다시 누르면 같은 요청을 확인합니다.`,
+      );
     } finally {
       savingRef.current = false;
     }
@@ -825,6 +1078,27 @@ export function LiveWorkoutRecorder({
               ) : null}
               {sport === "swimming" ? (
                 <>
+                  {isIndoorSwim ? (
+                    <View style={styles.finishMetricField}>
+                      <Text style={styles.finishMetricLabel}>완료한 편도 횟수</Text>
+                      <View style={styles.finishMetricInputRow}>
+                        <TextInput
+                          accessibilityLabel="완료한 편도 횟수"
+                          keyboardType="number-pad"
+                          value={completedLengths}
+                          onChangeText={setCompletedLengths}
+                          placeholder="선택"
+                          placeholderTextColor={colors.muted}
+                          style={styles.finishMetricInput}
+                        />
+                        <Text style={styles.finishMetricUnit}>회</Text>
+                      </View>
+                      <Text style={styles.finishMetricHint}>
+                        {indoorSwim.error ??
+                          `${poolLengthM}m × ${indoorSwim.laps ?? "--"}회 = ${indoorSwim.distanceM ?? "--"}m`}
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={[styles.finishMetricField, styles.finishMetricFieldCompact]}>
                     <Text style={styles.finishMetricLabel}>총 스트로크</Text>
                     <View style={styles.finishMetricInputRow}>
@@ -927,14 +1201,14 @@ export function LiveWorkoutRecorder({
       >
         <View style={styles.fullscreenMapBackdrop}>
           <View
-            style={[styles.fullscreenMapFrame, { width: mapFrameWidth, height: mapFrameHeight }]}
+            style={[styles.fullscreenMapFrame, { width: mapFrameWidth, height: mapFrameHeight, paddingTop: mapInsets.top + 48 }]}
           >
-            <WorkoutMap
+            <GroovCourseMap
               backgroundColor={colors.map}
               badgeLabel={gpsStatus}
               currentPoint={points.at(-1)}
               controlsBottom={170}
-              height={mapFrameHeight}
+              height={Math.max(180, mapFrameHeight - 216 - mapInsets.top - mapInsets.bottom)}
               isSample={false}
               minimal={false}
               points={points}
@@ -945,11 +1219,11 @@ export function LiveWorkoutRecorder({
               accessibilityLabel="전체화면 지도 닫기"
               accessibilityRole="button"
               onPress={() => setMapFullscreen(false)}
-              style={styles.fullscreenMapClose}
+              style={[styles.fullscreenMapClose, {top: mapInsets.top + 4}]}
             >
               <X color="#FFFFFF" size={22} />
             </Pressable>
-            <View pointerEvents="none" style={styles.fullscreenMetricOverlay}>
+            <View pointerEvents="none" style={[styles.fullscreenMetricOverlay, {bottom: Math.max(18, mapInsets.bottom + 8)}]}>
               <View>
                 <Text style={styles.fullscreenSport}>{sportLabels[sport]}</Text>
                 <Text style={styles.fullscreenTimer}>{formatClock(elapsedMilliseconds)}</Text>
@@ -1054,7 +1328,7 @@ export function LiveWorkoutRecorder({
               <Text style={styles.timerLabel}>{active ? "운동 시간" : gpsStatus}</Text>
               <Text style={styles.timer}>{formatClock(elapsedMilliseconds)}</Text>
             </View>
-            {gpsSports.includes(sport) ? (
+            {usesOutdoorGps ? (
               <View style={styles.gpsBadge}>
                 <MapPin color={colors.primary} size={14} />
                 <Text style={styles.gpsText}>{gpsStatus}</Text>
@@ -1065,7 +1339,7 @@ export function LiveWorkoutRecorder({
           {gpsSports.includes(sport) ? (
             <>
               {showMap && usesOutdoorGps ? (
-                <WorkoutMap
+                <GroovCourseMap
                   backgroundColor={colors.map}
                   badgeLabel={gpsStatus}
                   compact
@@ -1080,6 +1354,7 @@ export function LiveWorkoutRecorder({
                 />
               ) : null}
               <GpsMetrics
+                usesGps={usesOutdoorGps}
                 averageHeartRate={measuredHeartRate}
                 averageSwolf={optionalMetric(swimAverageSwolf, 1, 300) ?? calculatedSwolf}
                 maximumHeartRate={measuredMaximumHeartRate}
@@ -1375,7 +1650,7 @@ function SetupPanel({
             </View>
             <Text style={styles.setupHint}>
               {swimEnvironment === "indoor"
-                ? "수영장 길이와 이동 거리를 기준으로 랩을 계산합니다."
+                ? "GPS 없이 시간을 기록합니다. 종료 시 완료한 편도 횟수를 입력하면 거리를 계산합니다."
                 : "실외수영은 GPS 거리와 페이스를 기록하며 랩은 계산하지 않습니다."}
             </Text>
           </View>
@@ -1411,7 +1686,9 @@ function SetupPanel({
                   value={poolLength === "25" || poolLength === "50" ? "" : poolLength}
                 />
               </View>
-              <Text style={styles.setupHint}>기록 거리 ÷ 수영장 길이로 랩을 자동 계산합니다.</Text>
+              <Text style={styles.setupHint}>
+                완료한 편도 횟수를 입력하면 수영장 길이로 거리를 계산합니다.
+              </Text>
             </View>
           ) : null}
           <WeightInput
@@ -1536,6 +1813,7 @@ function WeightInput({
 }
 
 function GpsMetrics({
+  usesGps,
   sport,
   distanceKm,
   paceSecondsPerKm,
@@ -1556,6 +1834,7 @@ function GpsMetrics({
   styles,
   colors,
 }: {
+  usesGps: boolean;
   sport: SportType;
   distanceKm: number;
   paceSecondsPerKm: number;
@@ -1627,13 +1906,17 @@ function GpsMetrics({
             ];
   return (
     <View style={styles.gpsMetricStack}>
-      <View style={styles.gpsInfoBar}>
-        <MapPin color={colors.primary} size={14} />
-        <Text style={styles.gpsInfoText}>
-          {gpsStatus} · 정확도 {gpsAccuracy === null ? "확인 중" : `±${Math.round(gpsAccuracy)}m`} ·
-          위치 {gpsPointCount}점
-        </Text>
-      </View>
+      {usesGps ? (
+        <View style={styles.gpsInfoBar}>
+          <MapPin color={colors.primary} size={14} />
+          <Text style={styles.gpsInfoText}>
+            {gpsStatus} · 정확도 {gpsAccuracy === null ? "확인 중" : `±${Math.round(gpsAccuracy)}m`}{" "}
+            · 위치 {gpsPointCount}점
+          </Text>
+        </View>
+      ) : (
+        <Text style={styles.gpsInfoText}>실내 수영 · 편도 횟수 직접 입력</Text>
+      )}
       <View style={styles.metricGrid}>
         {metrics.map((metric) => (
           <View key={metric.label} style={styles.metricCell}>
@@ -1808,14 +2091,7 @@ function optionalMetric(value: string, min: number, max: number) {
 }
 
 function formatClock(totalMilliseconds: number) {
-  const centiseconds = Math.floor(totalMilliseconds / 10);
-  const hours = Math.floor(centiseconds / 360_000);
-  const minutes = Math.floor((centiseconds % 360_000) / 6_000);
-  const seconds = Math.floor((centiseconds % 6_000) / 100);
-  const hundredths = centiseconds % 100;
-  return [hours, minutes, seconds, hundredths]
-    .map((value) => String(value).padStart(2, "0"))
-    .join(":");
+  return formatWorkoutClock(totalMilliseconds);
 }
 
 function formatPace(value: number, unit: string) {

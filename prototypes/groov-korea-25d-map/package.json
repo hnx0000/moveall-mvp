@@ -1,0 +1,10 @@
+{
+  "name": "groov-korea-25d-map-mvp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test model.test.mjs assets.test.mjs route-model.test.mjs detail.test.mjs upgrade.test.mjs map-system.test.mjs mobile-map.test.mjs map-refinements.test.mjs detail-hud.test.mjs national-hud.test.mjs course-panel.test.mjs map-toolbar.test.mjs ranking-heat.test.mjs",
+    "check": "node --check app.js && node --check detail.js && node --check course-planner.mjs && node --check course-panel.mjs && node --check map-toolbar.mjs && node --check ranking-heat.mjs && node --check map-services.mjs && node --check mobile-map-ui.mjs && node --check detail-hud.mjs && node --check national-hud.mjs && node --test model.test.mjs assets.test.mjs route-model.test.mjs detail.test.mjs upgrade.test.mjs map-system.test.mjs mobile-map.test.mjs map-refinements.test.mjs detail-hud.test.mjs national-hud.test.mjs course-panel.test.mjs map-toolbar.test.mjs ranking-heat.test.mjs"
+  }
+}

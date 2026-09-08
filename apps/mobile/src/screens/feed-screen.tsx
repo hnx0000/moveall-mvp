@@ -1,4 +1,9 @@
-import { sportLabels, storyIsActive, type FeedPost, type SportType } from "@moveall/contracts";
+import {
+  sportLabels,
+  storyIsActive,
+  type FeedPost,
+  type SportType,
+} from "@moveall/contracts";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Bookmark, Heart, MessageCircle, Plus } from "lucide-react-native";
@@ -42,6 +47,7 @@ import { UnfollowDialog } from "../components/unfollow-dialog";
 import { PostComments } from "../components/post-comments";
 import { useAuth } from "../../src/auth/auth-context";
 import { demoAvatarSources } from "../../src/demo-avatars";
+import { characterFeedSources } from "../character-assets.generated";
 import { CenterDialog, Screen, StatePanel } from "../../src/components/ui";
 import { NotificationBell } from "../components/notification-bell";
 import {
@@ -60,7 +66,6 @@ import { FeedLikeSurface } from "../components/feed-like-surface";
 import {
   feedPostHref,
   hasFeedVisual,
-  isRecordedFeedPost,
   rankHomeFeed,
 } from "../components/feed-ranking";
 import { fonts, gradients, radius, space, type ThemeColors } from "../../src/theme";
@@ -420,6 +425,7 @@ const demoStoryOwners: StoryOwner[] = [
 ];
 
 const feedImageSources: Partial<Record<string, ImageSourcePropType>> = {
+  ...characterFeedSources,
   "demo-post-running": minjiStory01,
   "demo-post-swimming": yunaStory01,
   "demo-post-taeo": taeoStory01,
@@ -865,25 +871,29 @@ export default function FeedScreen() {
     );
   }
 
-  function createGoal() {
-    if (!goalPost) return;
-    saveRecordGoal({
-      postId: goalPost.id,
-      authorName: goalPost.authorDisplayName,
-      sport: goalPost.sport,
-      content: goalPost.content,
-      private: goalPrivate,
-    });
-    setBookmarkedPosts((current) =>
-      current.includes(goalPost.id) ? current : [...current, goalPost.id],
-    );
-    setFeedNotice(
-      goalPrivate
-        ? "비공개 목표로 저장했습니다. 상대방에게 알림이 가지 않습니다."
-        : "기록을 존중하는 공개 목표로 저장했습니다.",
-    );
-    setGoalPost(null);
-    setGoalPrivate(false);
+  async function createGoal() {
+    if (!goalPost || !session) return;
+    try {
+      await saveRecordGoal(session.user.id, {
+        postId: goalPost.id,
+        authorName: goalPost.authorDisplayName,
+        sport: goalPost.sport,
+        content: goalPost.content,
+        private: goalPrivate,
+      });
+      setBookmarkedPosts((current) =>
+        current.includes(goalPost.id) ? current : [...current, goalPost.id],
+      );
+      setFeedNotice(
+        goalPrivate
+          ? "비공개 목표로 저장했습니다. 상대방에게 알림이 가지 않습니다."
+          : "기록을 존중하는 공개 목표로 저장했습니다.",
+      );
+      setGoalPost(null);
+      setGoalPrivate(false);
+    } catch {
+      setFeedNotice("목표를 저장하지 못했습니다. 다시 시도해 주세요.");
+    }
   }
 
   const normalizedHashtag =
@@ -893,8 +903,7 @@ export default function FeedScreen() {
   const visiblePosts = posts?.filter(
     (post) =>
       storyIsActive(post) &&
-      isRecordedFeedPost(post) &&
-      hasFeedVisual(post) &&
+      hasFeedVisual(post, Boolean(feedImageSources[post.id])) &&
       (sharedPostId ||
         (post.contentType !== "story" &&
           (!normalizedHashtag || extractHashtags(post.content).includes(normalizedHashtag)))),
@@ -905,6 +914,7 @@ export default function FeedScreen() {
         followingIds,
         ...(session?.user.id ? { viewerId: session.user.id } : {}),
         recommendationInterval: 3,
+        localImagePostIds: new Set(Object.keys(feedImageSources)),
       }),
     [followingIds, session?.user.id, visiblePosts],
   );
@@ -1277,7 +1287,9 @@ export default function FeedScreen() {
       {error && posts === null ? (
         <StatePanel state="error" message={error} onRetry={() => void reload()} />
       ) : null}
-      {posts?.length === 0 ? <StatePanel state="empty" message="첫 기록을 공유해 보세요." /> : null}
+      {posts !== null && rankedPosts.length === 0 ? (
+        <StatePanel state="empty" message="사진이나 운동 기록이 담긴 피드가 아직 없어요." />
+      ) : null}
       {feedLayout === "grid" && !sharedPostId ? (
         <View style={styles.feedGrid}>
           {rankedPosts.map(({ post, source, reason }) => {
@@ -1299,7 +1311,7 @@ export default function FeedScreen() {
                   <View style={styles.feedGridRecord}>
                     <Text style={styles.feedGridSport}>{sportLabels[post.sport]}</Text>
                     <Text numberOfLines={3} style={styles.feedGridCopy}>
-                      {post.content}
+                      사진을 불러오지 못했어요. 눌러서 다시 확인해 주세요.
                     </Text>
                   </View>
                 )}
@@ -1405,6 +1417,7 @@ export default function FeedScreen() {
                 imageSource={postImageSource}
                 liked={cheered}
                 onLike={() => void saveLike(post, true)}
+                onRetryMedia={() => void reload()}
                 post={post}
                 styles={styles}
               />
@@ -1604,11 +1617,13 @@ function extractHashtags(value: string) {
 }
 
 function feedPresentation(post: FeedPost): FeedPresentation {
-  const selected = (
+  const selected =
     feedPresentations[post.id] ??
-    (post.mediaUrl ? "photo-separate-record" : post.workoutSummary ? "record-only" : "photo-only")
-  );
-  if ((selected === "photo-route-overlay" || selected === "route-only") && !supportsGpsRoute(post.sport)) {
+    (post.mediaUrl ? "photo-separate-record" : post.workoutSummary ? "record-only" : "photo-only");
+  if (
+    (selected === "photo-route-overlay" || selected === "route-only") &&
+    !supportsGpsRoute(post.sport)
+  ) {
     return post.mediaUrl || feedImageSources[post.id] ? "photo-record-overlay" : "record-only";
   }
   return selected;
@@ -1622,17 +1637,20 @@ function FeedPostVisual({
   imageSource,
   liked,
   onLike,
+  onRetryMedia,
   post,
   styles,
 }: {
   imageSource?: ImageSourcePropType | undefined;
   liked: boolean;
   onLike: () => void;
+  onRetryMedia: () => void;
   post: FeedPost;
   styles: ReturnType<typeof createStyles>;
 }) {
   const presentation = feedPresentation(post);
-  const route = post.sport === "cycling" ? cyclingRoute : post.sport === "hiking" ? hikingRoute : runningRoute;
+  const route =
+    post.sport === "cycling" ? cyclingRoute : post.sport === "hiking" ? hikingRoute : runningRoute;
   const primary = feedOverlayPrimary(post);
   return (
     <FeedLikeSurface
@@ -1696,6 +1714,14 @@ function FeedPostVisual({
         </ImageBackground>
       ) : post.workoutSummary ? (
         <FeedWorkoutSummary post={post} styles={styles} />
+      ) : post.mediaId || post.mediaObjectPath ? (
+        <View style={[styles.feedArtwork, { justifyContent: "center" }]}>
+          <StatePanel
+            state="error"
+            message="사진을 불러오지 못했어요. 다시 불러와 주세요."
+            onRetry={onRetryMedia}
+          />
+        </View>
       ) : null}
     </FeedLikeSurface>
   );
@@ -1704,14 +1730,16 @@ function FeedPostVisual({
 function feedOverlayPrimary(post: FeedPost) {
   const metrics = post.workoutSummary?.metrics ?? {};
   if (post.sport === "strength") return `${Math.round(metrics.sets ?? 0)} SETS`;
-  if (post.sport === "swimming") return `${Math.round(metrics.distanceM ?? (metrics.distanceKm ?? 0) * 1000)} M`;
+  if (post.sport === "swimming")
+    return `${Math.round(metrics.distanceM ?? (metrics.distanceKm ?? 0) * 1000)} M`;
   return `${(metrics.distanceKm ?? (metrics.distanceM ?? 0) / 1000).toFixed(2)} KM`;
 }
 
 function feedOverlayMeta(post: FeedPost) {
   const metrics = post.workoutSummary?.metrics ?? {};
   const minutes = Math.round(metrics.durationMinutes ?? 0);
-  if (post.sport === "strength") return `${Math.round(metrics.exerciseCount ?? 0)} MOVES · ${Math.round(metrics.volumeKg ?? 0).toLocaleString()} KG`;
+  if (post.sport === "strength")
+    return `${Math.round(metrics.exerciseCount ?? 0)} MOVES · ${Math.round(metrics.volumeKg ?? 0).toLocaleString()} KG`;
   if (post.sport === "swimming") return `${minutes} MIN · ${Math.round(metrics.laps ?? 0)} LAPS`;
   return `${minutes} MIN · ${Math.round(metrics.calories ?? 0)} KCAL`;
 }
@@ -1783,16 +1811,9 @@ function FeedWorkoutSummary({
       </View>
       <View style={styles.workoutSummaryMetrics}>
         {secondary.slice(0, 3).map((metric) => (
-          <View
-            key={metric.label}
-            style={styles.workoutSummaryMetric}
-          >
-            <Text style={styles.workoutSummaryMetricValue}>
-              {metric.value}
-            </Text>
-            <Text style={styles.workoutSummaryMetricLabel}>
-              {metric.label}
-            </Text>
+          <View key={metric.label} style={styles.workoutSummaryMetric}>
+            <Text style={styles.workoutSummaryMetricValue}>{metric.value}</Text>
+            <Text style={styles.workoutSummaryMetricLabel}>{metric.label}</Text>
           </View>
         ))}
       </View>
@@ -1916,6 +1937,7 @@ function relativeTime(value: string) {
 }
 
 function readPersistedCurrentAvatar(): string | null {
+  if (!usePreviewApi) return null;
   try {
     if (!("localStorage" in globalThis)) return null;
     return globalThis.localStorage.getItem("groov-demo-avatar-v1");
@@ -2393,9 +2415,19 @@ function createStyles(colors: ThemeColors) {
       fontSize: 22,
       letterSpacing: -1.5,
     },
-    feedGridTicketUnit: { color: colors.primary, fontFamily: fonts.bold, fontSize: 5, marginLeft: 3 },
+    feedGridTicketUnit: {
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 5,
+      marginLeft: 3,
+    },
     feedGridTicketRule: { borderTopWidth: 1, borderStyle: "dashed", borderColor: "#442018" },
-    feedGridTicketMeta: { color: colors.primary, opacity: 0.7, fontFamily: fonts.bold, fontSize: 5 },
+    feedGridTicketMeta: {
+      color: colors.primary,
+      opacity: 0.7,
+      fontFamily: fonts.bold,
+      fontSize: 5,
+    },
     recommendationDot: {
       position: "absolute",
       right: 5,

@@ -1,0 +1,17 @@
+/* Both maps use the course map's + / current zoom / − capsule. */
+.game-shell .map-controls>.zoom-control,.detail-shell .map-actions>.zoom-control {
+  display:grid!important;flex:0 0 auto;grid-template-columns:1fr;width:44px;
+  border:1px solid #ffffff1f;border-radius:12px;background:#151618e6;
+  backdrop-filter:blur(12px);overflow:hidden;text-align:center;box-sizing:border-box;
+}
+.game-shell .map-controls .zoom-control>button,.detail-shell .map-actions .zoom-control>button {
+  display:flex;align-items:center;justify-content:center;width:42px;min-width:0;
+  min-height:44px!important;height:44px!important;border:0!important;border-radius:0;
+  background:transparent;color:#deddd8;font-size:20px;padding:0;touch-action:manipulation;
+}
+.game-shell .map-controls .zoom-control output,.detail-shell .map-actions .zoom-control output {
+  display:block;padding:2px 0;font-size:12px;line-height:16px;color:#ff5733;
+  font-variant-numeric:tabular-nums;
+}
+.game-shell .map-controls .zoom-control>button:hover,.detail-shell .map-actions .zoom-control>button:hover {background:#282627;}
+.game-shell .map-controls .zoom-control>button:focus-visible,.detail-shell .map-actions .zoom-control>button:focus-visible {outline:2px solid #ffad8d;outline-offset:-3px;}

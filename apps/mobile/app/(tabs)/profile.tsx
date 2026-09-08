@@ -40,12 +40,8 @@ import {
   type ThemeColors,
 } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
-import { sortWorkoutsForDisplay } from "../../src/workout-display";
-import { formatSensorMetricLine } from "../../src/workout-metrics";
 
-type ProfileTab = "records" | "posts" | "routines";
-type RecordFilter = "all" | SportType;
-type RoutineSport = "strength" | "swimming" | "diving";
+type ProfileTab = "posts" | "routines";
 type RoutineDraftItem = {
   name: string;
   target: string;
@@ -55,7 +51,7 @@ type RoutineDraftItem = {
   restMinutes: string;
 };
 
-const routineSports: RoutineSport[] = ["strength", "swimming", "diving"];
+const routineSports = sportValues;
 const emptyRoutineItem = (): RoutineDraftItem => ({
   name: "",
   target: "",
@@ -93,8 +89,7 @@ export default function ProfileScreen() {
   const { colors, mode, setMode } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { session, logout, updateUser } = useAuth();
-  const [tab, setTab] = useState<ProfileTab>(params.tab === "routines" ? "routines" : "records");
-  const [recordFilter] = useState<RecordFilter>("all");
+  const [tab, setTab] = useState<ProfileTab>(params.tab === "routines" ? "routines" : "posts");
   const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [medals, setMedals] = useState<Medal[]>([]);
@@ -107,7 +102,7 @@ export default function ProfileScreen() {
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [routineTitle, setRoutineTitle] = useState("");
-  const [routineSport, setRoutineSport] = useState<RoutineSport>("strength");
+  const [routineSport, setRoutineSport] = useState<SportType>("strength");
   const [routineItems, setRoutineItems] = useState<RoutineDraftItem[]>([emptyRoutineItem()]);
   const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
   const [pendingDeleteRoutineId, setPendingDeleteRoutineId] = useState<string | null>(null);
@@ -151,15 +146,6 @@ export default function ProfileScreen() {
     }, [loadProfile, params.tab]),
   );
 
-  const visibleWorkouts = useMemo(
-    () =>
-      sortWorkoutsForDisplay(
-        recordFilter === "all"
-          ? workouts
-          : workouts.filter((workout) => workout.sport === recordFilter),
-      ),
-    [recordFilter, workouts],
-  );
   const earnedMedals = medals.filter((medal) => medal.earned);
   const pendingDeleteRoutine =
     routines.find((routine) => routine.id === pendingDeleteRoutineId) ?? null;
@@ -318,11 +304,7 @@ export default function ProfileScreen() {
 
   const editRoutine = (routine: Routine) => {
     setRoutineTitle(routine.title);
-    setRoutineSport(
-      routineSports.includes(routine.sport as RoutineSport)
-        ? (routine.sport as RoutineSport)
-        : "strength",
-    );
+    setRoutineSport(routine.sport);
     setRoutineItems(
       [...routine.items]
         .sort((left, right) => left.order - right.order)
@@ -450,16 +432,6 @@ export default function ProfileScreen() {
               </View>
               <Text style={styles.temporarySettingsArrow}>→</Text>
             </Pressable>
-            <Pressable
-              onPress={() => router.push("/reward-collection?tab=medal-concepts&source=my-settings" as never)}
-              style={styles.temporarySettingsItem}
-            >
-              <View>
-                <Text style={styles.temporarySettingsTitle}>로고·보상 보관함</Text>
-                <Text style={styles.temporarySettingsDescription}>스탬프·메달·메달 3안</Text>
-              </View>
-              <Text style={styles.temporarySettingsArrow}>→</Text>
-            </Pressable>
           </View>
         ) : null}
 
@@ -573,36 +545,6 @@ export default function ProfileScreen() {
           <Text style={styles.goalsShortcutArrow}>→</Text>
         </Pressable>
 
-        <SectionHeader eyebrow="MY RECORDS" title="운동별 기록" styles={styles} />
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.orbs}
-        >
-          <RecordOrb
-            active
-            count={workouts.length}
-            label="전체"
-            onPress={() => {
-              router.push("/profile/records");
-            }}
-            styles={styles}
-          />
-          {sportValues.map((sport) => (
-            <RecordOrb
-              key={sport}
-              active={false}
-              count={workouts.filter((workout) => workout.sport === sport).length}
-              label={shortSportLabel(sport)}
-              sport={sport}
-              onPress={() => {
-                router.push({ pathname: "/profile/sport", params: { sport } });
-              }}
-              styles={styles}
-            />
-          ))}
-        </ScrollView>
-
         <View style={styles.medalHeader}>
           <SectionHeader eyebrow="MEDAL CABINET" title="달성 메달" styles={styles} />
           <Text style={styles.medalCount}>
@@ -643,7 +585,6 @@ export default function ProfileScreen() {
         <View style={styles.tabBar}>
           {(
             [
-              ["records", "기록"],
               ["posts", "게시물"],
               ["routines", "루틴"],
             ] as const
@@ -659,9 +600,6 @@ export default function ProfileScreen() {
           <View style={styles.loading}>
             <ActivityIndicator color={colors.primary} />
           </View>
-        ) : null}
-        {!loading && tab === "records" ? (
-          <RecordList workouts={visibleWorkouts.slice(0, 3)} styles={styles} />
         ) : null}
         {!loading && tab === "posts" ? (
           <PostList
@@ -966,72 +904,6 @@ function Stat({
   );
 }
 
-function RecordOrb({
-  active,
-  count,
-  label,
-  sport,
-  onPress,
-  styles,
-}: {
-  active: boolean;
-  count: number;
-  label: string;
-  sport?: SportType;
-  onPress(): void;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <Pressable onPress={onPress} style={styles.orbItem}>
-      <View style={[styles.recordOrb, active && styles.recordOrbActive]}>
-        <Text style={[styles.orbSportGlyph, active && styles.orbSportGlyphActive]}>
-          {sport ? sportGlyph(sport) : "·"}
-        </Text>
-        <Text style={[styles.orbCount, active && styles.orbCountActive]}>{count}</Text>
-      </View>
-      <Text style={[styles.orbLabel, active && styles.orbLabelActive]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function RecordList({
-  workouts,
-  styles,
-}: {
-  workouts: WorkoutSession[];
-  styles: ReturnType<typeof createStyles>;
-}) {
-  if (workouts.length === 0)
-    return (
-      <Empty
-        copy="아직 이 운동 기록이 없습니다. 기록 탭에서 첫 운동을 남겨보세요."
-        styles={styles}
-      />
-    );
-  return (
-    <View style={styles.contentSection}>
-      {workouts.map((workout) => (
-        <View key={workout.id} style={styles.recordCard}>
-          <View>
-            <Text style={styles.cardEyebrow}>{sportLabels[workout.sport]}</Text>
-            <Text style={styles.cardTitle}>
-              {new Date(workout.startedAt).toLocaleDateString("ko-KR")}
-            </Text>
-          </View>
-          <View style={styles.recordMetrics}>
-            <Text style={styles.metricStrong}>{formatPrimaryMetric(workout)}</Text>
-            <Text style={styles.metricSub}>
-              {durationMinutes(workout)}분 · 강도 {workout.perceivedExertion}/10
-            </Text>
-          </View>
-          <Text style={styles.recordSensorMetric}>{formatSensorMetricLine(workout)}</Text>
-          {workout.notes ? <Text style={styles.recordNote}>{workout.notes}</Text> : null}
-        </View>
-      ))}
-    </View>
-  );
-}
-
 function PostList({
   posts,
   onOpen,
@@ -1119,20 +991,6 @@ function sportGlyph(sport: SportType): string {
             ? "C"
             : "W";
 }
-function durationMinutes(workout: WorkoutSession): number {
-  return Math.max(
-    1,
-    Math.round((Date.parse(workout.endedAt) - Date.parse(workout.startedAt)) / 60_000),
-  );
-}
-function formatPrimaryMetric(workout: WorkoutSession): string {
-  const distance = workout.metrics.distanceKm;
-  if (typeof distance === "number") return `${distance.toFixed(2)} km`;
-  const calories = workout.metrics.calories;
-  if (typeof calories === "number") return `${Math.round(calories)} kcal`;
-  return `${durationMinutes(workout)} MIN`;
-}
-
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: colors.background },
@@ -1400,14 +1258,14 @@ function createStyles(colors: ThemeColors) {
     postTile: {
       width: "48.5%",
       minHeight: 154,
-      backgroundColor: colors.ink,
+      backgroundColor: colors.surface,
       borderRadius: radius.xl,
       padding: 14,
       justifyContent: "space-between",
       ...shadows.card,
     },
     postSport: { color: colors.primary, fontSize: 8, fontWeight: "900", letterSpacing: 1 },
-    postContent: { color: "#FFFFFF", fontSize: 12, lineHeight: 19, fontWeight: "800" },
+    postContent: { color: colors.ink, fontSize: 12, lineHeight: 19, fontWeight: "800" },
     postMeta: { color: "#A3A3A3", fontSize: 7 },
     networkGrid: { flexDirection: "row", gap: 12 },
     peopleColumn: {
@@ -1455,10 +1313,10 @@ function createStyles(colors: ThemeColors) {
       marginTop: 4,
     },
     textAction: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
-    routineSportRow: { flexDirection: "row", gap: 7 },
+    routineSportRow: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
     routineSportChip: {
-      flex: 1,
-      minHeight: 36,
+      width: "31.8%",
+      minHeight: 42,
       alignItems: "center",
       justifyContent: "center",
       borderWidth: 1,
@@ -1466,9 +1324,9 @@ function createStyles(colors: ThemeColors) {
       borderRadius: radius.full,
       backgroundColor: colors.surface,
     },
-    routineSportChipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
-    routineSportText: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 9 },
-    routineSportTextActive: { color: colors.background },
+    routineSportChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    routineSportText: { color: colors.muted, fontFamily: fonts.semibold, fontSize: 12 },
+    routineSportTextActive: { color: "#FFFFFF" },
     routineInput: {
       minHeight: 44,
       color: colors.ink,

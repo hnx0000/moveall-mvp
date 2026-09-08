@@ -12,6 +12,7 @@ import {
   DirectMessageCreateInputSchema,
   GoogleLoginInputSchema,
   KnowledgeFeedbackCreateInputSchema,
+  LeagueQuerySchema,
   LoginInputSchema,
   MediaUploadRequestInputSchema,
   ModerationReportUpdateInputSchema,
@@ -92,7 +93,7 @@ export async function createApp(dependencies: AppDependencies) {
     const tokens = await dependencies.store.listPushDeviceTokens(userId);
     if (tokens.length > 0) {
       try {
-        await pushSender.send(tokens, notification);
+        await pushSender.send(tokens, notification, userId);
       } catch (error) {
         app.log.warn({ err: error, userId }, "push delivery failed");
       }
@@ -111,7 +112,7 @@ export async function createApp(dependencies: AppDependencies) {
   }
 
   async function attachWorkoutSummary(post: FeedPost): Promise<FeedPost> {
-    if (!post.workoutSessionId) return post;
+    if (post.workoutSummary || !post.workoutSessionId) return post;
     const workout = (await dependencies.store.listWorkoutSessions(post.userId)).find(
       (item) => item.id === post.workoutSessionId,
     );
@@ -173,7 +174,7 @@ export async function createApp(dependencies: AppDependencies) {
 
   async function currentAdmin(request: FastifyRequest): Promise<User> {
     const user = await currentUser(request);
-    if (!dependencies.config.adminEmails.includes(user.email.toLowerCase())) {
+    if (!dependencies.config.adminUserIds?.includes(user.id)) {
       throw new AppError(403, "ADMIN_REQUIRED", "관리자 권한이 필요합니다.");
     }
     return user;
@@ -386,6 +387,13 @@ export async function createApp(dependencies: AppDependencies) {
     { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
     async (request, reply) => {
       const input = RegisterInputSchema.parse(request.body);
+      if (dependencies.config.nodeEnv === "production") {
+        throw new AppError(
+          403,
+          "VERIFIED_SIGNUP_REQUIRED",
+          "이메일 확인 절차가 준비될 때까지 Google·Apple·카카오·네이버로 가입해 주세요. 기존 계정 로그인은 유지됩니다.",
+        );
+      }
       const existing = await dependencies.store.findUserByEmail(input.email);
       if (existing) {
         throw new AppError(409, "EMAIL_EXISTS", "이미 가입된 이메일입니다.");
@@ -523,6 +531,7 @@ export async function createApp(dependencies: AppDependencies) {
       const expiresAt = new Date(Date.now() + 30 * 86_400_000).toISOString();
       const rotated = await dependencies.store.rotateAuthSession({
         sessionId: current.id,
+        previousRefreshTokenHash: tokenService.hashRefreshToken(input.refreshToken),
         refreshTokenHash: tokenService.hashRefreshToken(refreshToken),
         expiresAt,
       });
@@ -586,14 +595,27 @@ export async function createApp(dependencies: AppDependencies) {
             ...input.neighborhood,
             latitude: Number(input.neighborhood.latitude.toFixed(2)),
             longitude: Number(input.neighborhood.longitude.toFixed(2)),
+            regionCode: (
+              input.neighborhood.regionCode ??
+              `${input.neighborhood.district ?? input.neighborhood.neighborhood}@${input.neighborhood.latitude.toFixed(1)},${input.neighborhood.longitude.toFixed(1)}`
+            )
+              .normalize("NFKC")
+              .toLocaleLowerCase("ko-KR"),
+            verifiedAt: new Date().toISOString(),
           },
         }
       : input;
     return success(await dependencies.store.saveOnboarding(user.id, privacySafeInput));
   });
 
+  app.get("/v1/account/capabilities", async (request) => {
+    const user = await currentUser(request);
+    return success({ admin: (dependencies.config.adminUserIds ?? []).includes(user.id) });
+  });
+
   app.get("/v1/auth/providers", async () =>
     success({
+      emailRegistration: dependencies.config.nodeEnv !== "production",
       google: dependencies.config.googleClientIds.length > 0,
       apple: dependencies.config.appleClientIds.length > 0,
       kakao: Boolean(dependencies.config.kakaoRestApiKey),
@@ -711,6 +733,8 @@ export async function createApp(dependencies: AppDependencies) {
     const user = await currentUser(request);
     const parameters = z.object({ mediaId: z.uuid() }).parse(request.params);
     const pending = await dependencies.store.findMediaObject(user.id, parameters.mediaId);
+    if (pending?.status === "available")
+      return success({ id: pending.id, status: pending.status, objectPath: pending.objectPath });
     if (!pending || pending.status !== "pending") {
       throw new AppError(404, "MEDIA_NOT_FOUND", "업로드 항목을 찾을 수 없습니다.");
     }
@@ -814,7 +838,13 @@ export async function createApp(dependencies: AppDependencies) {
   app.post("/v1/workout-sessions", { bodyLimit: 8_000_000 }, async (request, reply) => {
     const user = await currentUser(request);
     const input = WorkoutSessionCreateInputSchema.parse(request.body);
-    const session = await dependencies.store.createWorkoutSession(user.id, input);
+    const operation = mutationOperation(request.headers, "workout.create", input);
+    if (
+      operation?.kind.startsWith("health.import:") &&
+      !(await dependencies.store.getConsent(user.id))?.healthDataAccepted
+    )
+      throw new AppError(403, "HEALTH_CONSENT_REQUIRED", "건강정보 이용 동의가 필요합니다.");
+    const session = await dependencies.store.createWorkoutSession(user.id, input, operation);
     return reply.status(201).send(success(session));
   });
 
@@ -846,6 +876,13 @@ export async function createApp(dependencies: AppDependencies) {
       throw new AppError(404, "WORKOUT_NOT_FOUND", "운동 기록을 찾을 수 없습니다.");
     }
     return success({ deleted: true as const });
+  });
+
+  app.get("/v1/league", async (request, reply) => {
+    const user = await currentUser(request);
+    const query = LeagueQuerySchema.parse(request.query);
+    reply.header("Cache-Control", "private, no-store");
+    return success(await dependencies.store.leagueSnapshot(user.id, query));
   });
 
   app.get("/v1/medals/me", async (request) => {
@@ -882,20 +919,17 @@ export async function createApp(dependencies: AppDependencies) {
   app.post("/v1/posts", async (request, reply) => {
     const user = await currentUser(request);
     const input = PostCreateInputSchema.parse(request.body);
-    const selectedCrews = [input.audience, input.commentAudience]
-      .filter((audience) => audience?.scope === "crews")
-      .flatMap((audience) => audience?.crewIds ?? []);
-    if (selectedCrews.length) {
-      const ownedCrews = await dependencies.store.listSharingCrews(user.id);
-      if (selectedCrews.some((id) => !ownedCrews.some((crew) => crew.id === id)))
-        throw new AppError(400, "CREW_NOT_FOUND", "본인의 공유 크루를 다시 선택해 주세요.");
-    }
-    const post = await dependencies.store.createPost(user.id, user.displayName, input);
+    const post = await dependencies.store.createPost(
+      user.id,
+      user.displayName,
+      input,
+      mutationOperation(request.headers, "post.create", input),
+    );
     if (!post) {
       throw new AppError(
         404,
-        "WORKOUT_NOT_FOUND",
-        "본인의 운동 기록만 게시물에 연결할 수 있습니다.",
+        "POST_INPUT_NOT_CREATED",
+        "본인의 업로드 완료 사진 또는 저장된 운동 기록을 다시 선택해 주세요.",
       );
     }
     return reply.status(201).send(success((await presentFeedPosts([post]))[0]!));
@@ -1125,8 +1159,8 @@ export async function createApp(dependencies: AppDependencies) {
     const input = ContentReportCreateInputSchema.parse(request.body);
     const report = await dependencies.store.createContentReport(user.id, input);
     await Promise.all(
-      dependencies.config.adminEmails.map(async (email) => {
-        const admin = await dependencies.store.findUserByEmail(email);
+      (dependencies.config.adminUserIds ?? []).map(async (userId) => {
+        const admin = await dependencies.store.findUserById(userId);
         if (!admin) return;
         await notifyUser(admin.id, {
           kind: "moderation",
@@ -1147,9 +1181,13 @@ export async function createApp(dependencies: AppDependencies) {
   });
 
   app.put("/v1/notifications/push-device", async (request) => {
-    const user = await currentUser(request);
+    const identity = await currentIdentity(request);
     const input = PushDeviceRegistrationInputSchema.parse(request.body);
-    const device = await dependencies.store.registerPushDevice(user.id, input);
+    const device = await dependencies.store.registerPushDevice(
+      identity.user.id,
+      identity.sessionId,
+      input,
+    );
     return success({
       id: device.id,
       platform: device.platform,
@@ -1159,9 +1197,9 @@ export async function createApp(dependencies: AppDependencies) {
   });
 
   app.delete("/v1/notifications/push-device", async (request) => {
-    const user = await currentUser(request);
+    const identity = await currentIdentity(request);
     const { token } = PushDeviceRegistrationInputSchema.pick({ token: true }).parse(request.body);
-    await dependencies.store.unregisterPushDevice(user.id, token);
+    await dependencies.store.unregisterPushDevice(identity.user.id, identity.sessionId, token);
     return success({ unregistered: true });
   });
 
@@ -1415,3 +1453,4 @@ export async function createApp(dependencies: AppDependencies) {
   app.addHook("onClose", async () => dependencies.store.close());
   return app;
 }
+import { mutationOperation } from "./domain/mutation-operation.js";

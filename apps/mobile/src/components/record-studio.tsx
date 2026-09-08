@@ -24,6 +24,8 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { Asset } from "expo-asset";
 import sportLogoSheet from "../../assets/images/sport-logo-sheet.jpg";
 import { api, usePreviewApi } from "../api/client";
+import { createMutationAttempt } from "../api/mutation-attempt";
+import { isNotificationIdentity } from "../features/notifications/push-lifecycle";
 import { useAuth } from "../auth/auth-context";
 import { uploadMediaAsset } from "../media/upload";
 import { exportStudioImage, prepareStudioExport } from "../media/studio-export";
@@ -56,8 +58,6 @@ const nextFrame = () =>
 export function RecordStudio({
   avatarUri,
   autoOpen = false,
-  directEditor = false,
-  contentType = "post",
   onClose,
   onPosted,
   initialWorkoutId,
@@ -76,12 +76,13 @@ export function RecordStudio({
   initialPhoto?: string | undefined;
   loadWorkouts?: (token: string) => Promise<WorkoutSession[]>;
 }) {
-  const { session } = useAuth();
+  const { session, loginLifetime } = useAuth();
   const { colors } = useAppTheme();
   const { width: windowWidth } = useWindowDimensions();
   const [open, setOpen] = useState(autoOpen);
   const [background, setBackground] = useState<"photo" | "map" | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
+  const [photoEditRevision, setPhotoEditRevision] = useState(0);
   const [photoReset, setPhotoReset] = useState(0);
   const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
   const [workout, setWorkout] = useState<WorkoutSession | null>(null);
@@ -101,7 +102,28 @@ export function RecordStudio({
   const [caption, setCaption] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const mountScope = useRef<object | null>(null);
+  useEffect(() => {
+    mountScope.current = {};
+    return () => {
+      mountScope.current = null;
+    };
+  }, []);
+  const publication =
+    useRef(
+      createMutationAttempt<
+        { input: Parameters<typeof api.createPost>[1]; previewUri?: string },
+        Awaited<ReturnType<typeof api.createPost>>
+      >(),
+    );
   const [exporting, setExporting] = useState(false);
+  const [, renderAttempt] = useState(0);
+  useEffect(() => {
+    if (open && publication.current.committed) {
+      publication.current = createMutationAttempt();
+      renderAttempt((value) => value + 1);
+    }
+  }, [open]);
   const [notice, setNotice] = useState<string | null>(null);
   const [privacyAction, setPrivacyAction] = useState<"post" | "export" | null>(null);
   const [preparedExport, setPreparedExport] = useState<string | null>(null);
@@ -271,13 +293,13 @@ export function RecordStudio({
   }
   async function perform(action: "post" | "export") {
     if (busyRef.current || !session) return;
-    if (background && !canCapture) {
+    if (!publication.current.prepared && background && !canCapture) {
       setNotice(
         "배경과 기록이 준비된 뒤 다시 시도해 주세요. GPS가 없는 기록은 사진 배경을 사용할 수 있습니다.",
       );
       return;
     }
-    if (!background && !caption.trim()) {
+    if (!publication.current.prepared && !background && !caption.trim()) {
       setNotice("공유할 이야기를 작성해 주세요.");
       return;
     }
@@ -285,46 +307,83 @@ export function RecordStudio({
     setBusy(true);
     setPrivacyAction(null);
     try {
-      let uri: string | undefined;
-      if (background) {
+      const mounted = mountScope.current;
+      const current = () =>
+        mounted !== null &&
+        mountScope.current === mounted &&
+        isNotificationIdentity(session.user.id, loginLifetime);
+      const captureArtwork = async (external: boolean) => {
+        if (!background) return undefined;
         setSelectedId(null);
-        setExporting(action === "export");
+        setExporting(external);
         await nextFrame();
-        uri = await captureRef(canvas, {
-          format: action === "export" ? "png" : "jpg",
+        return captureRef(canvas, {
+          format: external ? "png" : "jpg",
           quality: 0.94,
           result: Platform.OS === "web" ? "data-uri" : "tmpfile",
           width: 1080,
           height: 1920,
         });
-      }
-      if (action === "export" && uri) {
-        // A second explicit tap preserves browser Web Share's user activation.
-        await prepareStudioExport(uri);
-        setPreparedExport(uri);
+      };
+      if (action === "export") {
+        const uri = await captureArtwork(true);
+        if (uri) {
+          await prepareStudioExport(uri);
+          setPreparedExport(uri);
+        }
         return;
       }
-      let mediaId: string | undefined;
-      if (uri && !usePreviewApi)
-        mediaId = (
-          await uploadMediaAsset({
-            token: session.accessToken,
-            uri,
-            kind: "post-image",
-            contentType: "image/jpeg",
-            byteSize: 0,
-          })
-        ).mediaId;
-      await api.createPost(
-        session.accessToken,
-        {
-          sport: workout?.sport ?? (filter === "all" ? "running" : filter),
-          content: caption.trim() || `${sportLabels[workout!.sport]} · 오늘의 기록`,
-          ...(workout ? { workoutSessionId: workout.id } : {}),
-          ...(mediaId ? { mediaId } : {}),
-        },
-        usePreviewApi ? uri : undefined,
+      publication.current.resetUnsentIfChanged(
+        JSON.stringify({
+          caption,
+          filter,
+          workout,
+          background,
+          photo,
+          photoReset,
+          layers,
+          showBrand,
+          routeDetached,
+          labels,
+          mapImage,
+          mapRoute,
+          photoEditRevision,
+        }),
       );
+      await publication.current.run(
+        session.user.id,
+        async (stage) => {
+          const draft = await stage("draft", async () => ({ workout, caption, filter }));
+          const uri = await stage("capture", () => captureArtwork(false));
+          const media =
+            uri && !usePreviewApi
+              ? await uploadMediaAsset({
+                  token: session.accessToken,
+                  uri,
+                  kind: "post-image",
+                  contentType: "image/jpeg",
+                  byteSize: 0,
+                  stage,
+                  isCurrent: current,
+                })
+              : null;
+          return {
+            input: {
+              sport: draft.workout?.sport ?? (draft.filter === "all" ? "running" : draft.filter),
+              content: draft.caption.trim() || `${sportLabels[draft.workout!.sport]} · 오늘의 기록`,
+              ...(draft.workout ? { workoutSessionId: draft.workout.id } : {}),
+              ...(media ? { mediaId: media.mediaId } : {}),
+            },
+            ...(usePreviewApi && uri ? { previewUri: uri } : {}),
+          };
+        },
+        (prepared, key) =>
+          api.createPost(session.accessToken, prepared.input, prepared.previewUri, {
+            idempotencyKey: key,
+          }),
+        current,
+      );
+      if (!current()) return;
       setOpen(false);
       setCaption("");
       setBackground(null);
@@ -332,8 +391,12 @@ export function RecordStudio({
       setWorkout(null);
       setLayers([]);
       setPreparedExport(null);
-      await onPosted();
-      setNotice("피드에 공유했습니다.");
+      try {
+        await onPosted();
+        setNotice("피드에 공유했습니다.");
+      } catch {
+        setNotice("게시물은 저장했습니다. 화면을 다시 열어 확인해 주세요.");
+      }
     } catch (error) {
       setNotice(
         error instanceof Error ? error.message : "저장하지 못했습니다. 편집 내용은 유지됩니다.",
@@ -345,6 +408,10 @@ export function RecordStudio({
     }
   }
   function requestAction(action: "post" | "export") {
+    if (action === "post" && publication.current.prepared) {
+      void perform(action);
+      return;
+    }
     if (points.length > 1 && (background === "map" || routeLayer?.visible))
       setPrivacyAction(action);
     else void perform(action);
@@ -403,34 +470,39 @@ export function RecordStudio({
 
   return (
     <>
-      {!autoOpen ? <View style={[s.composer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() =>
-            session ? setOpen(true) : setNotice("로그인 후 운동을 공유할 수 있습니다.")
-          }
-          style={s.prompt}
-        >
-          {avatarUri ? (
-            <Image source={{ uri: avatarUri }} style={s.avatar} />
-          ) : (
-            <View style={[s.avatar, s.center, { backgroundColor: colors.surfaceMuted }]}>
-              <Text style={{ color: colors.ink }}>
-                {session?.user.displayName.slice(0, 1) ?? "M"}
-              </Text>
-            </View>
-          )}
-          <Text style={{ color: colors.muted, flex: 1, fontFamily: fonts.medium }}>
-            오늘의 움직임, 나만의 한 장으로.
-          </Text>
-        </Pressable>
-        {baseActions}
-      </View> : null}
+      {!autoOpen ? (
+        <View style={[s.composer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() =>
+              session ? setOpen(true) : setNotice("로그인 후 운동을 공유할 수 있습니다.")
+            }
+            style={s.prompt}
+          >
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={s.avatar} />
+            ) : (
+              <View style={[s.avatar, s.center, { backgroundColor: colors.surfaceMuted }]}>
+                <Text style={{ color: colors.ink }}>
+                  {session?.user.displayName.slice(0, 1) ?? "M"}
+                </Text>
+              </View>
+            )}
+            <Text style={{ color: colors.muted, flex: 1, fontFamily: fonts.medium }}>
+              오늘의 움직임, 나만의 한 장으로.
+            </Text>
+          </Pressable>
+          {baseActions}
+        </View>
+      ) : null}
       <Modal
         visible={open}
         animationType="slide"
         onRequestClose={() => {
-          if (!busy) { setOpen(false); onClose?.(); }
+          if (!busy) {
+            setOpen(false);
+            onClose?.();
+          }
         }}
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
@@ -442,439 +514,470 @@ export function RecordStudio({
             <Pressable
               accessibilityLabel="편집 닫기 · 초안 유지"
               disabled={busy}
-              onPress={() => { setOpen(false); onClose?.(); }}
+              onPress={() => {
+                setOpen(false);
+                onClose?.();
+              }}
               hitSlop={12}
             >
               <X color={colors.ink} />
             </Pressable>
           </View>
-          <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-            <Text style={[s.small, { color: colors.muted }]}>
-              01 배경 선택 → 02 기록 선택 → 03 자유롭게 편집
-            </Text>
-            {baseActions}
-            {background ? (
-              <View style={s.row}>
-                {button(
-                  workout ? `${sportLabels[workout.sport]} · 기록 변경` : "운동 기록 선택",
-                  () => void chooseRecord(),
-                  true,
-                )}
-                {workout ? (
-                  <Text style={[s.small, { color: colors.muted }]}>
-                    {new Date(workout.endedAt).toLocaleDateString("ko-KR")}
-                  </Text>
-                ) : null}
-              </View>
-            ) : (
-              <Text style={[s.small, { color: colors.muted }]}>
-                배경 없이 글만 공유할 수도 있어요.
+          {publication.current.prepared ? (
+            <View style={s.content}>
+              <Text style={{ color: colors.ink }}>
+                전송한 내용의 저장 결과를 확인합니다. 중복 게시를 막기 위해 이 요청은 수정하지
+                않습니다.
               </Text>
-            )}
-            {background && workout ? (
-              <>
-                <View
-                  style={{
-                    width: 360 * displayScale,
-                    height: 640 * displayScale,
-                    alignSelf: "center",
-                    borderRadius: 22,
-                    overflow: "hidden",
-                    backgroundColor: colors.surface,
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 360,
-                      height: 640,
-                      // html2canvas mishandles SVGs under an ancestor scale. Capture
-                      // the unscaled 360×640 artwork, then export at 1080×1920.
-                      transform: [{ scale: busy && Platform.OS === "web" ? 1 : displayScale }],
-                      transformOrigin: "top left",
-                    }}
-                  >
-                    {background === "map" && camera && !mapImage ? (
-                      <StudioMap
-                        key={`${workout.id}-${labels}-${mapAttempt}`}
-                        points={points}
-                        labels={labels}
-                        onSnapshot={receiveMap}
-                        onError={failMap}
-                      />
-                    ) : null}
-                    <View
-                      ref={canvas}
-                      collapsable={false}
-                      style={[s.canvas, { backgroundColor: "#171513" }]}
-                    >
-                      {background === "photo" && photo ? (
-                        <StudioPhoto
-                          key={`${photo}-${photoReset}`}
-                          uri={photo}
-                          editing={selectedId === "photo-frame" && !busy}
-                          displayScale={displayScale}
-                          onLoad={() => setImageReady(true)}
-                          onError={() => {
-                            setImageReady(false);
-                            setNotice("사진을 읽지 못했습니다. 다시 선택해 주세요.");
-                          }}
-                          onEdit={() => setPreparedExport(null)}
-                        />
-                      ) : backgroundUri ? (
-                        <Image
-                          source={{ uri: backgroundUri }}
-                          resizeMode="cover"
-                          onLoad={() => setImageReady(true)}
-                          onError={() => {
-                            setImageReady(false);
-                            setNotice("배경 이미지를 읽지 못했습니다. 배경을 다시 선택해 주세요.");
-                          }}
-                          style={StyleSheet.absoluteFill}
-                        />
-                      ) : (
-                        <View style={[StyleSheet.absoluteFill, s.center]}>
-                          {background === "map" && !camera ? (
-                            <Text style={s.whiteHint}>
-                              이 기록에는 GPS 경로가 없습니다.{"\n"}사진 배경을 선택해 주세요.
-                            </Text>
-                          ) : (
-                            <ActivityIndicator color={colors.primary} />
-                          )}
-                        </View>
-                      )}
-                      <Svg
-                        pointerEvents="none"
-                        width={360}
-                        height={640}
-                        style={StyleSheet.absoluteFill}
-                      >
-                        <Defs>
-                          <LinearGradient id="studio-shade" x1="0" y1="0" x2="0" y2="1">
-                            <Stop offset="0" stopColor="#000" stopOpacity=".05" />
-                            <Stop offset=".45" stopColor="#000" stopOpacity=".03" />
-                            <Stop offset="1" stopColor="#000" stopOpacity=".72" />
-                          </LinearGradient>
-                        </Defs>
-                        <Rect width={360} height={640} fill="url(#studio-shade)" />
-                      </Svg>
-                      {lockedRoute && routeLayer?.visible && camera ? (
-                        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                          <RouteGraphic points={mapRoute} width={360} height={640} />
-                        </View>
-                      ) : null}
-                      {layers
-                        .filter((item) => item.visible && !(item.kind === "route" && lockedRoute))
-                        .map((item) => (
-                          <EditableLayer
-                            key={item.id}
-                            item={item}
-                            sport={workout.sport}
-                            route={freeRoute}
-                            selected={selectedId === item.id && !busy}
-                            displayScale={displayScale}
-                            sheetUri={sheetUri}
-                            interactive={!busy && selectedId !== "photo-frame"}
-                            onSelect={() => setSelectedId(item.id)}
-                            onChange={(patch) => updateLayer(item.id, patch)}
-                          />
-                        ))}
-                      {brandVisible(showBrand, exporting) ? (
-                        <Text pointerEvents="none" style={s.brand}>
-                          GROOV
-                        </Text>
-                      ) : null}
-                      {background === "map" ? (
-                        <Text pointerEvents="none" style={s.credit}>
-                          {Platform.OS === "web"
-                            ? "© OpenMapTiles · © OpenStreetMap contributors"
-                            : Platform.OS === "ios"
-                              ? "Maps © Apple"
-                              : "Map data © Google"}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
-                </View>
-                {mapError && background === "map" ? (
-                  <View>
-                    <Text style={{ color: colors.primary }}>{mapError}</Text>
-                    {button("지도 다시 불러오기", () => setMapAttempt((n) => n + 1))}
-                  </View>
-                ) : null}
+              {button("저장 결과 확인", () => void perform("post"), true)}
+            </View>
+          ) : (
+            <ScrollView
+              pointerEvents={busy ? "none" : "auto"}
+              contentContainerStyle={s.content}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={[s.small, { color: colors.muted }]}>
+                01 배경 선택 → 02 기록 선택 → 03 자유롭게 편집
+              </Text>
+              {baseActions}
+              {background ? (
                 <View style={s.row}>
-                  <Move size={16} color={colors.primary} />
-                  <Text style={[s.small, { color: colors.muted, flex: 1 }]}>
-                    요소를 탭하고 드래그 · 두 손가락으로 크기/회전 조절
-                  </Text>
-                </View>
-                <View style={s.row}>
-                  {button("+ 텍스트", () => {
-                    const item = layer(
-                      `text-${Date.now()}`,
-                      "text",
-                      "나만의 한 줄",
-                      "자유 텍스트",
-                      180,
-                      300,
-                      300,
-                      70,
-                    );
-                    setLayers((current) => [...current, item]);
-                    setSelectedId(item.id);
-                  })}
-                  {button("선택 해제", () => setSelectedId(null))}
-                  {background === "photo"
-                    ? button(
-                        selectedId === "photo-frame" ? "배경 구도 완료" : "배경 구도 조절",
-                        () => setSelectedId(selectedId === "photo-frame" ? null : "photo-frame"),
-                        selectedId === "photo-frame",
-                      )
-                    : null}
-                  {background === "photo"
-                    ? button("사진 구도 초기화", () => {
-                        setPhotoReset((value) => value + 1);
-                        setPreparedExport(null);
-                      })
-                    : null}
-                  {button("배치 초기화", () => {
-                    setLayers(initialLayers(workout));
-                    setSelectedId(null);
-                  })}
-                </View>
-                <View
-                  style={[s.panel, { borderColor: colors.border, backgroundColor: colors.surface }]}
-                >
-                  <Text style={[s.subheading, { color: colors.ink }]}>보여줄 요소</Text>
-                  <View style={s.row}>
-                    {layers.map((item) => (
-                      <View key={item.id}>
-                        {button(
-                          `${item.visible ? "✓ " : "+ "}${item.label}`,
-                          () => {
-                            if (item.kind === "route" && points.length < 2) {
-                              setNotice("저장된 GPS 좌표가 없어 경로를 표시할 수 없습니다.");
-                              return;
-                            }
-                            updateLayer(item.id, { visible: !item.visible });
-                            setSelectedId(item.id);
-                          },
-                          item.visible,
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                  <View style={s.switchRow}>
-                    <Text style={{ color: colors.ink }}>GROOV 로고 · 우측 상단</Text>
-                    <Switch
-                      accessibilityLabel="앱 안에서 GROOV 로고 표시"
-                      value={showBrand}
-                      disabled={busy}
-                      onValueChange={setShowBrand}
-                      trackColor={{ true: colors.primary, false: colors.border }}
-                    />
-                  </View>
-                  <Text style={[s.small, { color: colors.muted }]}>
-                    앱 안에서는 숨길 수 있어요. 외부 저장·공유에는 항상 표시됩니다.
-                  </Text>
-                  {background === "map" ? (
-                    <>
-                      <View style={s.switchRow}>
-                        <Text style={{ color: colors.ink }}>최소 지명 표시</Text>
-                        <Switch
-                          accessibilityLabel="지도 지명 표시"
-                          value={labels}
-                          disabled={busy}
-                          onValueChange={setLabels}
-                          trackColor={{ true: colors.primary, false: colors.border }}
-                        />
-                      </View>
-                      <View style={s.row}>
-                        {button(
-                          routeDetached ? "지도 좌표에 다시 맞추기" : "경로만 분리해서 꾸미기",
-                          () => setRouteDetached((value) => !value),
-                          routeDetached,
-                        )}
-                      </View>
-                    </>
+                  {button(
+                    workout ? `${sportLabels[workout.sport]} · 기록 변경` : "운동 기록 선택",
+                    () => void chooseRecord(),
+                    true,
+                  )}
+                  {workout ? (
+                    <Text style={[s.small, { color: colors.muted }]}>
+                      {new Date(workout.endedAt).toLocaleDateString("ko-KR")}
+                    </Text>
                   ) : null}
                 </View>
-                {selected ? (
+              ) : (
+                <Text style={[s.small, { color: colors.muted }]}>
+                  배경 없이 글만 공유할 수도 있어요.
+                </Text>
+              )}
+              {background && workout ? (
+                <>
+                  <View
+                    style={{
+                      width: 360 * displayScale,
+                      height: 640 * displayScale,
+                      alignSelf: "center",
+                      borderRadius: 22,
+                      overflow: "hidden",
+                      backgroundColor: colors.surface,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 360,
+                        height: 640,
+                        // html2canvas mishandles SVGs under an ancestor scale. Capture
+                        // the unscaled 360×640 artwork, then export at 1080×1920.
+                        transform: [{ scale: busy && Platform.OS === "web" ? 1 : displayScale }],
+                        transformOrigin: "top left",
+                      }}
+                    >
+                      {background === "map" && camera && !mapImage ? (
+                        <StudioMap
+                          key={`${workout.id}-${labels}-${mapAttempt}`}
+                          points={points}
+                          labels={labels}
+                          onSnapshot={receiveMap}
+                          onError={failMap}
+                        />
+                      ) : null}
+                      <View
+                        ref={canvas}
+                        collapsable={false}
+                        style={[s.canvas, { backgroundColor: "#171513" }]}
+                      >
+                        {background === "photo" && photo ? (
+                          <StudioPhoto
+                            key={`${photo}-${photoReset}`}
+                            uri={photo}
+                            editing={selectedId === "photo-frame" && !busy}
+                            displayScale={displayScale}
+                            onLoad={() => setImageReady(true)}
+                            onError={() => {
+                              setImageReady(false);
+                              setNotice("사진을 읽지 못했습니다. 다시 선택해 주세요.");
+                            }}
+                            onEdit={() => {
+                              setPreparedExport(null);
+                              setPhotoEditRevision((value) => value + 1);
+                            }}
+                          />
+                        ) : backgroundUri ? (
+                          <Image
+                            source={{ uri: backgroundUri }}
+                            resizeMode="cover"
+                            onLoad={() => setImageReady(true)}
+                            onError={() => {
+                              setImageReady(false);
+                              setNotice(
+                                "배경 이미지를 읽지 못했습니다. 배경을 다시 선택해 주세요.",
+                              );
+                            }}
+                            style={StyleSheet.absoluteFill}
+                          />
+                        ) : (
+                          <View style={[StyleSheet.absoluteFill, s.center]}>
+                            {background === "map" && !camera ? (
+                              <Text style={s.whiteHint}>
+                                이 기록에는 GPS 경로가 없습니다.{"\n"}사진 배경을 선택해 주세요.
+                              </Text>
+                            ) : (
+                              <ActivityIndicator color={colors.primary} />
+                            )}
+                          </View>
+                        )}
+                        <Svg
+                          pointerEvents="none"
+                          width={360}
+                          height={640}
+                          style={StyleSheet.absoluteFill}
+                        >
+                          <Defs>
+                            <LinearGradient id="studio-shade" x1="0" y1="0" x2="0" y2="1">
+                              <Stop offset="0" stopColor="#000" stopOpacity=".05" />
+                              <Stop offset=".45" stopColor="#000" stopOpacity=".03" />
+                              <Stop offset="1" stopColor="#000" stopOpacity=".72" />
+                            </LinearGradient>
+                          </Defs>
+                          <Rect width={360} height={640} fill="url(#studio-shade)" />
+                        </Svg>
+                        {lockedRoute && routeLayer?.visible && camera ? (
+                          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                            <RouteGraphic points={mapRoute} width={360} height={640} />
+                          </View>
+                        ) : null}
+                        {layers
+                          .filter((item) => item.visible && !(item.kind === "route" && lockedRoute))
+                          .map((item) => (
+                            <EditableLayer
+                              key={item.id}
+                              item={item}
+                              sport={workout.sport}
+                              route={freeRoute}
+                              selected={selectedId === item.id && !busy}
+                              displayScale={displayScale}
+                              sheetUri={sheetUri}
+                              interactive={!busy && selectedId !== "photo-frame"}
+                              onSelect={() => setSelectedId(item.id)}
+                              onChange={(patch) => updateLayer(item.id, patch)}
+                            />
+                          ))}
+                        {brandVisible(showBrand, exporting) ? (
+                          <Text pointerEvents="none" style={s.brand}>
+                            GROOV
+                          </Text>
+                        ) : null}
+                        {background === "map" ? (
+                          <Text pointerEvents="none" style={s.credit}>
+                            {Platform.OS === "web"
+                              ? "© OpenMapTiles · © OpenStreetMap contributors"
+                              : Platform.OS === "ios"
+                                ? "Maps © Apple"
+                                : "Map data © Google"}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  </View>
+                  {mapError && background === "map" ? (
+                    <View>
+                      <Text style={{ color: colors.primary }}>{mapError}</Text>
+                      {button("지도 다시 불러오기", () => setMapAttempt((n) => n + 1))}
+                    </View>
+                  ) : null}
+                  <View style={s.row}>
+                    <Move size={16} color={colors.primary} />
+                    <Text style={[s.small, { color: colors.muted, flex: 1 }]}>
+                      요소를 탭하고 드래그 · 두 손가락으로 크기/회전 조절
+                    </Text>
+                  </View>
+                  <View style={s.row}>
+                    {button("+ 텍스트", () => {
+                      const item = layer(
+                        `text-${Date.now()}`,
+                        "text",
+                        "나만의 한 줄",
+                        "자유 텍스트",
+                        180,
+                        300,
+                        300,
+                        70,
+                      );
+                      setLayers((current) => [...current, item]);
+                      setSelectedId(item.id);
+                    })}
+                    {button("선택 해제", () => setSelectedId(null))}
+                    {background === "photo"
+                      ? button(
+                          selectedId === "photo-frame" ? "배경 구도 완료" : "배경 구도 조절",
+                          () => setSelectedId(selectedId === "photo-frame" ? null : "photo-frame"),
+                          selectedId === "photo-frame",
+                        )
+                      : null}
+                    {background === "photo"
+                      ? button("사진 구도 초기화", () => {
+                          setPhotoReset((value) => value + 1);
+                          setPreparedExport(null);
+                        })
+                      : null}
+                    {button("배치 초기화", () => {
+                      setLayers(initialLayers(workout));
+                      setSelectedId(null);
+                    })}
+                  </View>
                   <View
                     style={[
                       s.panel,
                       { borderColor: colors.border, backgroundColor: colors.surface },
                     ]}
                   >
-                    <Text style={[s.subheading, { color: colors.ink }]}>{selected.label} 편집</Text>
-                    {selected.kind === "text" ? (
-                      <TextInput
-                        accessibilityLabel="자유 텍스트 편집"
-                        value={selected.text}
-                        maxLength={140}
-                        multiline
-                        onChangeText={(text) => updateLayer(selected.id, { text })}
-                        style={[s.input, { color: colors.ink, borderColor: colors.border }]}
-                      />
-                    ) : null}
-                    {selected.kind === "route" && lockedRoute ? (
-                      <Text style={[s.small, { color: colors.muted }]}>
-                        지도와 경로의 위치를 맞춘 상태입니다. 자유롭게 이동하려면 경로를 분리하세요.
-                      </Text>
-                    ) : (
-                      <>
-                        <View style={s.row}>
-                          {button("− 크기", () =>
-                            updateLayer(selected.id, { scale: selected.scale - 0.1 }),
-                          )}
-                          <Text style={{ color: colors.ink }}>
-                            {Math.round(selected.scale * 100)}%
-                          </Text>
-                          {button("+ 크기", () =>
-                            updateLayer(selected.id, { scale: selected.scale + 0.1 }),
-                          )}
-                          {button("↻ 15°", () =>
-                            updateLayer(selected.id, { rotation: selected.rotation + 15 }),
+                    <Text style={[s.subheading, { color: colors.ink }]}>보여줄 요소</Text>
+                    <View style={s.row}>
+                      {layers.map((item) => (
+                        <View key={item.id}>
+                          {button(
+                            `${item.visible ? "✓ " : "+ "}${item.label}`,
+                            () => {
+                              if (item.kind === "route" && points.length < 2) {
+                                setNotice("저장된 GPS 좌표가 없어 경로를 표시할 수 없습니다.");
+                                return;
+                              }
+                              updateLayer(item.id, { visible: !item.visible });
+                              setSelectedId(item.id);
+                            },
+                            item.visible,
                           )}
                         </View>
+                      ))}
+                    </View>
+                    <View style={s.switchRow}>
+                      <Text style={{ color: colors.ink }}>GROOV 로고 · 우측 상단</Text>
+                      <Switch
+                        accessibilityLabel="앱 안에서 GROOV 로고 표시"
+                        value={showBrand}
+                        disabled={busy}
+                        onValueChange={setShowBrand}
+                        trackColor={{ true: colors.primary, false: colors.border }}
+                      />
+                    </View>
+                    <Text style={[s.small, { color: colors.muted }]}>
+                      앱 안에서는 숨길 수 있어요. 외부 저장·공유에는 항상 표시됩니다.
+                    </Text>
+                    {background === "map" ? (
+                      <>
+                        <View style={s.switchRow}>
+                          <Text style={{ color: colors.ink }}>최소 지명 표시</Text>
+                          <Switch
+                            accessibilityLabel="지도 지명 표시"
+                            value={labels}
+                            disabled={busy}
+                            onValueChange={setLabels}
+                            trackColor={{ true: colors.primary, false: colors.border }}
+                          />
+                        </View>
                         <View style={s.row}>
-                          {button("←", () => updateLayer(selected.id, { x: selected.x - 5 }))}
-                          {button("→", () => updateLayer(selected.id, { x: selected.x + 5 }))}
-                          {button("↑", () => updateLayer(selected.id, { y: selected.y - 5 }))}
-                          {button("↓", () => updateLayer(selected.id, { y: selected.y + 5 }))}
-                          {button("가운데", () => updateLayer(selected.id, { x: 180 }))}
-                          {button("맨 앞으로", () =>
-                            setLayers((items) => [
-                              ...items.filter((item) => item.id !== selected.id),
-                              selected,
-                            ]),
+                          {button(
+                            routeDetached ? "지도 좌표에 다시 맞추기" : "경로만 분리해서 꾸미기",
+                            () => setRouteDetached((value) => !value),
+                            routeDetached,
                           )}
                         </View>
                       </>
-                    )}
-                    {selected.kind !== "route" ? (
-                      <>
-                        <View style={s.row}>
-                          {PALETTE.map((color) => (
-                            <Pressable
-                              accessibilityRole="button"
-                              accessibilityLabel={`${color} 색상`}
-                              key={color}
-                              onPress={() => updateLayer(selected.id, { color })}
-                              style={{
-                                width: 30,
-                                height: 30,
-                                borderRadius: 15,
-                                backgroundColor: color,
-                                borderWidth: selected.color === color ? 3 : 1,
-                                borderColor:
-                                  selected.color === color ? colors.primary : colors.border,
-                              }}
-                            />
-                          ))}
-                        </View>
+                    ) : null}
+                  </View>
+                  {selected ? (
+                    <View
+                      style={[
+                        s.panel,
+                        { borderColor: colors.border, backgroundColor: colors.surface },
+                      ]}
+                    >
+                      <Text style={[s.subheading, { color: colors.ink }]}>
+                        {selected.label} 편집
+                      </Text>
+                      {selected.kind === "text" ? (
                         <TextInput
-                          accessibilityLabel="직접 색상 입력 HEX"
-                          placeholder="#FFFFFF"
-                          placeholderTextColor={colors.muted}
-                          maxLength={7}
-                          key={`${selected.id}-color`}
-                          defaultValue={selected.color}
-                          onEndEditing={(event) => {
-                            if (/^#[\da-f]{6}$/i.test(event.nativeEvent.text))
-                              updateLayer(selected.id, { color: event.nativeEvent.text });
-                          }}
+                          editable={!busy}
+                          accessibilityLabel="자유 텍스트 편집"
+                          value={selected.text}
+                          maxLength={140}
+                          multiline
+                          onChangeText={(text) => updateLayer(selected.id, { text })}
                           style={[s.input, { color: colors.ink, borderColor: colors.border }]}
                         />
-                      </>
-                    ) : (
-                      <Text style={[s.small, { color: colors.muted }]}>
-                        GPS 경로는 GROOV 주황색으로 표시합니다.
-                      </Text>
-                    )}
-                    {button(selected.visible ? "숨기기" : "다시 표시", () =>
-                      updateLayer(selected.id, { visible: !selected.visible }),
-                    )}
-                  </View>
-                ) : null}
-              </>
-            ) : null}
-            <TextInput
-              accessibilityLabel="피드 이야기"
-              placeholder="오늘 어떤 운동을 했나요? #나의그루브"
-              placeholderTextColor={colors.muted}
-              multiline
-              value={caption}
-              onChangeText={setCaption}
-              maxLength={2000}
-              style={[s.input, { color: colors.ink, borderColor: colors.border, minHeight: 100 }]}
-            />
-            <View style={s.row}>
-              {[...new Set(caption.match(/#[\p{L}\p{N}_]+/gu) ?? [])].map((tag) => (
-                <Text key={tag} style={{ color: colors.primary }}>
-                  {tag}
-                </Text>
-              ))}
-            </View>
-            {background && workout ? (
-              <Pressable
-                accessibilityRole="button"
-                disabled={busy || !canCapture}
-                onPress={() => requestAction("export")}
-                style={[
-                  s.exportButton,
-                  { borderColor: colors.border, opacity: canCapture ? 1 : 0.4 },
-                ]}
-              >
-                <Download color={colors.ink} size={18} />
-                <Text style={{ color: colors.ink }}>외부 공유 이미지 만들기</Text>
-              </Pressable>
-            ) : null}
-            {preparedExport ? (
-              <View style={{ gap: 12 }}>
-                <Text style={[s.subheading, { color: colors.ink }]}>외부 공유 미리보기</Text>
-                <Image
-                  accessibilityLabel="GROOV 로고가 포함된 외부 공유 이미지"
-                  source={{ uri: preparedExport }}
-                  resizeMode="contain"
-                  style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: 16 }}
-                />
+                      ) : null}
+                      {selected.kind === "route" && lockedRoute ? (
+                        <Text style={[s.small, { color: colors.muted }]}>
+                          지도와 경로의 위치를 맞춘 상태입니다. 자유롭게 이동하려면 경로를
+                          분리하세요.
+                        </Text>
+                      ) : (
+                        <>
+                          <View style={s.row}>
+                            {button("− 크기", () =>
+                              updateLayer(selected.id, { scale: selected.scale - 0.1 }),
+                            )}
+                            <Text style={{ color: colors.ink }}>
+                              {Math.round(selected.scale * 100)}%
+                            </Text>
+                            {button("+ 크기", () =>
+                              updateLayer(selected.id, { scale: selected.scale + 0.1 }),
+                            )}
+                            {button("↻ 15°", () =>
+                              updateLayer(selected.id, { rotation: selected.rotation + 15 }),
+                            )}
+                          </View>
+                          <View style={s.row}>
+                            {button("←", () => updateLayer(selected.id, { x: selected.x - 5 }))}
+                            {button("→", () => updateLayer(selected.id, { x: selected.x + 5 }))}
+                            {button("↑", () => updateLayer(selected.id, { y: selected.y - 5 }))}
+                            {button("↓", () => updateLayer(selected.id, { y: selected.y + 5 }))}
+                            {button("가운데", () => updateLayer(selected.id, { x: 180 }))}
+                            {button("맨 앞으로", () =>
+                              setLayers((items) => [
+                                ...items.filter((item) => item.id !== selected.id),
+                                selected,
+                              ]),
+                            )}
+                          </View>
+                        </>
+                      )}
+                      {selected.kind !== "route" ? (
+                        <>
+                          <View style={s.row}>
+                            {PALETTE.map((color) => (
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel={`${color} 색상`}
+                                key={color}
+                                onPress={() => updateLayer(selected.id, { color })}
+                                style={{
+                                  width: 30,
+                                  height: 30,
+                                  borderRadius: 15,
+                                  backgroundColor: color,
+                                  borderWidth: selected.color === color ? 3 : 1,
+                                  borderColor:
+                                    selected.color === color ? colors.primary : colors.border,
+                                }}
+                              />
+                            ))}
+                          </View>
+                          <TextInput
+                            editable={!busy}
+                            accessibilityLabel="직접 색상 입력 HEX"
+                            placeholder="#FFFFFF"
+                            placeholderTextColor={colors.muted}
+                            maxLength={7}
+                            key={`${selected.id}-color`}
+                            defaultValue={selected.color}
+                            onEndEditing={(event) => {
+                              if (/^#[\da-f]{6}$/i.test(event.nativeEvent.text))
+                                updateLayer(selected.id, { color: event.nativeEvent.text });
+                            }}
+                            style={[s.input, { color: colors.ink, borderColor: colors.border }]}
+                          />
+                        </>
+                      ) : (
+                        <Text style={[s.small, { color: colors.muted }]}>
+                          GPS 경로는 GROOV 주황색으로 표시합니다.
+                        </Text>
+                      )}
+                      {button(selected.visible ? "숨기기" : "다시 표시", () =>
+                        updateLayer(selected.id, { visible: !selected.visible }),
+                      )}
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+              <TextInput
+                editable={!busy}
+                accessibilityLabel="피드 이야기"
+                placeholder="오늘 어떤 운동을 했나요? #나의그루브"
+                placeholderTextColor={colors.muted}
+                multiline
+                value={caption}
+                onChangeText={setCaption}
+                maxLength={2000}
+                style={[s.input, { color: colors.ink, borderColor: colors.border, minHeight: 100 }]}
+              />
+              <View style={s.row}>
+                {[...new Set(caption.match(/#[\p{L}\p{N}_]+/gu) ?? [])].map((tag) => (
+                  <Text key={tag} style={{ color: colors.primary }}>
+                    {tag}
+                  </Text>
+                ))}
+              </View>
+              {background && workout ? (
                 <Pressable
                   accessibilityRole="button"
-                  onPress={() =>
-                    void exportStudioImage(preparedExport).catch((error) =>
-                      setNotice(
-                        error instanceof Error ? error.message : "공유 창을 열지 못했습니다.",
-                      ),
-                    )
-                  }
-                  style={[s.primary, { backgroundColor: colors.primary }]}
+                  disabled={busy || !canCapture}
+                  onPress={() => requestAction("export")}
+                  style={[
+                    s.exportButton,
+                    { borderColor: colors.border, opacity: canCapture ? 1 : 0.4 },
+                  ]}
                 >
-                  <Text style={s.primaryText}>이미지 저장 / 다른 앱으로 공유</Text>
+                  <Download color={colors.ink} size={18} />
+                  <Text style={{ color: colors.ink }}>외부 공유 이미지 만들기</Text>
                 </Pressable>
-              </View>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy || (background ? !canCapture : !caption.trim())}
-              onPress={() => requestAction("post")}
-              style={[
-                s.primary,
-                {
-                  backgroundColor: colors.primary,
-                  opacity: busy || (background ? !canCapture : !caption.trim()) ? 0.45 : 1,
-                },
-              ]}
-            >
-              {busy ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={s.primaryText}>피드에 공유</Text>
-              )}
-            </Pressable>
-            <Text style={[s.small, { color: colors.muted }]}>
-              편집 화면을 닫아도 이 페이지에 머무는 동안 초안이 유지됩니다.
-            </Text>
-          </ScrollView>
+              ) : null}
+              {preparedExport ? (
+                <View style={{ gap: 12 }}>
+                  <Text style={[s.subheading, { color: colors.ink }]}>외부 공유 미리보기</Text>
+                  <Image
+                    accessibilityLabel="GROOV 로고가 포함된 외부 공유 이미지"
+                    source={{ uri: preparedExport }}
+                    resizeMode="contain"
+                    style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: 16 }}
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() =>
+                      void exportStudioImage(preparedExport).catch((error) =>
+                        setNotice(
+                          error instanceof Error ? error.message : "공유 창을 열지 못했습니다.",
+                        ),
+                      )
+                    }
+                    style={[s.primary, { backgroundColor: colors.primary }]}
+                  >
+                    <Text style={s.primaryText}>이미지 저장 / 다른 앱으로 공유</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy || (background ? !canCapture : !caption.trim())}
+                onPress={() => requestAction("post")}
+                style={[
+                  s.primary,
+                  {
+                    backgroundColor: colors.primary,
+                    opacity: busy || (background ? !canCapture : !caption.trim()) ? 0.45 : 1,
+                  },
+                ]}
+              >
+                {busy ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={s.primaryText}>피드에 공유</Text>
+                )}
+              </Pressable>
+              <Text style={[s.small, { color: colors.muted }]}>
+                편집 화면을 닫아도 이 페이지에 머무는 동안 초안이 유지됩니다.
+              </Text>
+            </ScrollView>
+          )}
         </SafeAreaView>
         <Modal
           visible={picker}

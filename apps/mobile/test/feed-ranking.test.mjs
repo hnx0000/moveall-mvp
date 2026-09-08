@@ -27,7 +27,7 @@ const post = (id, userId, sport, hoursAgo, likeCount = 0, extra = {}) => ({
   ...extra,
 });
 
-test("posts without an attached workout never enter the home feed", () => {
+test("an orphaned workout summary without a source never enters the home feed", () => {
   const recorded = post("recorded", "friend", "running", 1);
   const unrecorded = post("unrecorded", "friend", "running", 2, 0, {
     workoutSessionId: undefined,
@@ -51,10 +51,30 @@ test("text alone can never become a feed item", () => {
     workoutSummary: undefined,
   });
   assert.equal(hasFeedVisual(textOnly), false);
-  assert.deepEqual(
-    rankHomeFeed([textOnly], { followingIds: ["friend"], viewerId: "me", now }),
-    [],
-  );
+  assert.deepEqual(rankHomeFeed([textOnly], { followingIds: ["friend"], viewerId: "me", now }), []);
+});
+
+test("a photo-only post enters the feed without needing an additional workout", () => {
+  const photo = post("photo", "friend", "running", 1, 0, {
+    workoutSessionId: undefined,
+    workoutSummary: undefined,
+    mediaUrl: "https://example.test/available-photo.jpg",
+  });
+  assert.equal(hasFeedVisual(photo), true);
+  assert.equal(rankHomeFeed([photo], { followingIds: ["friend"] })[0].post.id, "photo");
+});
+
+test("an attached photo with a missing signed URL remains available for retry", () => {
+  const missing = post("missing", "friend", "running", 1, 0, {
+    workoutSessionId: undefined,
+    workoutSummary: undefined,
+    mediaId: "pending-id",
+    mediaObjectPath: "unresolved/path",
+    mediaUrl: "  ",
+  });
+  assert.equal(hasFeedVisual(missing), true);
+  assert.equal(rankHomeFeed([missing], { followingIds: [] }).length, 1);
+  assert.equal(hasFeedVisual({ ...missing, mediaId: " ", mediaObjectPath: " " }), false);
 });
 
 test("following records stay primary and one recommendation is inserted after every three", () => {

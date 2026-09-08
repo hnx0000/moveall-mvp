@@ -1,7 +1,7 @@
 import type { UserNotification } from "@moveall/contracts";
 
 export interface PushSender {
-  send(tokens: string[], notification: UserNotification): Promise<void>;
+  send(tokens: string[], notification: UserNotification, recipientUserId?: string): Promise<void>;
 }
 
 export class DisabledPushSender implements PushSender {
@@ -19,19 +19,21 @@ type ExpoPushMessage = {
 export class ExpoPushSender implements PushSender {
   constructor(private readonly accessToken?: string) {}
 
-  async send(tokens: string[], notification: UserNotification): Promise<void> {
+  async send(
+    tokens: string[],
+    notification: UserNotification,
+    recipientUserId?: string,
+  ): Promise<void> {
     const uniqueTokens = [...new Set(tokens)];
     for (let offset = 0; offset < uniqueTokens.length; offset += 100) {
       const messages = uniqueTokens.slice(offset, offset + 100).map((token): ExpoPushMessage => ({
         to: token,
-        title: notification.title,
-        body: notification.body,
+        title: "GROOV",
+        body: "새 알림이 도착했습니다. 앱에서 확인해 주세요.",
         sound: "default",
         data: {
           notificationId: notification.id,
-          kind: notification.kind,
-          ...(notification.resourceType ? { resourceType: notification.resourceType } : {}),
-          ...(notification.resourceId ? { resourceId: notification.resourceId } : {}),
+          ...(recipientUserId ? { recipientUserId } : {}),
         },
       }));
       const response = await fetch("https://exp.host/--/api/v2/push/send", {

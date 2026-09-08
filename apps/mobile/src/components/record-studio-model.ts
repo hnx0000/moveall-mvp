@@ -1,4 +1,5 @@
 import type { WorkoutRoutePoint, WorkoutSession } from "@moveall/contracts";
+import { workoutDurationMilliseconds } from "../workout-duration.ts";
 
 export const STUDIO_WIDTH = 360;
 export const STUDIO_HEIGHT = 640;
@@ -148,9 +149,7 @@ export function layer(
 
 export function workoutMetricLayers(workout: WorkoutSession): StudioLayer[] {
   const m = workout.metrics;
-  const durationSeconds =
-    (m.durationMinutes ?? (Date.parse(workout.endedAt) - Date.parse(workout.startedAt)) / 60000) *
-    60;
+  const durationSeconds = workoutDurationMilliseconds(workout) / 1000;
   const clock = `${Math.floor(durationSeconds / 3600)
     .toString()
     .padStart(2, "0")}:${Math.floor((durationSeconds % 3600) / 60)

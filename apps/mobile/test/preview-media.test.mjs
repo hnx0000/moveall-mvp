@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { demoPostWorkout } from "./post-fixture.mjs";
 
 // Exercise the IndexedDB request/transaction boundary without operating a user browser.
 function indexedDbDouble(storage, failWrite = false) {
@@ -102,6 +103,7 @@ test("workout and feed metadata storage failures keep retries possible without d
   };
   try {
     const { demoApi } = await import("../src/api/demo-client.ts?quota");
+    const existingWorkout = await demoPostWorkout(demoApi);
     const beforeWorkouts = (await demoApi.workouts("demo")).length;
     const beforePosts = (await demoApi.feed()).length;
     const input = {
@@ -116,7 +118,11 @@ test("workout and feed metadata storage failures keep retries possible without d
     fail = true;
     await assert.rejects(demoApi.createWorkoutSession("demo", input), /저장/);
     await assert.rejects(
-      demoApi.createPost("demo", { sport: "running", content: "저장 재시도" }),
+      demoApi.createPost("demo", {
+        sport: "running",
+        content: "저장 재시도",
+        workoutSessionId: existingWorkout.id,
+      }),
       /저장/,
     );
     assert.equal((await demoApi.workouts("demo")).length, beforeWorkouts);

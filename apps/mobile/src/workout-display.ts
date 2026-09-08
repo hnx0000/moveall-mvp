@@ -1,4 +1,5 @@
 import type { WorkoutSession } from "@moveall/contracts";
+import { workoutDurationMilliseconds } from "./workout-duration.ts";
 
 export function sortWorkoutsForDisplay(workouts: WorkoutSession[]) {
   return [...workouts].sort((left, right) => {
@@ -10,10 +11,7 @@ export function sortWorkoutsForDisplay(workouts: WorkoutSession[]) {
 }
 
 export function isMeaningfulWorkout(workout: WorkoutSession) {
-  const durationSeconds = Math.max(
-    0,
-    (Date.parse(workout.endedAt) - Date.parse(workout.startedAt)) / 1000,
-  );
+  const durationSeconds = workoutDurationMilliseconds(workout) / 1000;
   if (workout.sport === "running" || workout.sport === "hiking" || workout.sport === "cycling") {
     return Number(workout.metrics.distanceKm ?? 0) >= 0.05 || durationSeconds >= 600;
   }

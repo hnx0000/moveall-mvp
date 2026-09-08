@@ -1,4 +1,6 @@
 import {
+  characters,
+  characterUserId,
   sportLabels,
   sportValues,
   type FeedPost,
@@ -20,7 +22,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { ApiError, api } from "../../src/api/client";
+import { ApiError, api, usePreviewApi } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { demoAvatarSources } from "../../src/demo-avatars";
 import { TapTalkIcon } from "../../src/components/tap-icons";
@@ -175,6 +177,9 @@ export default function MemberProfilePage() {
   }
 
   const earnedMedals = profile?.medals.filter((medal) => medal.earned) ?? [];
+  const character = usePreviewApi
+    ? characters.find((item) => characterUserId(item.id) === userId)
+    : undefined;
   const avatarSource =
     profile?.user.avatarDataUri !== undefined
       ? { uri: profile.user.avatarDataUri }
@@ -250,7 +255,12 @@ export default function MemberProfilePage() {
                   <Text style={styles.name}>{profile.user.displayName}</Text>
                   {profile.isPrivate ? <Lock color={colors.muted} size={13} /> : null}
                 </View>
-                <Text style={styles.handle}>GROOV MEMBER · 공개한 활동만 표시</Text>
+                <Text style={styles.handle}>
+                  {character
+                    ? `${character.age}세 · ${character.sportLabel} · 가상 캐릭터`
+                    : "GROOV MEMBER · 공개한 활동만 표시"}
+                </Text>
+                {character ? <Text style={styles.handle}>{character.bio}</Text> : null}
               </View>
             </View>
 

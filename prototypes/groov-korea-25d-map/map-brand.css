@@ -1,0 +1,24 @@
+/* Shared reference lockup: orange wordmark / hairline / grey atlas / orange 2.5D. */
+.map-header .map-brand {display:flex;align-items:center;gap:clamp(10px,2vw,20px);flex:0 1 auto;min-width:0;white-space:nowrap;}
+.map-header .map-brand-name {display:block;color:#ff5733;font:italic 950 clamp(30px,3.1vw,44px)/1 Arial,sans-serif;letter-spacing:-1.8px;text-decoration:none;flex:none;}
+.map-header .map-brand-divider {display:block;flex:none;width:1px;height:22px;background:#777b7c66;}
+.map-header .map-brand-meta {display:flex;align-items:center;gap:8px;color:#989b9d;font:750 11px/1.2 Arial,sans-serif;letter-spacing:.12em;}
+.map-header .map-brand-meta span {display:inline!important;color:#ff5733;font:inherit;letter-spacing:inherit;}
+.game-shell .top-hud.map-header {display:flex;justify-content:space-between;}
+.game-shell .map-header .brand-lockup {align-items:center;justify-content:flex-start;gap:24px;}
+.detail-shell .detail-header.map-header {z-index:57;}
+@media(max-width:760px){
+  .map-header .map-brand {gap:9px;}
+  .map-header .map-brand-name {font-size:30px;}
+  .map-header .map-brand-divider {height:18px;}
+  .map-header .map-brand-meta {font-size:9px;letter-spacing:.09em;gap:6px;}
+  .map-header .street-atlas-link,.map-header .national-link {display:none;}
+  .game-shell .map-header .brand-lockup {gap:0;}
+}
+@media(max-height:540px) and (max-width:1000px){
+  .detail-shell .detail-header.map-header {display:flex!important;top:8px;height:36px;}
+  .map-header .map-brand-name {font-size:28px;}
+}
+/* The host hides map chrome only for the small, tappable activity preview. */
+html[data-embedded][data-compact=true] .map-header {display:none!important;}
+.detail-shell[data-mobile-keyboard=true] .map-header {display:none!important;}

@@ -1,4 +1,5 @@
 import {
+  POST_CONTENT_REQUIRED_MESSAGE,
   sportLabels,
   sportValues,
   type PostAudience,
@@ -49,6 +50,8 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { captureRef } from "react-native-view-shot";
 import sportLogoSheet from "../../assets/images/sport-logo-sheet.jpg";
 import { api, usePreviewApi } from "../api/client";
+import { createMutationAttempt } from "../api/mutation-attempt";
+import { isNotificationIdentity } from "../features/notifications/push-lifecycle";
 import { useAuth } from "../auth/auth-context";
 import { uploadMediaAsset } from "../media/upload";
 import { exportStudioImage, prepareStudioExport } from "../media/studio-export";
@@ -62,6 +65,7 @@ import { EditableLayer, RouteGraphic } from "./studio-layers";
 import type { SnapGuides } from "./studio-snap";
 import { hideDraggedLayer, isOverTrash, type LayerDrag, type TrashBounds } from "./studio-trash";
 import { SAMPLE_RUNNING_WORKOUT } from "./studio-sample-workout";
+import { hasEditorFeedSource } from "./editor-content-policy";
 import { audienceComplete, PostAudiencePicker } from "./post-audience-picker";
 import {
   brandVisible,
@@ -103,7 +107,7 @@ export function ContentEditor({
   onClose: () => void;
   onPosted: () => Promise<unknown>;
 }) {
-  const { session } = useAuth();
+  const { session, loginLifetime } = useAuth();
   const { colors } = useAppTheme();
   const window = useWindowDimensions();
   const [step, setStep] = useState<Step>("base");
@@ -176,6 +180,20 @@ export function ContentEditor({
   const [crews, setCrews] = useState<SharingCrew[]>([]);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const mountScope = useRef<object | null>(null);
+  useEffect(() => {
+    mountScope.current = {};
+    return () => {
+      mountScope.current = null;
+    };
+  }, []);
+  const publication =
+    useRef(
+      createMutationAttempt<
+        { input: Parameters<typeof api.createPost>[1]; previewUri?: string },
+        Awaited<ReturnType<typeof api.createPost>>
+      >(),
+    );
   const [exporting, setExporting] = useState(false);
   const [preparedExport, setPreparedExport] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -192,6 +210,12 @@ export function ContentEditor({
   const backgroundUri = background === "map" ? mapImage : photo;
   const ink = background === "solid" && solid === "#FFFFFF" ? "#171513" : "#FFFFFF";
   const hasArtwork = background !== "solid" || layers.some((entry) => entry.visible);
+  const hasFeedSource = hasEditorFeedSource({
+    background,
+    photo,
+    workoutId: workout?.id,
+    sampleWorkoutId: SAMPLE_RUNNING_WORKOUT.id,
+  });
   const canCapture =
     (background === "solid" || Boolean(backgroundUri && imageReady)) && Boolean(sheetUri);
   const displayScale = Math.max(
@@ -493,6 +517,10 @@ export function ContentEditor({
   }
   async function nextToSettings() {
     if (busyRef.current) return;
+    if (contentType === "post" && !hasFeedSource) {
+      setNotice(POST_CONTENT_REQUIRED_MESSAGE);
+      return;
+    }
     busyRef.current = true;
     setBusy(true);
     try {
@@ -517,40 +545,90 @@ export function ContentEditor({
         setPreparedExport(uri);
         return;
       }
-      if (contentType === "post" && (!workout || workout.id === SAMPLE_RUNNING_WORKOUT.id))
-        throw new Error("피드 게시물에는 실제로 저장된 운동 기록을 하나 이상 연결해 주세요.");
-      if (!preview && !caption.trim())
-        throw new Error("본문을 작성하거나 편집 화면에서 콘텐츠를 추가해 주세요.");
-      if (!audienceComplete(audience) || !audienceComplete(commentAudience))
-        throw new Error("공개할 대상을 선택해 주세요.");
-      let mediaId: string | undefined;
-      if (preview && !usePreviewApi)
-        mediaId = (
-          await uploadMediaAsset({
-            token: session.accessToken,
-            uri: preview,
-            kind: contentType === "story" ? "story-image" : "post-image",
-            contentType: "image/jpeg",
-            byteSize: 0,
-          })
-        ).mediaId;
-      await api.createPost(
-        session.accessToken,
-        {
+      const mounted = mountScope.current;
+      const current = () =>
+        mounted !== null &&
+        mountScope.current === mounted &&
+        isNotificationIdentity(session.user.id, loginLifetime);
+      publication.current.resetUnsentIfChanged(
+        JSON.stringify({
           sport,
           contentType,
-          content:
-            caption.trim() || `${sportLabels[sport]} · ${workout ? "운동 기록" : "오늘의 순간"}`,
+          caption,
           audience,
           commentAudience,
-          ...(workout && workout.id !== SAMPLE_RUNNING_WORKOUT.id
-            ? { workoutSessionId: workout.id }
-            : {}),
-          ...(mediaId ? { mediaId } : {}),
-        },
-        usePreviewApi ? (preview ?? undefined) : undefined,
+          preview,
+          workoutId: workout?.id,
+          hasFeedSource,
+        }),
       );
-      await onPosted();
+      await publication.current.run(
+        session.user.id,
+        async (stage) => {
+          const draft = await stage("draft", async () => {
+            const draft = {
+              sport,
+              contentType,
+              caption,
+              audience,
+              commentAudience,
+              preview,
+              workout,
+              hasFeedSource,
+            };
+            if (draft.contentType === "post" && !draft.hasFeedSource)
+              throw new Error(POST_CONTENT_REQUIRED_MESSAGE);
+            if (
+              !draft.preview &&
+              !draft.caption.trim() &&
+              !(draft.contentType === "post" && draft.hasFeedSource)
+            )
+              throw new Error("본문을 작성하거나 편집 화면에서 콘텐츠를 추가해 주세요.");
+            if (!audienceComplete(draft.audience) || !audienceComplete(draft.commentAudience))
+              throw new Error("공개할 대상을 선택해 주세요.");
+            return draft;
+          });
+          const media =
+            draft.preview && !usePreviewApi
+              ? await uploadMediaAsset({
+                  token: session.accessToken,
+                  uri: draft.preview,
+                  kind: draft.contentType === "story" ? "story-image" : "post-image",
+                  contentType: "image/jpeg",
+                  byteSize: 0,
+                  stage,
+                  isCurrent: current,
+                })
+              : null;
+          return {
+            input: {
+              sport: draft.sport,
+              contentType: draft.contentType,
+              content:
+                draft.caption.trim() ||
+                `${sportLabels[draft.sport]} · ${draft.workout ? "운동 기록" : "오늘의 순간"}`,
+              audience: draft.audience,
+              commentAudience: draft.commentAudience,
+              ...(draft.workout && draft.workout.id !== SAMPLE_RUNNING_WORKOUT.id
+                ? { workoutSessionId: draft.workout.id }
+                : {}),
+              ...(media ? { mediaId: media.mediaId } : {}),
+            },
+            ...(usePreviewApi && draft.preview ? { previewUri: draft.preview } : {}),
+          };
+        },
+        (prepared, key) =>
+          api.createPost(session.accessToken, prepared.input, prepared.previewUri, {
+            idempotencyKey: key,
+          }),
+        current,
+      );
+      if (!current()) return;
+      try {
+        await onPosted();
+      } catch {
+        setNotice("게시물은 저장했습니다. 화면을 다시 열어 확인해 주세요.");
+      }
     } catch (error) {
       notifyError(error, "게시하지 못했습니다. 편집 내용은 그대로 유지됩니다.");
     } finally {
@@ -560,12 +638,16 @@ export function ContentEditor({
     }
   }
   function requestAction(action: "post" | "export") {
+    if (action === "post" && publication.current.prepared) {
+      void perform(action);
+      return;
+    }
     if (points.length > 1 && !sampleRoute && (background === "map" || routeLayer?.visible))
       setPrivacyAction(action);
     else void perform(action);
   }
   function back() {
-    if (busy) return;
+    if (busy || publication.current.prepared) return;
     if (step === "settings") {
       setStep("edit");
       return;
@@ -838,7 +920,8 @@ export function ContentEditor({
             disabled={
               busy ||
               !session ||
-              (!preview && !caption.trim()) ||
+              (contentType === "post" && !hasFeedSource) ||
+              (!preview && !caption.trim() && !(contentType === "post" && hasFeedSource)) ||
               !audienceComplete(audience) ||
               !audienceComplete(commentAudience)
             }
@@ -1099,6 +1182,7 @@ export function ContentEditor({
                 {selected.kind === "text" ? (
                   <>
                     <TextInput
+                      editable={!busy}
                       accessibilityLabel="사진 위 텍스트"
                       value={selected.text}
                       onChangeText={(value) =>
@@ -1278,91 +1362,108 @@ export function ContentEditor({
         )}
       </View>
       {step === "settings" ? (
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.page}>
-          <View style={s.captionRow}>
-            {preview ? (
-              <Image source={{ uri: preview }} resizeMode="cover" style={s.thumbnail} />
-            ) : (
-              <View style={[s.thumbnail, s.center, { backgroundColor: colors.surface }]}>
-                <Type color={colors.muted} />
-              </View>
+        publication.current.prepared ? (
+          <View style={s.page}>
+            {text(
+              "전송한 내용의 저장 결과를 확인합니다. 중복 게시를 막기 위해 이 요청은 수정하지 않습니다.",
             )}
-            <TextInput
-              accessibilityLabel="게시물 코멘트 및 본문"
-              placeholder="코멘트를 남겨보세요. #나의그루브"
-              placeholderTextColor={colors.muted}
-              multiline
-              maxLength={2000}
-              value={caption}
-              onChangeText={setCaption}
-              style={[s.caption, { color: colors.ink }]}
-            />
+            {primary("저장 결과 확인", () => void perform("post"), !session)}
           </View>
-          <View style={s.row}>
-            {[...new Set(caption.match(/#[\p{L}\p{N}_]+/gu) ?? [])].map((tag) => (
-              <Text key={tag} style={[s.meta, { color: colors.primary }]}>
-                {tag}
-              </Text>
-            ))}
-          </View>
-          <PostAudiencePicker
-            label="게시물 공개 범위"
-            value={audience}
-            onChange={setAudience}
-            people={people}
-            crews={crews}
-            onError={setNotice}
-            onCreateCrew={async (name, memberIds) => {
-              const crew = await api.createSharingCrew(session!.accessToken, { name, memberIds });
-              setCrews((items) => [...items, crew]);
-              return crew;
-            }}
-          />
-          <PostAudiencePicker
-            label="댓글 허용 범위"
-            value={commentAudience}
-            onChange={setCommentAudience}
-            people={people}
-            crews={crews}
-            comments
-            onError={setNotice}
-            onCreateCrew={async (name, memberIds) => {
-              const crew = await api.createSharingCrew(session!.accessToken, { name, memberIds });
-              setCrews((items) => [...items, crew]);
-              return crew;
-            }}
-          />
-          {text("댓글은 게시물을 볼 수 있는 사람 중 선택한 범위에만 허용돼요.", true)}
-          {contentType === "story"
-            ? text("게시 후 24시간 동안 스토리에 표시됩니다. 일반 피드에는 올라가지 않아요.", true)
-            : null}
-          {loadError ? text(loadError, true) : null}
-          {primary(
-            contentType === "story" ? "스토리 게시" : "게시물 공유",
-            () => requestAction("post"),
-            !session ||
-              (!preview && !caption.trim()) ||
-              !audienceComplete(audience) ||
-              !audienceComplete(commentAudience),
-          )}
-          {preview ? button("외부 공유용 이미지 만들기", () => requestAction("export")) : null}
-          {preparedExport ? (
-            <View style={{ gap: 12 }}>
-              <Image
-                source={{ uri: preparedExport }}
-                resizeMode="contain"
-                style={{ width: "100%", aspectRatio: 9 / 16, maxHeight: 360 }}
-              />
-              {primary(
-                "이미지 저장 / 외부로 공유",
-                () =>
-                  void exportStudioImage(preparedExport).catch((error) =>
-                    notifyError(error, "공유 창을 열지 못했습니다."),
-                  ),
+        ) : (
+          <ScrollView
+            pointerEvents={busy ? "none" : "auto"}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={s.page}
+          >
+            <View style={s.captionRow}>
+              {preview ? (
+                <Image source={{ uri: preview }} resizeMode="cover" style={s.thumbnail} />
+              ) : (
+                <View style={[s.thumbnail, s.center, { backgroundColor: colors.surface }]}>
+                  <Type color={colors.muted} />
+                </View>
               )}
+              <TextInput
+                editable={!busy}
+                accessibilityLabel="게시물 코멘트 및 본문"
+                placeholder="코멘트를 남겨보세요. #나의그루브"
+                placeholderTextColor={colors.muted}
+                multiline
+                maxLength={2000}
+                value={caption}
+                onChangeText={setCaption}
+                style={[s.caption, { color: colors.ink }]}
+              />
             </View>
-          ) : null}
-        </ScrollView>
+            <View style={s.row}>
+              {[...new Set(caption.match(/#[\p{L}\p{N}_]+/gu) ?? [])].map((tag) => (
+                <Text key={tag} style={[s.meta, { color: colors.primary }]}>
+                  {tag}
+                </Text>
+              ))}
+            </View>
+            <PostAudiencePicker
+              label="게시물 공개 범위"
+              value={audience}
+              onChange={setAudience}
+              people={people}
+              crews={crews}
+              onError={setNotice}
+              onCreateCrew={async (name, memberIds) => {
+                const crew = await api.createSharingCrew(session!.accessToken, { name, memberIds });
+                setCrews((items) => [...items, crew]);
+                return crew;
+              }}
+            />
+            <PostAudiencePicker
+              label="댓글 허용 범위"
+              value={commentAudience}
+              onChange={setCommentAudience}
+              people={people}
+              crews={crews}
+              comments
+              onError={setNotice}
+              onCreateCrew={async (name, memberIds) => {
+                const crew = await api.createSharingCrew(session!.accessToken, { name, memberIds });
+                setCrews((items) => [...items, crew]);
+                return crew;
+              }}
+            />
+            {text("댓글은 게시물을 볼 수 있는 사람 중 선택한 범위에만 허용돼요.", true)}
+            {contentType === "story"
+              ? text(
+                  "게시 후 24시간 동안 스토리에 표시됩니다. 일반 피드에는 올라가지 않아요.",
+                  true,
+                )
+              : null}
+            {loadError ? text(loadError, true) : null}
+            {primary(
+              contentType === "story" ? "스토리 게시" : "게시물 공유",
+              () => requestAction("post"),
+              !session ||
+                (!preview && !caption.trim()) ||
+                !audienceComplete(audience) ||
+                !audienceComplete(commentAudience),
+            )}
+            {preview ? button("외부 공유용 이미지 만들기", () => requestAction("export")) : null}
+            {preparedExport ? (
+              <View style={{ gap: 12 }}>
+                <Image
+                  source={{ uri: preparedExport }}
+                  resizeMode="contain"
+                  style={{ width: "100%", aspectRatio: 9 / 16, maxHeight: 360 }}
+                />
+                {primary(
+                  "이미지 저장 / 외부로 공유",
+                  () =>
+                    void exportStudioImage(preparedExport).catch((error) =>
+                      notifyError(error, "공유 창을 열지 못했습니다."),
+                    ),
+                )}
+              </View>
+            ) : null}
+          </ScrollView>
+        )
       ) : null}
       <Modal
         visible={panel !== null}
@@ -1543,6 +1644,7 @@ export function ContentEditor({
                 <>
                   {selected.kind === "text" ? (
                     <TextInput
+                      editable={!busy}
                       accessibilityLabel="레이어 텍스트"
                       value={selected.text}
                       onChangeText={(value) => updateLayer(selected.id, { text: value })}

@@ -178,7 +178,7 @@ function MapLabels({ option, ranked, selected, viewport }: { option: number; ran
     })}</G>;
   }
   const visible = option === 4 ? topFive : [selected, ...nearest];
-  return <G pointerEvents="none">{visible.map((area, index) => {
+  return <G pointerEvents="none">{visible.map((area) => {
     const areaRank = ranked.findIndex((item) => item.code === area.code) + 1;
     const active = area.code === selected.code;
     const width = viewport.width / 5.7;

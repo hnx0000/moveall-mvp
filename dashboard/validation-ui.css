@@ -1,0 +1,302 @@
+/* Scoped extension: leave the original development and release dashboard intact. */
+#product-validation {
+  --validation-accent: #ff5a32;
+  padding: clamp(20px, 3vw, 36px);
+  background: #111821;
+  color: #f5f7fa;
+}
+#product-validation .validation-heading {
+  align-items: flex-start;
+}
+#product-validation .validation-heading h2 {
+  font-size: clamp(23px, 3vw, 30px);
+  letter-spacing: -0.7px;
+  line-height: 1.4;
+}
+#product-validation .sub {
+  font-size: 16px;
+  line-height: 1.7;
+  color: #bdc8d6;
+}
+#product-validation .validation-links {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 7px;
+}
+#product-validation .validation-links a {
+  color: #ffac91;
+  line-height: 1.6;
+  text-underline-offset: 4px;
+}
+#product-validation .validation-purpose {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin: 20px 0;
+}
+#product-validation .validation-purpose strong {
+  font-size: 16px;
+}
+#product-validation .validation-purpose p {
+  font-size: 16px;
+  line-height: 1.7;
+  color: #bdc8d6;
+  margin: 8px 0 0;
+}
+#product-validation .validation-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+#product-validation .validation-summary strong {
+  font-size: 27px;
+}
+#product-validation .validation-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+#product-validation .validation-card {
+  padding: 20px 24px;
+  background: #151e29;
+}
+#product-validation .validation-card[open] {
+  border-color: #6c4b3e;
+}
+#product-validation .validation-card summary {
+  font-size: 17px;
+  line-height: 1.7;
+}
+#product-validation .validation-grid > .validation-card > summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  list-style: none;
+}
+#product-validation .validation-grid > .validation-card > summary::after {
+  content: "+";
+  font-size: 25px;
+  color: #bdc8d6;
+}
+#product-validation .validation-grid > .validation-card[open] > summary::after {
+  content: "−";
+}
+#product-validation .validation-grid summary::-webkit-details-marker {
+  display: none;
+}
+#product-validation .validation-persona {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+#product-validation .validation-persona > span:first-child {
+  font-size: 19px;
+}
+#product-validation .validation-scenario {
+  color: #bdc8d6;
+  font-weight: 400;
+  font-size: 15px;
+}
+#product-validation .validation-state {
+  margin: 0;
+  flex-shrink: 0;
+}
+#product-validation .validation-context {
+  background: #101821;
+  padding: 12px 16px;
+  border-radius: 10px;
+}
+#product-validation .validation-context > summary {
+  font-size: 14px;
+  color: #bdc8d6;
+}
+#product-validation .validation-context .validation-fields {
+  margin-top: 14px;
+}
+#product-validation .validation-reference-heading {
+  font-size: 17px;
+  margin-top: 28px;
+}
+#product-validation .validation-kicker,
+#product-validation .validation-summary strong,
+#product-validation .validation-state,
+#product-validation .validation-mark {
+  color: var(--validation-accent);
+}
+#product-validation [hidden] {
+  display: none !important;
+}
+#product-validation button,
+#product-validation input,
+#product-validation select,
+#product-validation textarea {
+  font: inherit;
+}
+#product-validation :is(button, input, select, textarea, summary, a):focus-visible {
+  outline: 2px solid var(--validation-accent);
+  outline-offset: 4px;
+}
+#product-validation .validation-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+#product-validation .validation-button {
+  min-height: 42px;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel2);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+#product-validation .validation-help {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+#product-validation .validation-list li {
+  display: block;
+}
+#product-validation .validation-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1.7;
+}
+#product-validation .validation-check input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 4px 0 0;
+  accent-color: var(--validation-accent);
+}
+#product-validation .validation-check span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#product-validation .validation-check:has(input:checked) span {
+  color: #aeb7c2;
+}
+#product-validation .validation-progress {
+  height: 5px;
+  margin: 14px 0 4px;
+  background: #2a3441;
+  border-radius: 8px;
+  overflow: hidden;
+}
+#product-validation .validation-progress span {
+  display: block;
+  height: 100%;
+  background: var(--validation-accent);
+}
+#product-validation .validation-review {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+}
+#product-validation .validation-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+#product-validation .validation-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  color: #d4dde8;
+  font-size: 14px;
+  line-height: 1.6;
+}
+#product-validation .validation-field :is(input, select, textarea) {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 11px;
+  border: 1px solid #3b4859;
+  border-radius: 9px;
+  background: #151f2a;
+  color: var(--text);
+  color-scheme: dark;
+  font-size: 16px;
+  line-height: 1.6;
+}
+#product-validation .validation-field textarea {
+  min-height: 105px;
+  resize: vertical;
+}
+#product-validation .validation-field :is(input, textarea)::placeholder {
+  color: #91a0b5;
+  opacity: 1;
+}
+#product-validation .validation-feedback {
+  border-left: 3px solid var(--validation-accent);
+  padding: 10px 13px;
+  color: #ffccb9;
+  background: #2a211e;
+  font-size: 14px;
+  line-height: 1.7;
+}
+#product-validation .validation-reference {
+  white-space: normal;
+  font-size: 16px;
+}
+#product-validation .validation-reference p {
+  margin: 12px 0;
+  white-space: pre-line;
+}
+#product-validation .validation-reference h4 {
+  color: var(--text);
+  margin: 20px 0 10px;
+}
+#product-validation .validation-table-wrap {
+  overflow-x: auto;
+}
+#product-validation table {
+  width: 100%;
+  min-width: 440px;
+  border-collapse: collapse;
+  font-size: 16px;
+}
+#product-validation :is(th, td) {
+  padding: 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+#product-validation th {
+  color: var(--text);
+  background: var(--panel2);
+}
+@media (max-width: 540px) {
+  #product-validation .validation-fields {
+    grid-template-columns: 1fr;
+  }
+  #product-validation .validation-purpose,
+  #product-validation .validation-summary {
+    grid-template-columns: 1fr;
+  }
+  #product-validation .validation-grid > .validation-card > summary {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  #product-validation .validation-persona {
+    flex-basis: 100%;
+  }
+  #product-validation .validation-grid > .validation-card > summary::after {
+    margin-left: auto;
+  }
+  #product-validation .validation-card {
+    padding: 14px 12px;
+  }
+}

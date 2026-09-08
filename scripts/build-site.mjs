@@ -9,7 +9,10 @@ if (!pnpmCli) throw new Error("pnpm 실행 경로를 찾지 못했습니다.");
 
 const build = spawnSync(process.execPath, [pnpmCli, "--filter", "@moveall/mobile", "build"], {
   cwd: root,
-  env: { ...process.env, EXPO_PUBLIC_DEMO_MODE: "true" },
+  env: {
+    ...process.env,
+    EXPO_PUBLIC_APP_MODE: process.argv.includes("--mode=demo") ? "demo" : "live",
+  },
   stdio: "inherit",
 });
 if (build.status !== 0) process.exit(build.status ?? 1);

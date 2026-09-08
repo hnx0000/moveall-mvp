@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { demoPostWorkout } from "./post-fixture.mjs";
 import { commentThreads } from "../src/components/comment-threads.ts";
 
 test("replies follow their original comment regardless of feed order", () => {
@@ -28,7 +29,12 @@ test("demo comments, replies, likes and own post deletion survive reload", async
   };
   try {
     const { demoApi } = await import("../src/api/demo-client.ts?comment-test-1");
-    const post = await demoApi.createPost("demo", { sport: "running", content: "새 게시물" });
+    const workout = await demoPostWorkout(demoApi);
+    const post = await demoApi.createPost("demo", {
+      sport: "running",
+      content: "새 게시물",
+      workoutSessionId: workout.id,
+    });
     const root = await demoApi.createComment("demo", post.id, { content: "새 댓글" });
     await demoApi.createComment("demo", post.id, { content: "새 답글", parentCommentId: root.id });
     await demoApi.setCommentLiked("demo", post.id, root.id, true);

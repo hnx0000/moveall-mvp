@@ -1,3 +1,6 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createUserListStore } from "./storage/user-list-store";
+import { appMode, apiBaseUrl } from "./config/runtime";
 import type { SportType, WorkoutSession } from "@moveall/contracts";
 
 export type RecordGoalTarget = {
@@ -18,21 +21,16 @@ export type RecordGoal = {
   target?: RecordGoalTarget;
 };
 
-const storageKey = "groov-record-goals-v1";
+const goals = createUserListStore<RecordGoal>(
+  AsyncStorage,
+  `groov-record-goals-v2:${appMode}:${encodeURIComponent(apiBaseUrl)}`,
+);
+export const readRecordGoals = (userId: string) => goals.read(userId);
 
-export function readRecordGoals(): RecordGoal[] {
-  try {
-    const raw = globalThis.localStorage?.getItem(storageKey);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as RecordGoal[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveRecordGoal(goal: Omit<RecordGoal, "id" | "achieved" | "createdAt" | "target">) {
-  const current = readRecordGoals().filter((item) => item.postId !== goal.postId);
+export async function saveRecordGoal(
+  userId: string,
+  goal: Omit<RecordGoal, "id" | "achieved" | "createdAt" | "target">,
+) {
   const target = recordGoalTarget(goal.sport, goal.content);
   const next: RecordGoal = {
     ...goal,
@@ -41,7 +39,10 @@ export function saveRecordGoal(goal: Omit<RecordGoal, "id" | "achieved" | "creat
     createdAt: new Date().toISOString(),
     ...(target ? { target } : {}),
   };
-  globalThis.localStorage?.setItem(storageKey, JSON.stringify([next, ...current]));
+  await goals.update(userId, (items) => [
+    next,
+    ...items.filter((item) => item.postId !== goal.postId),
+  ]);
   return next;
 }
 
@@ -57,21 +58,12 @@ export function workoutMeetsRecordGoal(goal: RecordGoal, workout: WorkoutSession
   return typeof rawValue === "number" && rawValue >= goal.target.value;
 }
 
-export function removeRecordGoal(goalId: string) {
-  globalThis.localStorage?.setItem(
-    storageKey,
-    JSON.stringify(readRecordGoals().filter((goal) => goal.id !== goalId)),
+export const removeRecordGoal = (userId: string, goalId: string) =>
+  goals.update(userId, (items) => items.filter((goal) => goal.id !== goalId));
+export const markRecordGoalAchieved = (userId: string, goalId: string) =>
+  goals.update(userId, (items) =>
+    items.map((goal) => (goal.id === goalId ? { ...goal, achieved: true } : goal)),
   );
-}
-
-export function markRecordGoalAchieved(goalId: string) {
-  globalThis.localStorage?.setItem(
-    storageKey,
-    JSON.stringify(
-      readRecordGoals().map((goal) => (goal.id === goalId ? { ...goal, achieved: true } : goal)),
-    ),
-  );
-}
 
 function recordGoalTarget(sport: SportType, content: string): RecordGoalTarget | undefined {
   const normalized = content.replace(/,/g, "");

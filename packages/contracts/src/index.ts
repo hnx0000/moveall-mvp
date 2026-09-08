@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { UsagePurposeSchema, type UsagePurposeResponse } from "./usage-purpose.js";
 export * from "./usage-purpose.js";
+export * from "./character-catalog.js";
+export * from "./character-content.js";
+export * from "./post-content.js";
 
 export const sportValues = [
   "strength",
@@ -31,6 +34,9 @@ export type OnboardingGoal = z.infer<typeof OnboardingGoalSchema>;
 
 export const NeighborhoodVerificationSchema = z.object({
   neighborhood: z.string().trim().min(2).max(80),
+  district: z.string().trim().min(2).max(80).optional(),
+  province: z.string().trim().min(2).max(80).optional(),
+  regionCode: z.string().trim().min(2).max(160).optional(),
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   verifiedAt: z.iso.datetime({ offset: true }),
@@ -455,6 +461,7 @@ export type CommentMention = NonNullable<CommentCreateInput["mentions"]>[number]
 export type SocialSuggestions = { people: PublicUser[]; frequentIds: string[] };
 export type PostLikeState = { liked: boolean; likeCount: number; changed: boolean };
 export { rankSocialPeople, type ShareFrequency } from "./social-suggestions.js";
+export * from "./league.js";
 
 export const KnowledgeFeedbackCreateInputSchema = z.object({
   content: communityText(2, 500),

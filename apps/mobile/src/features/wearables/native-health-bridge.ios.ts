@@ -8,7 +8,12 @@ import {
   WorkoutActivityType,
   WorkoutTypeIdentifier,
 } from "@kingstinct/react-native-healthkit";
-import type { HealthPermission, HealthProvider, LiveMetricSample } from "./adapter";
+import type {
+  HealthPermission,
+  HealthProvider,
+  LiveMetricSample,
+  HealthImportCandidate,
+} from "./adapter";
 
 export type NativeHealthBridge = {
   readonly supportsLiveMetrics: boolean;
@@ -17,7 +22,7 @@ export type NativeHealthBridge = {
   startWorkout(sport: SportType): Promise<string>;
   readLiveSample(sessionId: string): Promise<LiveMetricSample | null>;
   stopWorkout(sessionId: string): Promise<void>;
-  readWorkouts(sinceIso: string, untilIso: string): Promise<WorkoutSessionCreateInput[]>;
+  readWorkouts(sinceIso: string, untilIso: string): Promise<HealthImportCandidate[]>;
   writeWorkout(workout: WorkoutSessionCreateInput): Promise<boolean>;
 };
 
@@ -101,7 +106,7 @@ const bridge: NativeHealthBridge = {
       ascending: true,
     });
     const imported = await Promise.all(
-      workouts.map(async (workout): Promise<WorkoutSessionCreateInput | null> => {
+      workouts.map(async (workout): Promise<HealthImportCandidate | null> => {
         const sport = sportByActivityType.get(workout.workoutActivityType);
         if (!sport || workout.endDate <= workout.startDate) return null;
         const [heartRates, respiratoryRates, steps] = await Promise.all([
@@ -122,6 +127,7 @@ const bridge: NativeHealthBridge = {
           return sample.quantity;
         });
         return {
+          healthRecordId: workout.uuid,
           sport,
           startedAt: workout.startDate.toISOString(),
           endedAt: workout.endDate.toISOString(),
@@ -152,10 +158,10 @@ const bridge: NativeHealthBridge = {
               ? { totalStrokes: workout.totalSwimmingStrokeCount.quantity }
               : {}),
           },
-        } satisfies WorkoutSessionCreateInput;
+        } satisfies HealthImportCandidate;
       }),
     );
-    return imported.filter((workout): workout is WorkoutSessionCreateInput => workout !== null);
+    return imported.filter((workout): workout is HealthImportCandidate => workout !== null);
   },
   async writeWorkout(workout) {
     if (!(await isHealthDataAvailableAsync())) return false;

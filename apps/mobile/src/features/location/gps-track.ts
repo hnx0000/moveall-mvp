@@ -5,6 +5,8 @@ export type RecordedTrackPoint = {
   altitude: number | null;
   timestamp: number;
   breakBefore?: boolean;
+  /** Internal: gaps can be filled by a late batch; deliberate pauses cannot. */
+  breakReason?: "pause" | "gap";
 };
 
 export type GpsTrackSport = "running" | "hiking" | "cycling" | "swimming" | "strength" | "diving";
@@ -30,6 +32,7 @@ export type TrackPointValidationOptions = {
   /** Wall-clock time at receipt. Omit when replaying a previously recorded route. */
   receivedAt?: number;
   maxFutureSkewMs?: number;
+  smooth?: boolean;
 };
 
 type TrackProfile = {
@@ -91,14 +94,28 @@ export function appendTrackPointResult(
   const previous = points.at(-1);
   if (!previous) return { points: [next], accepted: true };
   const seconds = (next.timestamp - previous.timestamp) / 1000;
-  if (seconds === 0 && next.latitude === previous.latitude && next.longitude === previous.longitude) {
+  if (
+    seconds === 0 &&
+    next.latitude === previous.latitude &&
+    next.longitude === previous.longitude
+  ) {
     return { points, accepted: false, reason: "duplicate" };
   }
   if (seconds <= 0) return { points, accepted: false, reason: "stale" };
   if (points.length >= 30000) return { points, accepted: false, reason: "capacity" };
   // Do not bridge an unrecorded pause or loss of GPS with a fabricated line/distance.
   if (next.breakBefore || seconds > 30) {
-    return { points: [...points, { ...next, breakBefore: true }], accepted: true };
+    return {
+      points: [
+        ...points,
+        {
+          ...next,
+          breakBefore: true,
+          breakReason: next.breakBefore ? (next.breakReason ?? "pause") : "gap",
+        },
+      ],
+      accepted: true,
+    };
   }
   const meters = haversineKm(previous, next) * 1000;
   const accuracyFloor = Math.min(
@@ -128,13 +145,14 @@ export function appendTrackPointResult(
   const accuracy = next.accuracy ?? 12;
   const alpha = accuracy <= 8 ? 0.92 : accuracy <= 15 ? 0.78 : 0.6;
   const shouldSmooth = meters <= Math.max(35, accuracy * 3);
-  const accepted = shouldSmooth
-    ? {
-        ...next,
-        latitude: previous.latitude + (next.latitude - previous.latitude) * alpha,
-        longitude: previous.longitude + (next.longitude - previous.longitude) * alpha,
-      }
-    : next;
+  const accepted =
+    shouldSmooth && options.smooth !== false
+      ? {
+          ...next,
+          latitude: previous.latitude + (next.latitude - previous.latitude) * alpha,
+          longitude: previous.longitude + (next.longitude - previous.longitude) * alpha,
+        }
+      : next;
   return { points: [...points, accepted], accepted: true };
 }
 
@@ -154,4 +172,47 @@ export function calculateTrackDistance(points: RecordedTrackPoint[]) {
       0,
     );
   return Number.isFinite(distance) && distance > 0 ? distance : 0;
+}
+
+/** Merge already filtered foreground/background fixes once, in chronological order. */
+export function mergeTrackPointSources(
+  existing: RecordedTrackPoint[],
+  incoming: RecordedTrackPoint[],
+  sport: GpsTrackSport = "running",
+  pauseBoundaries: number[] = [],
+) {
+  const byTime = new Map<number, RecordedTrackPoint>();
+  for (const point of incoming) byTime.set(point.timestamp, point);
+  for (const point of existing) byTime.set(point.timestamp, point);
+  const sorted = [...byTime.values()].sort((a, b) => a.timestamp - b.timestamp);
+  const merged: RecordedTrackPoint[] = [];
+  const boundaries = [...pauseBoundaries].sort((a, b) => a - b);
+  let boundaryIndex = 0;
+  let pendingPause = false;
+  for (const point of sorted) {
+    const candidate = { ...point };
+    if (
+      candidate.breakReason === "gap" ||
+      (boundaries.length > 0 && candidate.breakReason === "pause")
+    ) {
+      delete candidate.breakBefore;
+      delete candidate.breakReason;
+    }
+    while (boundaryIndex < boundaries.length && candidate.timestamp >= boundaries[boundaryIndex]!) {
+      pendingPause = true;
+      boundaryIndex++;
+    }
+    if (candidate.breakReason === "pause") pendingPause = true;
+    if (pendingPause) {
+      candidate.breakBefore = true;
+      candidate.breakReason = "pause";
+    }
+    const result = appendTrackPointResult(merged.slice(-2), candidate, sport, { smooth: false });
+    if (result.accepted) {
+      merged.push(result.points.at(-1)!);
+      pendingPause = false;
+    }
+    if (merged.length >= 30_000) break;
+  }
+  return merged;
 }

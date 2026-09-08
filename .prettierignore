@@ -5,7 +5,7 @@ coverage
 pnpm-lock.yaml
 apps/mobile/assets/pets/
 apps/mobile/expo-env.d.ts
-moveall-design-export/
+개발자료 보관함/초기 디자인/moveall-design-export/
 artifacts/
 output/
 tmp/

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GROOV · 업데이트 방향 도구 시안</title>
+    <link rel="stylesheet" href="direction-lab.css" />
+    <script src="direction-model.js" defer></script>
+    <script src="direction-lab.js" defer></script>
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <a class="brand" href="../GROOV_dev_dashboard.html#product-validation"
+          >GROOV <span>PRODUCT LAB</span></a
+        >
+        <span class="prototype-label">검토용 시안 · 앱 미연동</span>
+      </header>
+      <main>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">UPDATE DIRECTION</p>
+            <h1>다음 업데이트, 누구를 위해?</h1>
+            <p class="muted">
+              설문은 방향의 출발점. 실제 불편과 함께 비교하고, 판단의 이유를 남깁니다.
+            </p>
+          </div>
+          <a class="back" href="../GROOV_dev_dashboard.html#product-validation"
+            >검증 체크리스트 ↗</a
+          >
+        </div>
+        <div class="demo-banner">
+          <strong id="source-label">예시로 체험 중</strong
+          ><span id="source-note"
+            >아래 인원과 관찰은 모두 가상입니다. 실제 가입자 분석 결과가 아닙니다.</span
+          >
+        </div>
+        <nav aria-label="분석 단계">
+          <a href="#survey">01 사용자 구성</a><a href="#priorities">02 개선 후보 비교</a
+          ><a href="#decisions">03 판단 기록</a>
+        </nav>
+        <div class="workspace">
+          <section id="survey" class="panel survey">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">01 · SURVEY</p>
+                <h2>어떤 목적으로 왔을까</h2>
+              </div>
+            </div>
+            <div class="data-actions">
+              <button id="example-button" type="button">예시로 체험</button
+              ><label class="button" for="summary-file">집계 JSON 가져오기</label
+              ><input type="file" id="summary-file" accept=".json,application/json" hidden />
+            </div>
+            <p id="import-feedback" class="feedback" role="status" hidden></p>
+            <div class="big-number"><strong id="respondents">100</strong><span>명 응답</span></div>
+            <p class="muted" id="coverage"></p>
+            <div id="distribution" class="distribution"></div>
+            <div id="missing-data" class="missing-data"></div>
+            <p class="metadata" id="data-meta"></p>
+            <details class="data-editor">
+              <summary>인원 수를 바꿔 가정해 보기</summary>
+              <p class="muted">
+                수정하면 ‘직접 입력 가정’으로 표시됩니다. 기존 집계는 덮어쓰지 않습니다.
+              </p>
+              <div id="count-fields" class="count-fields"></div>
+              <button type="button" id="apply-counts">입력값으로 다시 비교</button>
+            </details>
+            <details>
+              <summary>실제 설문은 어떻게 가져오나요?</summary>
+              <p>
+                기존 관리자 사용 목적 통계 API의 <b>집계 JSON</b>만 읽습니다. 계정·이메일·개별 건강
+                기록은 필요하지 않습니다.
+              </p>
+              <p><code>GET /v1/admin/usage-purposes</code></p>
+              <p>
+                이 시안은 서버에 접속하지 않습니다. 승인 후 관리자 인증을 거친 자동 조회와 연결할 수
+                있습니다. 파일에 표시된 출처 자체를 자동 인증하지는 않습니다.
+              </p>
+            </details>
+          </section>
+          <section id="priorities" class="panel priorities">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">02 · COMPARE</p>
+                <h2>비중만 보고 정하지 않기</h2>
+              </div>
+              <span class="small-label">투자 확정이 아닌 검증 순서</span>
+            </div>
+            <div class="recommendation">
+              <span class="muted">지금 먼저 확인할 후보</span>
+              <h3 id="recommendation-title"></h3>
+              <p id="recommendation-reason"></p>
+            </div>
+            <details class="method">
+              <summary>비교 기준 보기</summary>
+              <p><b>탐색 점수 = (대상 비중 × 40 + 불편 단계 × 20) ÷ 작업 규모</b></p>
+              <p>
+                불편 0–3단계, 규모 1–3입니다. 예시의 불편·규모·근거도 모두 가정입니다. 관찰 근거가
+                없으면 점수를 내지 않습니다. 정해진 과학적 모델이나 AI 예측이 아닌, 시안용 비교
+                규칙입니다.
+              </p>
+              <p>
+                복수 유형에 도움이 되는 후보는 단일 선택 설문의 해당 응답 인원을 합칩니다. 후보 간
+                대상이 겹치므로 점수를 투자 비율로 환산하지 않습니다.
+              </p>
+            </details>
+            <div class="safety-gate">
+              <label
+                ><input type="checkbox" id="critical" /> 기록 유실·개인정보 노출·핵심 기능 막힘이
+                확인됨</label
+              >
+              <div id="critical-detail" hidden>
+                <label for="critical-evidence">확인한 문제와 근거</label
+                ><textarea
+                  id="critical-evidence"
+                  rows="2"
+                  placeholder="개인정보 없이 문제와 재현 근거만 적어 주세요."
+                ></textarea>
+                <p>
+                  이 경우 점수와 무관하게 신뢰성 복구가 먼저입니다. 아래 후보 결정을 보류합니다.
+                </p>
+              </div>
+            </div>
+            <div id="candidate-list" class="candidate-list"></div>
+            <p class="guardrail">
+              비중이 작은 유형도 제외하지 않습니다. 모든 사용자에게 동일한 전체 기능을 유지합니다.
+            </p>
+          </section>
+        </div>
+        <section class="panel caution">
+          <h2>이 자료로 아직 알 수 없는 것</h2>
+          <ul id="warnings"></ul>
+        </section>
+        <section id="decisions" class="panel decision-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">03 · DECISION NOTE</p>
+              <h2>왜 이걸 먼저 보는지, 남겨두기</h2>
+            </div>
+            <span class="small-label">이 브라우저에만 저장</span>
+          </div>
+          <p class="muted">
+            시안 메모입니다. 앱·개발 작업·체크리스트의 상태는 바뀌지 않습니다. 자료 출처와 당시
+            숫자도 함께 남깁니다.
+          </p>
+          <form id="decision-form">
+            <div class="two-cols">
+              <label>다음에 검증할 후보<select id="decision-candidate"></select></label
+              ><label>다시 확인할 날짜<input id="decision-date" type="date" required /></label>
+            </div>
+            <div class="two-cols">
+              <label
+                >판단 이유<textarea
+                  id="decision-reason"
+                  rows="3"
+                  maxlength="2000"
+                  required
+                  placeholder="설문 비중 외에 어떤 관찰·불편을 함께 봤나요?"
+                ></textarea></label
+              ><label
+                >개선됐다고 판단할 기준<textarea
+                  id="decision-success"
+                  rows="3"
+                  maxlength="2000"
+                  required
+                  placeholder="예: 기록 찾기 성공률과 소요시간을 기존 버전과 비교"
+                ></textarea>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="primary" type="submit">검토 메모 저장</button
+              ><button type="button" id="export-notes">판단 기록 JSON 내보내기</button
+              ><span id="save-feedback" role="status"></span>
+            </div>
+          </form>
+          <div id="decision-history" class="decision-history"></div>
+        </section>
+        <footer>
+          이 시안에서만 할 수 있는 일: 집계 읽기 · 가정 비교 · 검토 메모 저장. 실제 서비스 연결과
+          자동 우선순위 적용은 승인 전까지 하지 않습니다.
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

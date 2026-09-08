@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#101113" />
+    <title>GROOV · 코스 지도</title>
+    <link rel="stylesheet" href="assets/maplibre-gl.css" />
+    <link rel="stylesheet" href="detail.css" />
+    <link rel="stylesheet" href="map-upgrade.css" />
+    <link rel="stylesheet" href="mobile-map.css" />
+    <link rel="stylesheet" href="detail-hud.css" />
+    <link rel="stylesheet" href="course-panel.css" />
+    <link rel="stylesheet" href="map-toolbar.css" />
+    <link rel="stylesheet" href="map-brand.css" />
+  </head>
+  <body data-view="dobong">
+    <main class="detail-shell">
+      <div id="detail-map" role="application" aria-label="전국 상세 지도와 코스 설계"></div>
+      <div class="scene-shade" aria-hidden="true"></div>
+      <header class="detail-header map-header">
+        <div class="map-brand" aria-label="GROOV Street Atlas 2.5D">
+          <a class="wordmark map-brand-name" href="./" aria-label="랭킹지도로">GROOV</a>
+          <i class="map-brand-divider" aria-hidden="true"></i>
+          <div class="map-brand-meta">STREET ATLAS <span>2.5D</span></div>
+        </div>
+        <a class="national-link" href="./">랭킹지도 ↗</a>
+      </header>
+      <section class="detail-top-controls" aria-label="지도 탐색">
+      <section class="place-heading" aria-live="polite">
+        <span class="eyebrow" id="view-eyebrow">01 / KOREA · EXPLORE</span>
+        <h1 id="view-title">코스탐색</h1>
+        <p id="view-description">달리고 싶은 곳을 찾고, 나만의 코스를 그려보세요.</p>
+      </section>
+      <nav class="view-tabs" aria-label="지도 모드 선택">
+        <button type="button" data-view="explore" aria-pressed="true">
+          <span>01</span><b>전국 탐색</b>
+        </button>
+        <button type="button" data-view="run" aria-pressed="false">
+          <span>02</span><b>코스 · 러닝</b>
+        </button>
+      </nav>
+      <div id="area-search" class="area-search"></div>
+      <div class="view-status" aria-label="행정구역 탐색 범위">
+        <i aria-hidden="true"></i><span>시·군·구 → 읍·면·동</span>
+      </div>
+      <span id="view-status" hidden></span>
+      </section>
+      <div class="map-actions" aria-label="지도 조작">
+        <button id="detail-tilt" aria-label="평면으로 전환" aria-pressed="true"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5"/></svg></button>
+        <button id="detail-compass" class="compass-button" aria-label="방향 초기화" title="방향 초기화">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 7 17-7-4-7 4 7-17Zm0 0v13"/></svg>
+        </button>
+        <div class="zoom-control" role="group" aria-label="지도 확대·축소">
+          <button id="detail-zoom-in" aria-label="지도 확대">＋</button>
+          <output id="zoom-value" aria-label="현재 지도 확대 배율" aria-live="off">12.0</output>
+          <button id="detail-zoom-out" aria-label="지도 축소">−</button>
+        </div>
+        <button id="detail-locate" aria-label="내 위치로 이동">◎</button>
+        <button id="course-pin-toggle" aria-label="핀으로 나만의 코스 만들기" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="5" cy="19" r="2"/><path d="M7 19h4c4 0 7-3 7-7M22 6c0 3-4 6-4 6s-4-3-4-6a4 4 0 0 1 8 0Z"/><circle cx="18" cy="6" r="1.2" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
+        <button
+          id="route-follow"
+          class="run-only"
+          aria-label="러닝 위치 따라가기"
+          aria-pressed="true"
+        >
+          ◎
+        </button>
+      </div>
+      <aside
+        id="course-planner"
+        class="course-planner"
+        aria-label="나만의 코스 설계"
+        hidden
+      ></aside>
+      <button
+        class="rank-toggle"
+        id="detail-rank-toggle"
+        aria-expanded="false"
+        aria-controls="detail-ranking"
+      >
+        <span>↗</span> 동네 랭킹 <b>14</b>
+      </button>
+      <aside id="detail-ranking" class="detail-ranking" hidden>
+        <header>
+          <div>
+            <span class="eyebrow">DOBONG LEAGUE</span>
+            <h2>지금, 도봉의 순위</h2>
+          </div>
+          <button id="detail-rank-close" aria-label="동네 랭킹 닫기">×</button>
+        </header>
+        <ol id="detail-rank-list"></ol>
+        <footer>
+          <span>샘플 점수 · 5초마다 갱신</span
+          ><button id="league-live" aria-pressed="true">● LIVE</button>
+        </footer>
+      </aside>
+      <div class="map-bottom">
+        <section class="area-card" id="area-card" aria-live="polite">
+          <div class="area-heading">
+            <span class="eyebrow" id="area-caption">SELECTED AREA</span>
+            <h2 id="area-name">도봉구</h2>
+            <span id="area-heat" class="heat-tag">14개 동</span>
+          </div>
+          <div class="area-metrics">
+            <div><strong id="area-score">—</strong><span>POINTS</span></div>
+            <div><strong id="area-participation">—</strong><span>참여율</span></div>
+            <div><strong id="area-rank">—</strong><span>지역 내 순위</span></div>
+          </div>
+          <div class="area-card-actions">
+            <button id="area-focus" class="text-action">이 동 자세히 ↗</button>
+            <button id="area-ranking" class="text-action" aria-controls="detail-ranking" aria-expanded="false">랭킹 보기 ↗</button>
+          </div>
+        </section>
+        <section class="run-card" id="run-card" hidden>
+          <div class="run-card-head">
+            <span id="run-state"><i></i>코스를 선택하거나 GPS 기록을 시작하세요</span
+            ><span id="gps-accuracy">실제 도로 기반</span>
+          </div>
+          <div class="run-metrics">
+            <div><strong id="run-distance">0.00</strong><span>km</span><small>거리</small></div>
+            <div><strong id="run-time">00:00</strong><small>운동 시간</small></div>
+            <div><strong id="run-pace">—:—</strong><span>/km</span><small>평균 페이스</small></div>
+          </div>
+          <div id="demo-scrubber" class="demo-scrubber">
+            <label for="route-progress">루트 재생 <b>12×</b></label
+            ><input
+              id="route-progress"
+              type="range"
+              min="0"
+              max="1000"
+              value="0"
+              aria-label="내 코스 재생 위치"
+            /><span id="route-total">— km</span>
+          </div>
+          <div class="run-buttons">
+            <button id="route-play" class="primary-button">루트 재생</button
+            ><button id="gps-start" class="secondary-button">내 GPS로 기록</button
+            ><button id="gps-stop" class="secondary-button" hidden>기록 종료</button>
+          </div>
+        </section>
+        <div class="map-footnote">
+          <div class="heat-key" id="heat-key">
+            <span><i></i>안정</span><span><i></i>접전</span><span><i></i>과열</span>
+          </div>
+          <span class="gesture-note" id="gesture-note">드래그 이동 · 휠 / 두 손가락 확대</span>
+        </div>
+      </div>
+      <div id="detail-toast" role="status" class="detail-toast"></div>
+      <div id="detail-loading" class="detail-loading">
+        <div class="loading-ring"></div>
+        <b>GROOV</b><span id="loading-copy">골목 하나까지, 불러오는 중</span>
+      </div>
+      <dialog id="stop-dialog">
+        <form method="dialog">
+          <span class="eyebrow">FINISH RUN</span>
+          <h2>러닝 기록을 마칠까요?</h2>
+          <p>GPS 수신과 타이머가 모두 멈춥니다.<br />실험용 기록은 새로고침하면 사라집니다.</p>
+          <div>
+            <button value="cancel" class="secondary-button">계속 기록</button
+            ><button value="finish" class="primary-button">종료</button>
+          </div>
+        </form>
+      </dialog>
+    </main>
+    <script src="assets/maplibre-gl.js"></script>
+    <script type="module" src="detail.js"></script>
+  </body>
+</html>

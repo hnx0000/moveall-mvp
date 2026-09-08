@@ -8,6 +8,8 @@ import type {
   FeedPost,
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
+  LeagueQuery,
+  LeagueSnapshot,
   MediaKind,
   ModerationReportUpdateInput,
   OnboardingInput,
@@ -60,6 +62,8 @@ export type StoredMediaObject = {
 export type StoredPushDevice = PushDeviceRegistrationInput & {
   id: string;
   userId: string;
+  sessionId: string;
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -88,6 +92,7 @@ export interface AppStore {
   findAuthSessionByRefreshTokenHash(refreshTokenHash: string): Promise<StoredAuthSession | null>;
   rotateAuthSession(input: {
     sessionId: string;
+    previousRefreshTokenHash: string;
     refreshTokenHash: string;
     expiresAt: string;
   }): Promise<StoredAuthSession | null>;
@@ -116,7 +121,11 @@ export interface AppStore {
   ): Promise<Routine | null>;
   deleteRoutine(userId: string, routineId: string): Promise<boolean>;
   reorderRoutines(userId: string, routineIds: string[]): Promise<boolean>;
-  createWorkoutSession(userId: string, input: WorkoutSessionCreateInput): Promise<WorkoutSession>;
+  createWorkoutSession(
+    userId: string,
+    input: WorkoutSessionCreateInput,
+    operation?: OperationContext,
+  ): Promise<WorkoutSession>;
   listWorkoutSessions(userId: string): Promise<WorkoutSession[]>;
   updateWorkoutSession(
     userId: string,
@@ -124,10 +133,12 @@ export interface AppStore {
     input: WorkoutSessionUpdateInput,
   ): Promise<WorkoutSession | null>;
   deleteWorkoutSession(userId: string, workoutId: string): Promise<boolean>;
+  leagueSnapshot(userId: string, query: LeagueQuery): Promise<LeagueSnapshot>;
   createPost(
     userId: string,
     authorDisplayName: string,
     input: PostCreateInput,
+    operation?: OperationContext,
   ): Promise<FeedPost | null>;
   listSharingCrews(userId: string): Promise<import("@moveall/contracts").SharingCrew[]>;
   createSharingCrew(
@@ -164,8 +175,12 @@ export interface AppStore {
   ): Promise<UserNotification>;
   listNotifications(userId: string): Promise<UserNotification[]>;
   markNotificationRead(userId: string, notificationId: string): Promise<UserNotification | null>;
-  registerPushDevice(userId: string, input: PushDeviceRegistrationInput): Promise<StoredPushDevice>;
-  unregisterPushDevice(userId: string, token: string): Promise<void>;
+  registerPushDevice(
+    userId: string,
+    sessionId: string,
+    input: PushDeviceRegistrationInput,
+  ): Promise<StoredPushDevice>;
+  unregisterPushDevice(userId: string, sessionId: string, token: string): Promise<void>;
   listPushDeviceTokens(userId: string): Promise<string[]>;
   isFollowing(followerId: string, followingId: string): Promise<boolean>;
   listFollowers(userId: string): Promise<PublicUser[]>;
@@ -210,3 +225,4 @@ export interface AppStore {
   ): Promise<KnowledgeFeedback>;
   close(): Promise<void>;
 }
+import type { OperationContext } from "./mutation-operation.js";

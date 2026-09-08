@@ -15,7 +15,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { ApiError } from "../src/api/client";
+import { isDemoMode } from "../src/config/runtime";
+import { ApiError, api } from "../src/api/client";
 import { useAuth } from "../src/auth/auth-context";
 import { type ThemeColors } from "../src/theme";
 import { useAppTheme } from "../src/theme-context";
@@ -28,7 +29,7 @@ const androidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
 const kakaoClientId = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY;
 const naverClientId = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID;
 const placeholderClientId = "google-oauth-client-not-configured.apps.googleusercontent.com";
-const demoMode = process.env.EXPO_PUBLIC_LOGIN_REQUIRED !== "true";
+const demoMode = isDemoMode;
 
 export default function LoginScreen() {
   const { colors } = useAppTheme();
@@ -37,6 +38,19 @@ export default function LoginScreen() {
     useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailRegistration, setEmailRegistration] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void api
+      .authProviders()
+      .then((value) => {
+        if (active) setEmailRegistration(value.emailRegistration === true);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
   const [emailMode, setEmailMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -313,20 +327,22 @@ export default function LoginScreen() {
             <View style={styles.dividerLine} />
           </View>
           <View style={styles.modeRow}>
-            {(["login", "register"] as const).map((mode) => (
-              <Pressable
-                key={mode}
-                onPress={() => {
-                  setEmailMode(mode);
-                  setError(null);
-                }}
-                style={[styles.modeButton, emailMode === mode && styles.modeButtonActive]}
-              >
-                <Text style={[styles.modeText, emailMode === mode && styles.modeTextActive]}>
-                  {mode === "login" ? "로그인" : "새 계정"}
-                </Text>
-              </Pressable>
-            ))}
+            {(["login", "register"] as const)
+              .filter((mode) => mode === "login" || emailRegistration)
+              .map((mode) => (
+                <Pressable
+                  key={mode}
+                  onPress={() => {
+                    setEmailMode(mode);
+                    setError(null);
+                  }}
+                  style={[styles.modeButton, emailMode === mode && styles.modeButtonActive]}
+                >
+                  <Text style={[styles.modeText, emailMode === mode && styles.modeTextActive]}>
+                    {mode === "login" ? "로그인" : "새 계정"}
+                  </Text>
+                </Pressable>
+              ))}
           </View>
           {emailMode === "register" ? (
             <TextInput

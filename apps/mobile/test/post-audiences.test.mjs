@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { demoPostWorkout } from "./post-fixture.mjs";
 
 test("preview publishes separate story/record-only posts and restores audiences and crews", async () => {
   const storage = new Map();
@@ -22,9 +23,11 @@ test("preview publishes separate story/record-only posts and restores audiences 
       audience: { scope: "crews", crewIds: [crew.id] },
       commentAudience: { scope: "none" },
     });
+    const workout = await demoPostWorkout(api);
     const text = await api.createPost("demo", {
       sport: "running",
-      content: "사진 없이 본문만",
+      content: "사진 없이 운동 기록만",
+      workoutSessionId: workout.id,
       audience: { scope: "private" },
     });
     assert.equal(story.contentType, "story");

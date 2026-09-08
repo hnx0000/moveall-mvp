@@ -2,106 +2,92 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 import { Platform } from "react-native";
-import { appendTrackPoint, type GpsTrackSport, type RecordedTrackPoint } from "./gps-track";
+import { mergeTrackPointSources, type GpsTrackSport, type RecordedTrackPoint } from "./gps-track";
+import { createBackgroundTrackStore, createSerialTaskQueue } from "./tracking-lifecycle";
 
 const taskName = "groov-background-workout-location";
-const storageKey = "groov-background-workout-points-v1";
-const sportKey = "groov-background-workout-sport-v1";
-let backgroundWriteQueue = Promise.resolve();
-
 export type BackgroundTrackPoint = RecordedTrackPoint;
+const nativeQueue = createSerialTaskQueue();
+const buffer = createBackgroundTrackStore<BackgroundTrackPoint>(
+  AsyncStorage,
+  (existing, incoming, sport) => mergeTrackPointSources(existing, incoming, sport as GpsTrackSport),
+);
 
 if (Platform.OS !== "web" && !TaskManager.isTaskDefined(taskName)) {
   TaskManager.defineTask(taskName, async ({ data, error }) => {
     if (error || !data) return;
     const locations = (data as { locations?: Location.LocationObject[] }).locations ?? [];
-    if (locations.length === 0) return;
-    const incoming = locations.map((location): BackgroundTrackPoint => ({
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
-      altitude: location.coords.altitude,
-      accuracy: location.coords.accuracy,
-      timestamp: location.timestamp,
-    }));
-    // Serialize read-modify-write cycles so concurrent native batches cannot overwrite each other.
-    backgroundWriteQueue = backgroundWriteQueue
-      .catch(() => undefined)
-      .then(async () => {
-        const existing = await readPoints();
-        const storedSport = await AsyncStorage.getItem(sportKey);
-        const sport = isGpsTrackSport(storedSport) ? storedSport : "running";
-        const filtered = incoming.reduce(
-          (points, point) => appendTrackPoint(points, point, sport),
-          existing,
-        );
-        await AsyncStorage.setItem(storageKey, JSON.stringify(filtered.slice(-30_000)));
-      });
-    await backgroundWriteQueue;
+    await buffer.append(
+      locations.map((location) => ({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        altitude: location.coords.altitude,
+        accuracy: location.coords.accuracy,
+        timestamp: location.timestamp,
+      })),
+    );
   });
 }
 
-async function readPoints(): Promise<BackgroundTrackPoint[]> {
-  try {
-    const value = await AsyncStorage.getItem(storageKey);
-    return value ? (JSON.parse(value) as BackgroundTrackPoint[]) : [];
-  } catch {
-    return [];
-  }
-}
+export const clearBackgroundTrack = async () => {
+  if (Platform.OS !== "web") await buffer.clear();
+};
+export const consumeBackgroundTrack = async (isCurrent?: () => boolean) =>
+  Platform.OS === "web" ? [] : buffer.consume(isCurrent);
+export const readBackgroundTrack = async (checkpointId?: string) =>
+  Platform.OS === "web" ? [] : checkpointId ? buffer.readFor(checkpointId) : buffer.read();
 
-export async function clearBackgroundTrack() {
-  if (Platform.OS !== "web") {
-    await backgroundWriteQueue.catch(() => undefined);
-    await AsyncStorage.multiRemove([storageKey, sportKey]);
-  }
-}
-
-export async function consumeBackgroundTrack() {
-  if (Platform.OS === "web") return [];
-  await backgroundWriteQueue.catch(() => undefined);
-  const points = await readPoints();
-  if (points.length > 0) await AsyncStorage.removeItem(storageKey);
-  return points;
-}
-
-/** Non-destructive while the background task is still writing. Duplicate fixes are filtered on merge. */
-export async function readBackgroundTrack() {
-  if (Platform.OS === "web") return [];
-  await backgroundWriteQueue.catch(() => undefined);
-  return readPoints();
-}
-
-export async function startBackgroundTrack(sport: GpsTrackSport) {
-  if (Platform.OS === "web") return false;
+export async function startBackgroundTrack(
+  sport: GpsTrackSport,
+  isCurrent: () => boolean,
+  startedAt: number,
+  checkpointId?: string,
+) {
+  if (Platform.OS === "web" || !isCurrent()) return false;
   const foreground = await Location.getForegroundPermissionsAsync();
-  if (!foreground.granted) return false;
+  if (!isCurrent() || !foreground.granted) return false;
+  // Permission prompts must not hold the native stop queue.
   const background = await Location.requestBackgroundPermissionsAsync();
-  if (!background.granted) return false;
-  await AsyncStorage.setItem(sportKey, sport);
-  if (await Location.hasStartedLocationUpdatesAsync(taskName)) return true;
-  await Location.startLocationUpdatesAsync(taskName, {
-    accuracy: Location.Accuracy.BestForNavigation,
-    activityType: Location.ActivityType.Fitness,
-    distanceInterval: 2,
-    timeInterval: 1_000,
-    pausesUpdatesAutomatically: false,
-    showsBackgroundLocationIndicator: true,
-    foregroundService: {
-      notificationTitle: "GROOV 운동 기록 중",
-      notificationBody: "백그라운드에서도 이동 거리와 경로를 기록하고 있습니다.",
-      notificationColor: "#FF5A36",
-    },
+  if (!isCurrent() || !background.granted) return false;
+  return nativeQueue(async () => {
+    if (!isCurrent()) return false;
+    const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(taskName);
+    if (!isCurrent()) return false;
+    await buffer.begin(sport, startedAt, checkpointId);
+    if (!isCurrent()) return false;
+    if (!alreadyStarted)
+      await Location.startLocationUpdatesAsync(taskName, {
+        accuracy: Location.Accuracy.BestForNavigation,
+        activityType: Location.ActivityType.Fitness,
+        distanceInterval: 2,
+        timeInterval: 1_000,
+        pausesUpdatesAutomatically: false,
+        showsBackgroundLocationIndicator: true,
+        foregroundService: {
+          notificationTitle: "GROOV 운동 기록 중",
+          notificationBody: "백그라운드에서도 이동 거리와 경로를 기록하고 있습니다.",
+          notificationColor: "#FF5A36",
+        },
+      });
+    if (!isCurrent()) {
+      if (await Location.hasStartedLocationUpdatesAsync(taskName))
+        await Location.stopLocationUpdatesAsync(taskName);
+      return false;
+    }
+    return true;
   });
-  return true;
 }
-
-function isGpsTrackSport(value: string | null): value is GpsTrackSport {
-  return ["running", "hiking", "cycling", "swimming", "strength", "diving"].includes(value ?? "");
-}
-
-export async function stopBackgroundTrack() {
+export async function stopBackgroundTrack(cutoff = Date.now()) {
   if (Platform.OS === "web") return;
-  if (await Location.hasStartedLocationUpdatesAsync(taskName)) {
-    await Location.stopLocationUpdatesAsync(taskName);
-  }
+  // Seal before native shutdown: later fixes must not count as exercise.
+  const sealed = buffer.seal(cutoff).then(
+    () => ({ error: null as unknown }),
+    (error: unknown) => ({ error }),
+  );
+  return nativeQueue(async () => {
+    const result = await sealed;
+    if (await Location.hasStartedLocationUpdatesAsync(taskName))
+      await Location.stopLocationUpdatesAsync(taskName);
+    if (result.error) throw result.error;
+  });
 }

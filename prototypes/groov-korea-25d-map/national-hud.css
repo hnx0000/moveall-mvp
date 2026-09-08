@@ -1,0 +1,93 @@
+/* Dark charcoal ranking board with a restrained orange left edge. */
+.game-shell .national-region-switcher {position:absolute;top:94px;left:26px;right:auto;width:112px;z-index:64;}
+.game-shell .national-region-switcher .region-button {display:grid!important;grid-template-columns:26px minmax(0,1fr);align-items:center;width:100%;min-width:0;height:44px;min-height:44px;padding:0 10px;gap:6px;border-radius:12px;clip-path:none;text-align:left;transform:none;}
+.game-shell .national-region-switcher .region-button span {display:block;font-size:12px;}
+.game-shell .national-region-switcher .region-button b {display:block;font-size:14px;}
+.game-shell .national-region-switcher .region-button {background:#101112;border-color:#ffffff1f;color:#d4cfca;backdrop-filter:none;-webkit-backdrop-filter:none;}
+.game-shell .national-region-switcher .region-button.is-active {background:#171310;border-color:#ff8c6b66;color:#fff4ee;box-shadow:none;}
+.game-shell .national-region-switcher .region-button.is-active::before {background:#ff9a79;box-shadow:none;}
+.game-shell .national-region-switcher #region-toggle {grid-template-columns:22px minmax(0,1fr) 16px;}
+.game-shell #region-toggle svg {width:16px;height:16px;}
+.game-shell #region-toggle svg {transition:transform 180ms ease;}
+.game-shell #region-toggle[aria-expanded=true] svg {transform:rotate(180deg);}
+.game-shell .region-rail {position:absolute;display:grid!important;grid-template-columns:1fr;top:calc(100% + 8px);left:0;right:0;width:100%;gap:6px;max-height:calc(var(--map-viewport-height,100dvh) - 178px - env(safe-area-inset-bottom,0px));overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:0 0 4px;margin:0;background:transparent;}
+.game-shell .region-rail[hidden],.game-shell .ranking-panel[hidden] {display:none!important;}
+.game-shell .region-button:focus-visible,.game-shell .map-controls>button:focus-visible {outline:2px solid #ffad8d;outline-offset:-3px;}
+.game-shell .score-hud {left:190px;top:102px;}
+.game-shell .map-controls {display:flex!important;position:absolute;top:94px;right:22px;left:auto;bottom:auto;width:44px;max-height:calc(var(--map-viewport-height,100dvh) - 116px - env(safe-area-inset-bottom,0px));flex-direction:column;gap:6px;overflow:auto;scrollbar-width:none;padding:0;margin:0;border:0;background:none;box-shadow:none;z-index:65;}
+.game-shell .map-controls>button {display:flex!important;align-items:center;justify-content:center;flex:0 0 44px;width:44px;min-width:44px;height:44px!important;min-height:44px!important;padding:0;border:1px solid #ffffff28!important;border-radius:12px;background:#101212ee;box-sizing:border-box;}
+.game-shell .map-controls>button::after {display:none;}
+.game-shell .map-controls>#ranking-toggle {display:flex!important;align-items:center;justify-content:center;}
+.game-shell #ranking-toggle svg {width:21px;height:21px;}
+.game-shell #ranking-toggle[aria-pressed=true] {color:#ff7959;border-color:#ff5733!important;background:#2a1710;}
+.game-shell .ranking-panel {display:flex!important;flex-direction:column;position:absolute;z-index:60;top:auto;left:24px;right:auto;bottom:calc(20px + env(safe-area-inset-bottom,0px));width:min(740px,calc(100% - 106px));min-width:0;max-height:min(38dvh,360px);padding:0;border:1px solid #ffffff14;border-left:3px solid #ff5733;border-radius:0;background:linear-gradient(120deg,rgb(12 13 14 / 97%),rgb(18 17 17 / 96%));box-shadow:0 12px 36px #0005;clip-path:none;overflow:hidden;opacity:1;transform:none;pointer-events:auto;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}
+.game-shell .ranking-panel.is-open {animation:nationalSheetIn 220ms ease-out;}
+.game-shell .ranking-panel>header {position:relative;flex-shrink:0;z-index:2;min-height:64px;padding:8px 18px;background:transparent;}
+.game-shell .ranking-content {min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#77432e transparent;}
+.game-shell .ranking-content[hidden] {display:none!important;}
+.game-shell .ranking-panel.is-collapsed>header {border-bottom:0;}
+.game-shell .ranking-panel header>div {min-width:0;}
+.game-shell .ranking-panel header small {font-size:12px;letter-spacing:.12em;overflow-wrap:anywhere;}
+.game-shell .ranking-panel h1 {font-size:20px;line-height:1.35;word-break:keep-all;overflow-wrap:anywhere;}
+.game-shell .ranking-header-actions {display:flex;gap:8px;align-items:center;flex-shrink:0;}
+.game-shell .ranking-header-actions button {display:grid;place-items:center;flex:0 0 44px;width:44px;height:44px;padding:0;border:0;border-radius:0;background:transparent;color:#dedbd7;font-family:inherit;font-size:28px;line-height:1;cursor:pointer;touch-action:manipulation;}
+.game-shell .ranking-header-actions button:hover {background:#ff573318;color:#ff7959;}
+.game-shell .ranking-panel button:focus-visible {outline:2px solid #ffad8d;outline-offset:-3px;}
+.game-shell .live-switch {min-height:44px;border-radius:0;background:#ffffff06;}
+.game-shell .live-switch span {font-size:12px;}
+.game-shell .ranking-panel .selection-card {display:grid!important;position:relative;top:auto;left:auto;right:auto;bottom:auto;grid-template-columns:112px minmax(0,1fr) 116px;width:auto;min-width:0;height:auto;min-height:128px;max-height:none;margin:12px;padding:12px;gap:14px;border:0;border-bottom:1px solid #ffffff14;border-radius:0;overflow:visible;transform:none;animation:none;box-shadow:none;background:transparent;backdrop-filter:none;}
+.game-shell .ranking-panel .selection-image {display:block;height:104px;border-radius:0;}
+.game-shell .ranking-panel .selection-image img {display:block;width:100%;height:100%;object-fit:contain;object-position:center;}
+.game-shell .selection-copy>small {display:block;font-size:12px;}
+.game-shell .selection-copy h2 {font-size:24px;line-height:1.35;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;}
+.game-shell .selection-score {gap:6px;flex-wrap:wrap;}
+.game-shell .selection-score strong {font-size:34px;white-space:nowrap;}
+.game-shell .selection-score span,.game-shell .selection-copy p {font-size:12px;line-height:1.5;}
+.game-shell .selection-score b {font-size:18px;white-space:nowrap;}
+.game-shell .selection-card>button#selection-focus {width:auto;min-height:44px;padding:10px 12px;margin:0;border:1px solid #ff57335c;border-radius:0;font-size:14px;color:#ff977c;background:#ff573314;clip-path:none;}
+.game-shell .mobile-rank-summary {display:block;margin:12px 18px;font-size:12px;line-height:1.5;color:#aaa5a0;}
+.game-shell .ranking-list {max-height:none;overflow:visible;padding:0 16px;}
+.game-shell .rank-row button {display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:12px;min-height:68px;padding:12px 4px;}
+.game-shell .rank-number {font-size:18px!important;white-space:nowrap;}
+.game-shell .rank-place {min-width:0;}
+.game-shell .rank-place b {font-size:16px;white-space:normal;overflow-wrap:anywhere;line-height:1.4;}
+.game-shell .rank-place small,.game-shell .rank-score small {font-size:12px;letter-spacing:0;line-height:1.5;}
+.game-shell .rank-score b {font-size:17px;white-space:nowrap;}
+.game-shell .rank-score b small {display:inline;font-size:12px;}
+.game-shell .ranking-panel footer {height:auto;min-height:64px;gap:12px;font-size:12px;padding:10px 18px;color:#b8aaa1;}
+.game-shell .ranking-panel footer>div {display:grid;gap:4px;min-width:0;letter-spacing:0;}
+.game-shell[data-national-panel=ranking] .heat-legend {display:none!important;}
+.game-shell .heat-legend {bottom:calc(20px + env(safe-area-inset-bottom,0px));}
+.game-shell .heat-legend span {font-size:12px;}
+.game-shell .heat-legend em {font-size:12px;}
+.game-shell .gesture-hint {left:26px;bottom:90px;font-size:12px;}
+.game-shell .mobile-map-dock,.game-shell .mobile-map-core {display:none!important;}
+.game-shell .toast {top:auto!important;bottom:calc(24px + env(safe-area-inset-bottom,0px));}
+@keyframes nationalSheetIn {from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:760px),(max-width:1000px) and (max-height:540px){
+  .game-shell .national-region-switcher {top:calc(76px + env(safe-area-inset-top,0px));left:12px;right:auto;width:112px;}
+  .game-shell .region-rail {max-height:calc(var(--map-viewport-height,100dvh) - 152px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));}
+  .game-shell .map-controls {top:calc(76px + env(safe-area-inset-top,0px));right:12px;max-height:calc(var(--map-viewport-height,100dvh) - 100px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));}
+  .game-shell .ranking-panel {left:12px;right:68px;bottom:calc(18px + env(safe-area-inset-bottom,0px));width:auto;max-height:min(36dvh,300px);}
+  .game-shell .ranking-panel>header {padding:8px 10px;min-height:56px;gap:6px;}
+  .game-shell .ranking-panel h1 {font-size:17px;}
+  .game-shell .ranking-header-actions {gap:0;}
+  .game-shell .live-switch {padding:0 6px;gap:4px;}
+  .game-shell .ranking-panel .selection-card {grid-template-columns:52px minmax(0,1fr);gap:10px;margin:8px;padding:10px;min-height:0;}
+  .game-shell .ranking-panel .selection-image {height:76px;}
+  .game-shell .selection-copy h2 {font-size:18px;margin:3px 0 6px;}
+  .game-shell .selection-copy>small {font-size:12px;letter-spacing:.03em;}
+  .game-shell .selection-score strong {font-size:clamp(22px,6.2vw,29px);}
+  .game-shell .selection-score b {font-size:15px;margin-left:0;}
+  .game-shell .selection-card>button#selection-focus {grid-column:1/-1;min-height:44px;}
+  .game-shell .mobile-rank-summary {margin:10px 12px;}
+  .game-shell .ranking-list {padding:0 10px;}
+  .game-shell .rank-row button {grid-template-columns:24px minmax(0,1fr) auto;gap:7px;}
+  .game-shell .rank-number {font-size:15px!important;}
+  .game-shell .rank-place b {font-size:14px;}
+  .game-shell .rank-score b {font-size:14px;}
+  .game-shell .heat-legend {display:flex!important;min-width:0;width:auto;height:42px;left:12px;right:auto;padding:0 12px;gap:12px;}
+  .game-shell .heat-legend em {display:none;}
+  .game-shell .maplibregl-ctrl-bottom-left,.game-shell .maplibregl-ctrl-bottom-right {bottom:0!important;}
+}
+@media(prefers-reduced-motion:reduce){.game-shell .ranking-panel.is-open {animation:none;}.game-shell #region-toggle svg {transition:none;}}

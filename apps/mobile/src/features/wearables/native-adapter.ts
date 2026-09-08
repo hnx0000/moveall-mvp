@@ -1,6 +1,7 @@
 import type { SportType, WorkoutSessionCreateInput } from "@moveall/contracts";
 import type {
   HealthPermission,
+  HealthImportCandidate,
   LiveMetricSample,
   WearableAdapter,
   WearableAvailability,
@@ -60,7 +61,7 @@ export class NativeHealthAdapter implements WearableAdapter {
     if (this.bridge && sessionId) await this.bridge.stopWorkout(sessionId);
   }
 
-  async importRecentWorkouts(since: Date): Promise<WorkoutSessionCreateInput[]> {
+  async importRecentWorkouts(since: Date): Promise<HealthImportCandidate[]> {
     if (!this.bridge || !(await this.bridge.isAvailable())) return [];
     return this.bridge.readWorkouts(since.toISOString(), new Date().toISOString());
   }

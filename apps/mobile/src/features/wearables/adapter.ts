@@ -1,6 +1,7 @@
 import type { SportType, WorkoutSessionCreateInput } from "@moveall/contracts";
 
 export type HealthProvider = "mock" | "apple-health" | "health-connect" | "garmin";
+export type HealthImportCandidate = WorkoutSessionCreateInput & { healthRecordId?: string };
 export type HealthPermission =
   | "workout"
   | "heart-rate"
@@ -46,7 +47,7 @@ export interface WearableAdapter {
   requestPermission(permissions?: HealthPermission[]): Promise<boolean>;
   startSession(sport: SportType): AsyncIterable<LiveMetricSample>;
   stopSession(): Promise<void>;
-  importRecentWorkouts(since: Date): Promise<WorkoutSessionCreateInput[]>;
+  importRecentWorkouts(since: Date): Promise<HealthImportCandidate[]>;
   exportWorkout(workout: WorkoutSessionCreateInput): Promise<boolean>;
 }
 

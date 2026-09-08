@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GROOV / Tab Lab</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="lab-header">
+      <a class="wordmark" href="/">GROOV<span> / TAB LAB</span></a
+      ><span class="lab-badge"><i></i> INTERACTIVE PROTOTYPE</span
+      ><button class="quiet" data-action="reset">체험 초기화 ↺</button>
+    </header>
+    <main class="workspace">
+      <aside class="brief">
+        <p class="eyebrow">THE SECOND TAB / 3 DIRECTIONS</p>
+        <h1>구경 다음의<br />한 걸음.</h1>
+        <p class="intro">같은 GROOV, 세 가지 시작점.<br />직접 써보고 두 번째 탭을 골라보세요.</p>
+        <nav class="concepts" aria-label="후보 비교">
+          <button data-concept="today">
+            <span>01</span>
+            <div><b>TODAY</b><small>오늘, 운동하게 만드는 시작점</small></div>
+            <em>↗</em>
+          </button>
+          <button data-concept="sport">
+            <span>02</span>
+            <div><b>SPORT</b><small>종목마다 깊어지는 나의 세계</small></div>
+            <em>↗</em>
+          </button>
+          <button data-concept="hybrid">
+            <span>03</span>
+            <div><b>TODAY × SPORT</b><small>내 종목에서 찾는 오늘의 움직임</small></div>
+            <em>↗</em>
+          </button>
+        </nav>
+        <div class="context-note">
+          <span>KEEP THE REST.</span>
+          <p>홈 · + · 동네 · MY는 그대로.<br />가운데 화면의 <b>두 번째 탭</b>만 바뀝니다.</p>
+        </div>
+        <p class="disclaimer">
+          모든 기록·사용자·코스는 시안용 샘플입니다.<br />실제 계정, 위치, 게시물에 영향을 주지
+          않습니다.
+        </p>
+      </aside>
+      <section class="device-zone" aria-label="작동하는 앱 시안">
+        <div class="device">
+          <div class="device-status"><span>9:41</span><span>••• ▰</span></div>
+          <div id="app" class="app"></div>
+          <nav id="bottom-nav" class="bottom-nav" aria-label="앱 하단 탭"></nav>
+          <div class="home-indicator"></div>
+          <div id="overlay"></div>
+        </div>
+        <span class="device-caption">LIVE PREVIEW · 버튼을 눌러 체험하세요</span>
+      </section>
+      <aside class="review">
+        <div class="review-heading">
+          <span class="eyebrow">EXPERIENCE NOTES</span><span id="variant-number">01 / 03</span>
+        </div>
+        <h2 id="direction-title"></h2>
+        <p id="direction-desc"></p>
+        <div class="try-box">
+          <span>이렇게 체험해 보세요</span>
+          <ol id="try-list"></ol>
+        </div>
+        <div class="persona-heading">
+          <h3>누구에게 필요한 탭일까?</h3>
+          <span>직접 평가 · 자동 점수 아님</span>
+        </div>
+        <div id="ratings"></div>
+        <label class="note-label" for="note">이 안을 쓰며 든 생각</label
+        ><textarea
+          id="note"
+          placeholder="좋았던 점, 아쉬운 점, 다시 들어올 이유…"
+          rows="3"
+        ></textarea
+        ><button class="choose" data-action="choose">이 방향을 후보로 선택</button>
+        <p id="choice-status" class="save-status" aria-live="polite"></p>
+        <button class="text-button" data-action="compare">세 안의 평가 모아보기 ↗</button>
+      </aside>
+    </main>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

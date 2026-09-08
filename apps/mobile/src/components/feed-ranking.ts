@@ -1,4 +1,4 @@
-import type { FeedPost, SportType } from "@moveall/contracts";
+import { type FeedPost, type SportType } from "@moveall/contracts";
 
 export type RankedFeedItem = {
   post: FeedPost;
@@ -11,14 +11,21 @@ type FeedRankingOptions = {
   viewerId?: string;
   now?: number;
   recommendationInterval?: number;
+  localImagePostIds?: ReadonlySet<string>;
 };
 
 export function isRecordedFeedPost(post: FeedPost) {
   return typeof post.workoutSessionId === "string" && post.workoutSessionId.length > 0;
 }
 
-export function hasFeedVisual(post: FeedPost) {
-  return Boolean(post.mediaUrl || post.mediaObjectPath || post.mediaId || post.workoutSummary);
+export function hasFeedVisual(post: FeedPost, hasLocalImage = false) {
+  return Boolean(
+    post.mediaUrl?.trim() ||
+    post.mediaId?.trim() ||
+    post.mediaObjectPath?.trim() ||
+    hasLocalImage ||
+    (isRecordedFeedPost(post) && post.workoutSummary),
+  );
 }
 
 export function feedPostHref(postId: string) {
@@ -30,7 +37,8 @@ export function rankHomeFeed(posts: FeedPost[], options: FeedRankingOptions): Ra
   const interval = Math.max(1, options.recommendationInterval ?? 3);
   const following = new Set(options.followingIds);
   const visible = posts.filter(
-    (post) => post.contentType !== "story" && isRecordedFeedPost(post) && hasFeedVisual(post),
+    (post) =>
+      post.contentType !== "story" && hasFeedVisual(post, options.localImagePostIds?.has(post.id)),
   );
   const affinity = sportAffinity(visible, options.viewerId);
   const chronological = (a: FeedPost, b: FeedPost) =>

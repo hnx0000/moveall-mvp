@@ -9,7 +9,12 @@ import {
   ExerciseType,
   type Permission,
 } from "react-native-health-connect";
-import type { HealthPermission, HealthProvider, LiveMetricSample } from "./adapter";
+import type {
+  HealthPermission,
+  HealthProvider,
+  LiveMetricSample,
+  HealthImportCandidate,
+} from "./adapter";
 
 export type NativeHealthBridge = {
   readonly supportsLiveMetrics: boolean;
@@ -18,7 +23,7 @@ export type NativeHealthBridge = {
   startWorkout(sport: SportType): Promise<string>;
   readLiveSample(sessionId: string): Promise<LiveMetricSample | null>;
   stopWorkout(sessionId: string): Promise<void>;
-  readWorkouts(sinceIso: string, untilIso: string): Promise<WorkoutSessionCreateInput[]>;
+  readWorkouts(sinceIso: string, untilIso: string): Promise<HealthImportCandidate[]>;
   writeWorkout(workout: WorkoutSessionCreateInput): Promise<boolean>;
 };
 
@@ -112,7 +117,7 @@ const bridge: NativeHealthBridge = {
     if (!(await ensureInitialized())) return [];
     const sessions = await safeRead("ExerciseSession", sinceIso, untilIso);
     const imported = await Promise.all(
-      sessions.records.map(async (session): Promise<WorkoutSessionCreateInput | null> => {
+      sessions.records.map(async (session): Promise<HealthImportCandidate | null> => {
         const sport = sportByExerciseType.get(session.exerciseType);
         if (!sport || Date.parse(session.endTime) <= Date.parse(session.startTime)) return null;
         const [heart, respiratory, steps, cadence, distance, calories, elevation] =
@@ -137,6 +142,7 @@ const bridge: NativeHealthBridge = {
           0,
         );
         return {
+          ...(session.metadata?.id ? { healthRecordId: session.metadata.id } : {}),
           sport,
           startedAt: session.startTime,
           endedAt: session.endTime,
@@ -168,10 +174,10 @@ const bridge: NativeHealthBridge = {
               : {}),
             ...(cadences.length ? { averageCadenceSpm: average(cadences) } : {}),
           },
-        } satisfies WorkoutSessionCreateInput;
+        } satisfies HealthImportCandidate;
       }),
     );
-    return imported.filter((workout): workout is WorkoutSessionCreateInput => workout !== null);
+    return imported.filter((workout): workout is HealthImportCandidate => workout !== null);
   },
   async writeWorkout(workout) {
     if (!(await ensureInitialized())) return false;

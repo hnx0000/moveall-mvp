@@ -1,8 +1,9 @@
 import { sportLabels, type DirectMessage } from "@moveall/contracts";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useRef } from "react";
 import {
   ActivityIndicator,
+  AppState,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,6 +14,8 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { createPollingLoop } from "../../src/api/polling-loop";
+import { isNotificationIdentity } from "../../src/features/notifications/push-lifecycle";
 import { ApiError, api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { useAppTheme } from "../../src/theme-context";
@@ -22,37 +25,84 @@ export default function MessagePage() {
   const { userId, name } = useLocalSearchParams<{ userId: string; name?: string }>();
   const router = useRouter();
   const { colors } = useAppTheme();
-  const { session } = useAuth();
+  const { session, loginLifetime } = useAuth();
+  const latest = useRef({ session, userId, loginLifetime });
+  latest.current = { session, userId, loginLifetime };
+  const scope = useRef<object | null>(null);
+  const conversation = useRef("");
+  const sendingRef = useRef(false),
+    revision = useRef(0);
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    if (!session || !userId) return;
-    try {
-      setError(null);
-      setMessages(await api.messages(session.accessToken, userId));
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "탭톡을 불러오지 못했습니다.");
-    }
-  }, [session, userId]);
   useFocusEffect(
     useCallback(() => {
-      void load();
-    }, [load]),
+      const ticket = {};
+      scope.current = ticket;
+      const owner = latest.current.session?.user.id;
+      const key = JSON.stringify([owner, loginLifetime, userId]);
+      if (conversation.current !== key) {
+        conversation.current = key;
+        setMessages([]);
+        setDraft("");
+        setError(null);
+      }
+      if (!owner || !userId) return;
+      const poll = createPollingLoop(async (signal) => {
+        const version = revision.current;
+        const current = () =>
+          !signal.aborted &&
+          scope.current === ticket &&
+          isNotificationIdentity(owner, loginLifetime);
+        try {
+          const items = await api.messages(latest.current.session!.accessToken, userId, signal);
+          if (current() && version === revision.current) {
+            setMessages(items);
+            setError(null);
+          }
+        } catch (caught) {
+          if (current())
+            setError(caught instanceof Error ? caught.message : "탭톡을 불러오지 못했습니다.");
+          throw caught;
+        }
+      });
+      poll.setActive(AppState.currentState === "active");
+      const subscription = AppState.addEventListener("change", (state) =>
+        poll.setActive(state === "active"),
+      );
+      return () => {
+        scope.current = null;
+        poll.stop();
+        subscription.remove();
+      };
+    }, [session?.user.id, userId, loginLifetime]),
   );
   const send = async () => {
-    if (!session || !userId || !draft.trim()) return;
+    if (!session || !userId || !draft.trim() || sendingRef.current) return;
+    const ticket = scope.current;
+    const current = () =>
+      ticket !== null &&
+      scope.current === ticket &&
+      isNotificationIdentity(session.user.id, loginLifetime);
+    const sentDraft = draft;
+    sendingRef.current = true;
     setSending(true);
     setError(null);
     try {
       const message = await api.sendMessage(session.accessToken, userId, { content: draft.trim() });
-      setMessages((current) => [...current, message]);
-      setDraft("");
+      if (!current()) return;
+      revision.current += 1;
+      setMessages((items) =>
+        items.some((item) => item.id === message.id) ? items : [...items, message],
+      );
+      setDraft((value) => (value === sentDraft ? "" : value));
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "탭톡을 보내지 못했습니다.");
+      if (current())
+        setError(caught instanceof ApiError ? caught.message : "탭톡을 보내지 못했습니다.");
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };

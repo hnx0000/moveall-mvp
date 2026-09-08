@@ -1,0 +1,28 @@
+/* App chrome and recorder remain owned by React Native, not by the map runtime. */
+html[data-embedded] .season-lockup, html[data-embedded] #live-switch,
+html[data-embedded] .ranking-content > footer,
+html[data-embedded="course"] #detail-ranking,
+html[data-embedded="course"] #detail-rank-toggle,
+html[data-embedded="course"] #area-ranking,
+html[data-embedded="course"] .area-metrics,
+html[data-embedded="course"] #area-heat,
+html[data-embedded="course"] #run-card,
+html[data-embedded="course"] #heat-key,
+html[data-embedded="course"] #route-follow { display:none !important; }
+html[data-embedded] .map-header {top:12px;height:44px;}
+html[data-embedded] .detail-top-controls { top:72px; }
+html[data-embedded] .national-region-switcher { top:72px; }
+html[data-embedded] .map-controls { top:72px; }
+html[data-embedded] .selection-copy p { font-size:12px; }
+html[data-embedded][data-compact="true"] .detail-top-controls,
+html[data-embedded][data-compact="true"] .place-heading,
+html[data-embedded][data-compact="true"] .map-actions,
+html[data-embedded][data-compact="true"] .map-bottom,
+html[data-embedded][data-compact="true"] .detail-toast { display:none !important; }
+html[data-embedded][data-compact="true"] .scene-shade { opacity:.1; }
+html[data-embedded] .maplibregl-ctrl-attrib { font-size:9px; }
+@media(max-height:540px) and (max-width:1000px){
+  html[data-embedded] .map-header {top:8px;height:36px;}
+  html[data-embedded] .detail-top-controls {top:52px;}
+}
+html[data-embedded] .detail-shell[data-mobile-keyboard=true] .detail-top-controls {top:8px;}

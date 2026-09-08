@@ -13,6 +13,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { AuthProvider, useAuth } from "../src/auth/auth-context";
 import { PushRegistration } from "../src/features/notifications/push-registration";
 import { HealthAutoSync } from "../src/features/wearables/health-auto-sync";
+import { PendingSaveRecovery } from "../src/components/pending-save-recovery";
 import { ThemeProvider, useAppTheme } from "../src/theme-context";
 
 export default function RootLayout() {
@@ -44,6 +45,7 @@ function RootNavigation() {
       <PushRegistration />
       <HealthAutoSync />
       <SessionGate />
+      <PendingSaveRecovery />
     </AuthProvider>
   );
 }
@@ -58,10 +60,14 @@ function SessionGate() {
   const onOnboardingScreen = segments[0] === "onboarding";
   const onPublicLegalScreen = segments[0] === "legal";
   const onOnboardingPreview = segments[0] === "onboarding-preview";
+  const onIsolatedLab = segments[0] === "city-heat-lab";
+  // map-connect has explicit, read-only session and origin checks of its own.
+  const onLocalMapConnect = (segments[0] as string) === "map-connect";
+  const bypassSessionGate = onOnboardingPreview || onIsolatedLab || onLocalMapConnect;
   const onboardingComplete = Boolean(onboarding?.completedAt);
 
   useEffect(() => {
-    if (onOnboardingPreview || !navigationState?.key || restoring || (session && onboardingLoading))
+    if (bypassSessionGate || !navigationState?.key || restoring || (session && onboardingLoading))
       return;
     if (!session && !onLoginScreen && !onPublicLegalScreen) router.replace("/login");
     if (session && !onboardingComplete && !onOnboardingScreen && !onPublicLegalScreen) {
@@ -76,6 +82,7 @@ function SessionGate() {
     onOnboardingScreen,
     onPublicLegalScreen,
     onOnboardingPreview,
+    bypassSessionGate,
     onboardingComplete,
     onboardingLoading,
     restoring,
@@ -83,7 +90,7 @@ function SessionGate() {
     session,
   ]);
 
-  if (!onOnboardingPreview && (restoring || (session && onboardingLoading))) {
+  if (!bypassSessionGate && (restoring || (session && onboardingLoading))) {
     return (
       <View style={[styles.splash, { backgroundColor: colors.background }]}>
         <Text style={[styles.brand, { color: colors.primary }]}>GROOV</Text>

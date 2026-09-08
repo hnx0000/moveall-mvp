@@ -1,9 +1,14 @@
 import { useRouter } from "expo-router";
 import { Check, ChevronLeft } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
+import {
+  cancelHealthSync,
+  isHealthSyncAccount,
+  setHealthAutoSyncEnabled,
+} from "../../src/features/wearables/health-sync";
 import { CenterDialog } from "../../src/components/ui";
 import { POLICY_VERSION } from "../../src/legal/policies";
 import { fonts, maxContentWidth, type ThemeColors } from "../../src/theme";
@@ -25,34 +30,80 @@ export default function ConsentScreen() {
   });
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const generation = useRef(0);
 
   useEffect(() => {
-    if (!session) return;
-    void api.consent(session.accessToken).then((consent) => {
-      if (!consent) return;
-      setOptions({
-        healthDataAccepted: consent.healthDataAccepted,
-        locationAccepted: consent.locationAccepted,
-        mediaAccepted: consent.mediaAccepted,
-        marketingAccepted: consent.marketingAccepted,
-      });
+    const revision = ++generation.current;
+    const userId = sessionRef.current?.user.id;
+    setLoadedFor(null);
+    setBusy(false);
+    setSaved(false);
+    setNotice(null);
+    setOptions({
+      healthDataAccepted: false,
+      locationAccepted: false,
+      mediaAccepted: false,
+      marketingAccepted: false,
     });
-  }, [session]);
+    if (!userId) return;
+    const current = () => generation.current === revision && sessionRef.current?.user.id === userId;
+    void api
+      .consent(sessionRef.current!.accessToken)
+      .then((consent) => {
+        if (!current()) return;
+        setOptions({
+          healthDataAccepted: consent?.healthDataAccepted ?? false,
+          locationAccepted: consent?.locationAccepted ?? false,
+          mediaAccepted: consent?.mediaAccepted ?? false,
+          marketingAccepted: consent?.marketingAccepted ?? false,
+        });
+        setLoadedFor(userId);
+      })
+      .catch((error: unknown) => {
+        if (current())
+          setNotice(
+            error instanceof Error
+              ? error.message
+              : "동의 설정을 불러오지 못했습니다. 다시 열어 주세요.",
+          );
+      });
+    return () => {
+      generation.current++;
+    };
+  }, [session?.user.id]);
 
   const save = async () => {
-    if (!session) return;
+    if (!session || busy || loadedFor !== session.user.id) return;
+    const userId = session.user.id;
+    const revision = generation.current;
+    const current = () =>
+      generation.current === revision &&
+      sessionRef.current?.user.id === userId &&
+      isHealthSyncAccount(userId);
     setBusy(true);
     try {
-      await api.updateConsent(session.accessToken, {
+      if (!options.healthDataAccepted) {
+        cancelHealthSync(session.user.id);
+        await setHealthAutoSyncEnabled(false, session.user.id);
+      }
+      if (!current()) return;
+      await api.updateConsent(sessionRef.current!.accessToken, {
         termsVersion: POLICY_VERSION,
         privacyVersion: POLICY_VERSION,
         termsAccepted: true,
         privacyAccepted: true,
         ...options,
       });
-      setSaved(true);
+      if (current()) setSaved(true);
+    } catch (error) {
+      if (current())
+        setNotice(error instanceof Error ? error.message : "동의 설정을 저장하지 못했습니다.");
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   };
 
@@ -85,6 +136,7 @@ export default function ConsentScreen() {
           label="운동·건강정보"
           description="심박, 걸음, 완료 운동 양방향 동기화"
           enabled={options.healthDataAccepted}
+          locked={busy || loadedFor !== session?.user.id}
           onPress={() => setOptions((v) => ({ ...v, healthDataAccepted: !v.healthDataAccepted }))}
           styles={styles}
         />
@@ -92,6 +144,7 @@ export default function ConsentScreen() {
           label="운동 중 위치"
           description="운동 중 GPS 경로·거리·고도, 백그라운드 기록"
           enabled={options.locationAccepted}
+          locked={busy || loadedFor !== session?.user.id}
           onPress={() => setOptions((v) => ({ ...v, locationAccepted: !v.locationAccepted }))}
           styles={styles}
         />
@@ -99,6 +152,7 @@ export default function ConsentScreen() {
           label="사진·영상"
           description="프로필과 운동 인증 미디어"
           enabled={options.mediaAccepted}
+          locked={busy || loadedFor !== session?.user.id}
           onPress={() => setOptions((v) => ({ ...v, mediaAccepted: !v.mediaAccepted }))}
           styles={styles}
         />
@@ -106,13 +160,24 @@ export default function ConsentScreen() {
           label="마케팅 알림"
           description="혜택·이벤트 소식 · 선택"
           enabled={options.marketingAccepted}
+          locked={busy || loadedFor !== session?.user.id}
           onPress={() => setOptions((v) => ({ ...v, marketingAccepted: !v.marketingAccepted }))}
           styles={styles}
         />
-        <Pressable disabled={busy} onPress={() => void save()} style={styles.saveButton}>
+        <Pressable
+          disabled={busy || !loadedFor || loadedFor !== session?.user.id}
+          onPress={() => void save()}
+          style={styles.saveButton}
+        >
           <Text style={styles.saveText}>{busy ? "저장 중" : "선택 저장"}</Text>
         </Pressable>
       </ScrollView>
+      <CenterDialog
+        visible={notice !== null}
+        title="동의 설정 확인"
+        {...(notice ? { message: notice } : {})}
+        onClose={() => setNotice(null)}
+      />
       <CenterDialog
         visible={saved}
         title="동의 설정 저장 완료"

@@ -1,5 +1,10 @@
+import { visiblePostsSql } from "./visible-posts-sql.js";
+import { AppError } from "../domain/errors.js";
+import { requireNewFeedContent } from "../domain/post-content.js";
 import {
   audienceAllows,
+  calculateLeaguePoints,
+  leagueRange,
   summarizeUsagePurposes,
   type UsagePurposeCohort,
   type UsagePurposeBucket,
@@ -19,6 +24,8 @@ import type {
   FeedPost,
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
+  LeagueQuery,
+  LeagueSnapshot,
   ModerationReportUpdateInput,
   OnboardingInput,
   OnboardingProfile,
@@ -45,6 +52,14 @@ import type {
   StoredPushDevice,
   User,
 } from "../domain/store.js";
+import {
+  buildLeagueSnapshot,
+  createLeagueEntry,
+  leagueRegionIdentity,
+  type LeagueActivity,
+  type LeagueEntry,
+  type LeagueMember,
+} from "../domain/league.js";
 
 type UserRow = QueryResultRow & {
   id: string;
@@ -81,6 +96,12 @@ type WorkoutRow = QueryResultRow & {
 };
 
 type PostRow = QueryResultRow & {
+  viewer_follows_author?: boolean;
+  author_follows_viewer?: boolean;
+  liked_by_me?: boolean;
+  workout_started_at?: Date;
+  workout_ended_at?: Date;
+  workout_metrics?: Record<string, number>;
   id: string;
   user_id: string;
   display_name: string;
@@ -161,10 +182,37 @@ type OnboardingRow = QueryResultRow & {
   activity_level: OnboardingProfile["activityLevel"];
   goals: OnboardingProfile["goals"];
   neighborhood: string | null;
+  district: string | null;
+  province: string | null;
+  region_key: string | null;
   latitude: number | null;
   longitude: number | null;
   neighborhood_verified_at: Date | null;
   completed_at: Date;
+};
+
+type LeagueMemberRow = OnboardingRow & {
+  user_id: string;
+  display_name: string;
+};
+
+type LeagueEntryRow = QueryResultRow & {
+  workout_id: string;
+  user_id: string;
+  region_key: string;
+  region_name: string;
+  region_province: string | null;
+  sport: SportType;
+  started_at: Date;
+  points: number;
+  eligibility: LeagueEntry["eligibility"];
+  scored_at: Date;
+};
+
+type LeagueActivityRow = QueryResultRow & {
+  user_id: string;
+  sport: SportType;
+  started_at: Date;
 };
 
 type MediaObjectRow = QueryResultRow & {
@@ -208,6 +256,8 @@ type NotificationRow = QueryResultRow & {
 type PushDeviceRow = QueryResultRow & {
   id: string;
   user_id: string;
+  auth_session_id: string;
+  enabled: boolean;
   token: string;
   platform: "ios" | "android";
   device_name: string | null;
@@ -308,14 +358,26 @@ export class PostgresStore implements AppStore {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      let user = await client.query<UserRow>(
-        "SELECT id, email, display_name, avatar_data_uri, password_hash, created_at FROM users WHERE email = $1 FOR UPDATE",
-        [input.email],
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+        `oauth:${input.provider}:${input.subject}`,
+      ]);
+      const currentIdentity = await client.query<UserRow>(
+        "SELECT u.id, u.email, u.display_name, u.avatar_data_uri, u.password_hash, u.created_at FROM oauth_identities i JOIN users u ON u.id = i.user_id WHERE i.provider = $1 AND i.subject = $2",
+        [input.provider, input.subject],
+      );
+      if (currentIdentity.rows[0]) {
+        await client.query("COMMIT");
+        return this.mapUser(currentIdentity.rows[0]);
+      }
+      const user = await client.query<UserRow>(
+        "INSERT INTO users (email, display_name, password_hash) VALUES ($1, $2, NULL) ON CONFLICT (email) DO NOTHING RETURNING id, email, display_name, avatar_data_uri, password_hash, created_at",
+        [input.email, input.displayName],
       );
       if (!user.rows[0]) {
-        user = await client.query<UserRow>(
-          "INSERT INTO users (email, display_name, password_hash) VALUES ($1, $2, NULL) RETURNING id, email, display_name, avatar_data_uri, password_hash, created_at",
-          [input.email, input.displayName],
+        throw new AppError(
+          409,
+          "OAUTH_ACCOUNT_LINK_REQUIRED",
+          "이 이메일의 기존 계정이 있습니다. 기존 로그인 방식으로 로그인해 주세요. 계정은 자동으로 합쳐지지 않습니다.",
         );
       }
       await client.query(
@@ -348,6 +410,7 @@ export class PostgresStore implements AppStore {
         "UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
         [userId],
       );
+      await client.query("UPDATE push_devices SET enabled=false WHERE user_id = $1", [userId]);
       await client.query("COMMIT");
       return result.rowCount === 1;
     } catch (error) {
@@ -395,21 +458,35 @@ export class PostgresStore implements AppStore {
 
   async rotateAuthSession(input: {
     sessionId: string;
+    previousRefreshTokenHash: string;
     refreshTokenHash: string;
     expiresAt: string;
   }): Promise<StoredAuthSession | null> {
     const result = await this.pool.query<AuthSessionRow>(
-      "UPDATE auth_sessions SET refresh_token_hash = $2, expires_at = $3, last_seen_at = now() WHERE id = $1 AND revoked_at IS NULL AND expires_at > now() RETURNING *",
-      [input.sessionId, input.refreshTokenHash, input.expiresAt],
+      "UPDATE auth_sessions SET refresh_token_hash = $2, expires_at = $3, last_seen_at = now() WHERE id = $1 AND refresh_token_hash = $4 AND revoked_at IS NULL AND expires_at > now() RETURNING *",
+      [input.sessionId, input.refreshTokenHash, input.expiresAt, input.previousRefreshTokenHash],
     );
     return result.rows[0] ? this.mapAuthSession(result.rows[0]) : null;
   }
 
   async revokeAuthSession(sessionId: string): Promise<void> {
-    await this.pool.query(
-      "UPDATE auth_sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
-      [sessionId],
-    );
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "UPDATE auth_sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
+        [sessionId],
+      );
+      await client.query("UPDATE push_devices SET enabled=false WHERE auth_session_id = $1", [
+        sessionId,
+      ]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listAuthSessions(userId: string): Promise<StoredAuthSession[]> {
@@ -455,11 +532,19 @@ export class PostgresStore implements AppStore {
   }
 
   async saveOnboarding(userId: string, input: OnboardingInput): Promise<OnboardingProfile> {
+    const regionKey = input.neighborhood
+      ? (
+          input.neighborhood.regionCode ??
+          `${input.neighborhood.district ?? input.neighborhood.neighborhood}@${input.neighborhood.latitude.toFixed(1)},${input.neighborhood.longitude.toFixed(1)}`
+        )
+          .normalize("NFKC")
+          .toLocaleLowerCase("ko-KR")
+      : null;
     const result = await this.pool.query<OnboardingRow>(
-      `INSERT INTO user_onboarding (user_id, primary_sports, activity_level, goals, neighborhood, latitude, longitude, neighborhood_verified_at, usage_purpose, usage_purpose_recorded_at, usage_purpose_question_version)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CASE WHEN $10::boolean THEN now() END,CASE WHEN $10::boolean THEN 1 END)
+      `INSERT INTO user_onboarding (user_id, primary_sports, activity_level, goals, neighborhood, district, province, region_key, latitude, longitude, neighborhood_verified_at, usage_purpose, usage_purpose_recorded_at, usage_purpose_question_version)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $13::boolean THEN now() END,CASE WHEN $13::boolean THEN 1 END)
        ON CONFLICT (user_id) DO UPDATE SET primary_sports = EXCLUDED.primary_sports, activity_level = EXCLUDED.activity_level, goals = EXCLUDED.goals,
-         neighborhood = EXCLUDED.neighborhood, latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, neighborhood_verified_at = EXCLUDED.neighborhood_verified_at,
+         neighborhood = EXCLUDED.neighborhood, district = EXCLUDED.district, province = EXCLUDED.province, region_key = EXCLUDED.region_key, latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, neighborhood_verified_at = EXCLUDED.neighborhood_verified_at,
          usage_purpose = CASE WHEN user_onboarding.usage_purpose_recorded_at IS NOT NULL THEN user_onboarding.usage_purpose ELSE EXCLUDED.usage_purpose END,
          usage_purpose_recorded_at = COALESCE(user_onboarding.usage_purpose_recorded_at, EXCLUDED.usage_purpose_recorded_at),
          usage_purpose_question_version = COALESCE(user_onboarding.usage_purpose_question_version, EXCLUDED.usage_purpose_question_version),
@@ -470,6 +555,9 @@ export class PostgresStore implements AppStore {
         input.activityLevel,
         input.goals,
         input.neighborhood?.neighborhood ?? null,
+        input.neighborhood?.district ?? input.neighborhood?.neighborhood ?? null,
+        input.neighborhood?.province ?? null,
+        regionKey,
         input.neighborhood?.latitude ?? null,
         input.neighborhood?.longitude ?? null,
         input.neighborhood?.verifiedAt ?? null,
@@ -625,22 +713,74 @@ export class PostgresStore implements AppStore {
   async createWorkoutSession(
     userId: string,
     input: WorkoutSessionCreateInput,
+    operation?: OperationContext,
   ): Promise<WorkoutSession> {
-    const result = await this.pool.query<WorkoutRow>(
-      "INSERT INTO workout_sessions (user_id, sport, started_at, ended_at, perceived_exertion, notes, metrics, source, route_points) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb) RETURNING *",
-      [
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const owner = await client.query("SELECT id FROM users WHERE id=$1 FOR KEY SHARE", [userId]);
+      if (!owner.rowCount) throw new AppError(401, "AUTH_INVALID", "사용자를 찾을 수 없습니다.");
+      const existingId = await claimOperation(client, userId, operation);
+      if (existingId) {
+        const existing = await client.query<WorkoutRow>(
+          "SELECT * FROM workout_sessions WHERE user_id=$1 AND id=$2 FOR SHARE",
+          [userId, existingId],
+        );
+        if (!existing.rows[0]) deletedOperation(operation!);
+        const workout = this.mapWorkout(existing.rows[0]!);
+        await client.query("COMMIT");
+        return workout;
+      }
+      const result = await client.query<WorkoutRow>(
+        "INSERT INTO workout_sessions (user_id, sport, started_at, ended_at, perceived_exertion, notes, metrics, source, route_points) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb) RETURNING *",
+        [
+          userId,
+          input.sport,
+          input.startedAt,
+          input.endedAt,
+          input.perceivedExertion,
+          input.notes ?? null,
+          JSON.stringify(input.metrics),
+          input.source,
+          JSON.stringify(input.routePoints ?? []),
+        ],
+      );
+      const workout = this.mapWorkout(result.rows[0]!);
+      const onboarding = await client.query<OnboardingRow>(
+        "SELECT * FROM user_onboarding WHERE user_id = $1",
+        [userId],
+      );
+      const entry = createLeagueEntry(
         userId,
-        input.sport,
-        input.startedAt,
-        input.endedAt,
-        input.perceivedExertion,
-        input.notes ?? null,
-        JSON.stringify(input.metrics),
-        input.source,
-        JSON.stringify(input.routePoints ?? []),
-      ],
-    );
-    return this.mapWorkout(result.rows[0]!);
+        workout,
+        onboarding.rows[0] ? this.mapOnboarding(onboarding.rows[0]) : null,
+      );
+      if (entry) {
+        await client.query(
+          "INSERT INTO league_workout_points (workout_id, user_id, region_key, region_name, region_province, sport, started_at, points, eligibility, scored_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+          [
+            entry.workoutId,
+            entry.userId,
+            entry.regionKey,
+            entry.regionName,
+            entry.province,
+            entry.sport,
+            entry.startedAt,
+            entry.points,
+            entry.eligibility,
+            entry.scoredAt,
+          ],
+        );
+      }
+      await completeOperation(client, userId, workout.id, operation);
+      await client.query("COMMIT");
+      return workout;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listWorkoutSessions(userId: string): Promise<WorkoutSession[]> {
@@ -656,20 +796,39 @@ export class PostgresStore implements AppStore {
     workoutId: string,
     input: WorkoutSessionUpdateInput,
   ): Promise<WorkoutSession | null> {
-    const hasNotes = Object.prototype.hasOwnProperty.call(input, "notes");
-    const result = await this.pool.query<WorkoutRow>(
-      "UPDATE workout_sessions SET notes = CASE WHEN $3::boolean THEN $4 ELSE notes END, perceived_exertion = COALESCE($5, perceived_exertion), metrics = COALESCE($6::jsonb, metrics) WHERE user_id = $1 AND id = $2 RETURNING *",
-      [
-        userId,
-        workoutId,
-        hasNotes,
-        input.notes ?? null,
-        input.perceivedExertion ?? null,
-        input.metrics === undefined ? null : JSON.stringify(input.metrics),
-      ],
-    );
-    const row = result.rows[0];
-    return row ? this.mapWorkout(row) : null;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const hasNotes = Object.prototype.hasOwnProperty.call(input, "notes");
+      const result = await client.query<WorkoutRow>(
+        "UPDATE workout_sessions SET notes = CASE WHEN $3::boolean THEN $4 ELSE notes END, perceived_exertion = COALESCE($5, perceived_exertion), metrics = COALESCE($6::jsonb, metrics) WHERE user_id = $1 AND id = $2 RETURNING *",
+        [
+          userId,
+          workoutId,
+          hasNotes,
+          input.notes ?? null,
+          input.perceivedExertion ?? null,
+          input.metrics === undefined ? null : JSON.stringify(input.metrics),
+        ],
+      );
+      const row = result.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      const workout = this.mapWorkout(row);
+      await client.query(
+        "UPDATE league_workout_points SET points = CASE WHEN eligibility = 'eligible' THEN $3 ELSE points END, scored_at = now() WHERE workout_id = $1 AND user_id = $2",
+        [workoutId, userId, calculateLeaguePoints(workout)],
+      );
+      await client.query("COMMIT");
+      return workout;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async deleteWorkoutSession(userId: string, workoutId: string): Promise<boolean> {
@@ -678,6 +837,66 @@ export class PostgresStore implements AppStore {
       [userId, workoutId],
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async leagueSnapshot(userId: string, query: LeagueQuery): Promise<LeagueSnapshot> {
+    const memberRows = await this.pool.query<LeagueMemberRow>(
+      "SELECT o.*, u.display_name FROM user_onboarding o JOIN users u ON u.id = o.user_id WHERE o.neighborhood IS NOT NULL AND o.region_key IS NOT NULL",
+    );
+    const profiles = new Map<string, OnboardingProfile>();
+    const members: LeagueMember[] = memberRows.rows.flatMap((row) => {
+      const profile = this.mapOnboarding(row);
+      profiles.set(row.user_id, profile);
+      const identity = leagueRegionIdentity(profile);
+      return identity && profile.neighborhood
+        ? [
+            {
+              userId: row.user_id,
+              displayName: row.display_name,
+              ...identity,
+              verifiedAt: profile.neighborhood.verifiedAt,
+            },
+          ]
+        : [];
+    });
+    await this.backfillLeagueEntries(profiles);
+    const range = leagueRange(query.period);
+    const [entryRows, activityRows, viewerProfile] = await Promise.all([
+      this.pool.query<LeagueEntryRow>(
+        "SELECT * FROM league_workout_points WHERE started_at >= $1 AND started_at < $2 AND ($3::text = 'activity' OR sport = $3::text)",
+        [range.startAt, range.endAt, query.mode],
+      ),
+      this.pool.query<LeagueActivityRow>(
+        "SELECT user_id, sport, started_at FROM workout_sessions WHERE started_at >= $1 AND started_at < $2 AND ($3::text = 'activity' OR sport = $3::text)",
+        [range.startAt, range.endAt, query.mode],
+      ),
+      this.getOnboarding(userId),
+    ]);
+    const entries: LeagueEntry[] = entryRows.rows.map((row) => ({
+      workoutId: row.workout_id,
+      userId: row.user_id,
+      regionKey: row.region_key,
+      regionName: row.region_name,
+      province: row.region_province,
+      sport: row.sport,
+      startedAt: row.started_at.toISOString(),
+      points: Number(row.points),
+      eligibility: row.eligibility,
+      scoredAt: row.scored_at.toISOString(),
+    }));
+    const activities: LeagueActivity[] = activityRows.rows.map((row) => ({
+      userId: row.user_id,
+      sport: row.sport,
+      startedAt: row.started_at.toISOString(),
+    }));
+    return buildLeagueSnapshot({
+      viewerId: userId,
+      viewerProfile,
+      query,
+      members,
+      entries,
+      activities,
+    });
   }
 
   async listSharingCrews(userId: string): Promise<SharingCrew[]> {
@@ -737,75 +956,110 @@ export class PostgresStore implements AppStore {
     userId: string,
     authorDisplayName: string,
     input: PostCreateInput,
+    operation?: OperationContext,
   ): Promise<FeedPost | null> {
-    const result = await this.pool.query<PostRow>(
-      "WITH inserted AS (INSERT INTO posts (user_id, sport, content, workout_session_id, media_id, content_type, audience, comment_audience) SELECT $1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb WHERE ($4::uuid IS NULL OR EXISTS (SELECT 1 FROM workout_sessions WHERE id = $4 AND user_id = $1)) AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM media_objects WHERE id = $5 AND user_id = $1 AND status = 'available')) RETURNING *) SELECT i.id, i.user_id, $7::text AS display_name, u.avatar_data_uri, i.sport, i.content, i.workout_session_id, i.media_id, mo.object_path AS media_object_path, i.content_type, i.audience, i.comment_audience, i.like_count, i.archived_at, i.created_at FROM inserted i JOIN users u ON u.id = i.user_id LEFT JOIN media_objects mo ON mo.id = i.media_id",
-      [
-        userId,
-        input.sport,
-        input.content,
-        input.workoutSessionId ?? null,
-        input.mediaId ?? null,
-        input.contentType ?? "post",
-        authorDisplayName,
-        JSON.stringify(resolveCrewAudience(input.audience, await this.listSharingCrews(userId))),
-        JSON.stringify(
-          resolveCrewAudience(input.commentAudience, await this.listSharingCrews(userId)),
-        ),
-      ],
-    );
-    const row = result.rows[0];
+    const client = await this.pool.connect();
+    let row: PostRow | undefined;
+    try {
+      await client.query("BEGIN");
+      const owner = await client.query("SELECT id FROM users WHERE id=$1 FOR KEY SHARE", [userId]);
+      if (!owner.rowCount) throw new AppError(401, "AUTH_INVALID", "사용자를 찾을 수 없습니다.");
+      const existingId = await claimOperation(client, userId, operation);
+      if (existingId) {
+        const existing = await client.query<PostRow>(
+          "SELECT p.*, u.display_name, u.avatar_data_uri, mo.object_path AS media_object_path, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id=p.id) AS share_count FROM posts p JOIN users u ON u.id=p.user_id LEFT JOIN media_objects mo ON mo.id=p.media_id WHERE p.user_id=$1 AND p.id=$2 FOR SHARE OF p",
+          [userId, existingId],
+        );
+        row = existing.rows[0];
+        if (!row) deletedOperation(operation!);
+      } else {
+        requireNewFeedContent(input);
+        const crews = await client.query<SharingCrew & QueryResultRow>(
+          'SELECT id, user_id AS "userId", name, member_ids AS "memberIds" FROM sharing_crews WHERE user_id=$1',
+          [userId],
+        );
+        const selectedCrews = [input.audience, input.commentAudience]
+          .filter((a) => a?.scope === "crews")
+          .flatMap((a) => a?.crewIds ?? []);
+        if (selectedCrews.some((id) => !crews.rows.some((crew) => crew.id === id)))
+          throw new AppError(
+            400,
+            "POST_INPUT_NOT_CREATED",
+            "본인의 공유 크루를 다시 선택해 주세요. 게시물은 생성되지 않았습니다.",
+          );
+        const result = await client.query<PostRow>(
+          "WITH inserted AS (INSERT INTO posts (user_id, sport, content, workout_session_id, media_id, content_type, audience, comment_audience) SELECT $1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb WHERE ($4::uuid IS NULL OR EXISTS (SELECT 1 FROM workout_sessions WHERE id = $4 AND user_id = $1)) AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM media_objects WHERE id = $5 AND user_id = $1 AND status = 'available')) RETURNING *) SELECT i.id, i.user_id, $7::text AS display_name, u.avatar_data_uri, i.sport, i.content, i.workout_session_id, i.media_id, mo.object_path AS media_object_path, i.content_type, i.audience, i.comment_audience, i.like_count, i.archived_at, i.created_at FROM inserted i JOIN users u ON u.id = i.user_id LEFT JOIN media_objects mo ON mo.id = i.media_id",
+          [
+            userId,
+            input.sport,
+            input.content,
+            input.workoutSessionId ?? null,
+            input.mediaId ?? null,
+            input.contentType ?? "post",
+            authorDisplayName,
+            JSON.stringify(resolveCrewAudience(input.audience, crews.rows)),
+            JSON.stringify(resolveCrewAudience(input.commentAudience, crews.rows)),
+          ],
+        );
+        row = result.rows[0];
+        if (!row) {
+          await client.query("ROLLBACK");
+          return null;
+        }
+        await completeOperation(client, userId, row.id, operation);
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    // Response enrichment must not hold a DB connection or roll back a committed publication.
     return row ? this.presentPost(row, [], userId) : null;
   }
 
   async listFeed(viewerId?: string, postId?: string): Promise<FeedPost[]> {
-    const posts = await this.pool.query<PostRow>(
-      "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.media_id, mo.object_path AS media_object_path, p.content_type, p.audience, p.comment_audience, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN media_objects mo ON mo.id = p.media_id WHERE ($2::uuid IS NULL OR p.id = $2) AND p.moderation_status = 'visible' AND p.archived_at IS NULL AND ($1::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id) OR (b.blocker_id = p.user_id AND b.blocked_id = $1))) ORDER BY p.created_at DESC LIMIT 100",
-      [viewerId ?? null, postId ?? null],
-    );
-    if (posts.rows.length === 0) return [];
-    const visibility = await Promise.all(
-      posts.rows.map((post) => this.postVisible(post, viewerId)),
-    );
-    posts.rows = posts.rows.filter((_, index) => visibility[index]);
-    const comments = await this.listPostComments(
-      posts.rows.map((post) => post.id),
-      viewerId,
-    );
-
-    return Promise.all(
-      posts.rows.map((post) =>
-        this.presentPost(
-          post,
-          comments.filter((comment) => comment.post_id === post.id),
-          viewerId,
-        ),
-      ),
-    );
+    return this.listVisiblePosts(viewerId, postId);
   }
-
   async listPostsByUser(userId: string, viewerId = userId): Promise<FeedPost[]> {
-    if (!(await this.canViewContent(userId, viewerId))) return [];
-    const posts = await this.pool.query<PostRow>(
-      "SELECT p.id, p.user_id, u.display_name, u.avatar_data_uri, p.sport, p.content, p.workout_session_id, p.media_id, mo.object_path AS media_object_path, p.content_type, p.audience, p.comment_audience, p.like_count, (SELECT count(DISTINCT ps.sharer_id)::int FROM post_shares ps WHERE ps.post_id = p.id) AS share_count, p.archived_at, p.created_at FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN media_objects mo ON mo.id = p.media_id WHERE p.user_id = $1 AND p.moderation_status = 'visible' AND p.archived_at IS NULL ORDER BY p.created_at DESC LIMIT 100",
-      [userId],
-    );
-    if (posts.rows.length === 0) return [];
-    const visibility = await Promise.all(
-      posts.rows.map((post) => this.postVisible(post, viewerId)),
-    );
-    posts.rows = posts.rows.filter((_, index) => visibility[index]);
+    return this.listVisiblePosts(viewerId, undefined, userId);
+  }
+  private async listVisiblePosts(
+    viewerId?: string,
+    postId?: string,
+    authorId?: string,
+  ): Promise<FeedPost[]> {
+    const posts = await this.pool.query<PostRow>(visiblePostsSql, [
+      viewerId ?? null,
+      postId ?? null,
+      authorId ?? null,
+      new Date(),
+      null,
+    ]);
+    if (!posts.rows.length) return [];
     const comments = await this.listPostComments(
       posts.rows.map((post) => post.id),
       viewerId,
     );
-    return Promise.all(
-      posts.rows.map((post) =>
-        this.presentPost(
-          post,
-          comments.filter((comment) => comment.post_id === post.id),
+    const grouped = new Map<string, CommentRow[]>();
+    for (const comment of comments) {
+      const items = grouped.get(comment.post_id) ?? [];
+      items.push(comment);
+      grouped.set(comment.post_id, items);
+    }
+    return posts.rows.map((row) =>
+      presentPostAccess(
+        {
+          ...this.mapPost(row, grouped.get(row.id) ?? []),
+          likedByMe: Boolean(row.liked_by_me),
+        },
+        {
+          authorId: row.user_id,
           viewerId,
-        ),
+          viewerFollowsAuthor: Boolean(row.viewer_follows_author),
+          authorFollowsViewer: Boolean(row.author_follows_viewer),
+        },
       ),
     );
   }
@@ -1041,25 +1295,49 @@ export class PostgresStore implements AppStore {
 
   async registerPushDevice(
     userId: string,
+    sessionId: string,
     input: PushDeviceRegistrationInput,
   ): Promise<StoredPushDevice> {
-    const result = await this.pool.query<PushDeviceRow>(
-      "INSERT INTO push_devices (user_id, token, platform, device_name) VALUES ($1, $2, $3, $4) ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, platform = EXCLUDED.platform, device_name = EXCLUDED.device_name, updated_at = now() RETURNING id, user_id, token, platform, device_name, created_at, updated_at",
-      [userId, input.token, input.platform, input.deviceName ?? null],
-    );
-    return this.mapPushDevice(result.rows[0]!);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT id FROM users WHERE id=$1 FOR KEY SHARE", [userId]);
+      const active = await client.query(
+        "SELECT id FROM auth_sessions WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > now() FOR UPDATE",
+        [sessionId, userId],
+      );
+      if (active.rowCount !== 1)
+        throw new AppError(401, "AUTH_SESSION_EXPIRED", "로그인 세션이 만료되었습니다.");
+      const result = await client.query<PushDeviceRow>(
+        "INSERT INTO push_devices (user_id, auth_session_id, token, platform, device_name, enabled) VALUES ($1, $2, $3, $4, $5, true) ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, auth_session_id = EXCLUDED.auth_session_id, platform = EXCLUDED.platform, device_name = EXCLUDED.device_name, enabled = true, updated_at = now() WHERE push_devices.auth_session_id IS NULL OR (SELECT (s.created_at, s.id) FROM auth_sessions s WHERE s.id = EXCLUDED.auth_session_id) >= (SELECT (s.created_at, s.id) FROM auth_sessions s WHERE s.id = push_devices.auth_session_id) RETURNING *",
+        [userId, sessionId, input.token, input.platform, input.deviceName ?? null],
+      );
+      if (!result.rows[0])
+        throw new AppError(
+          409,
+          "PUSH_DEVICE_NEWER_SESSION",
+          "이 기기는 더 최근 로그인에 연결되어 있습니다.",
+        );
+      await client.query("COMMIT");
+      return this.mapPushDevice(result.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
-  async unregisterPushDevice(userId: string, token: string): Promise<void> {
-    await this.pool.query("DELETE FROM push_devices WHERE user_id = $1 AND token = $2", [
-      userId,
-      token,
-    ]);
+  async unregisterPushDevice(userId: string, sessionId: string, token: string): Promise<void> {
+    await this.pool.query(
+      "UPDATE push_devices SET enabled=false WHERE user_id = $1 AND token = $2 AND auth_session_id = $3",
+      [userId, token, sessionId],
+    );
   }
 
   async listPushDeviceTokens(userId: string): Promise<string[]> {
     const result = await this.pool.query<QueryResultRow & { token: string }>(
-      "SELECT token FROM push_devices WHERE user_id = $1 ORDER BY updated_at DESC",
+      "SELECT p.token FROM push_devices p JOIN auth_sessions s ON s.id = p.auth_session_id AND s.user_id = p.user_id WHERE p.user_id = $1 AND p.enabled=true AND s.revoked_at IS NULL AND s.expires_at > now() ORDER BY p.updated_at DESC",
       [userId],
     );
     return result.rows.map((row) => row.token);
@@ -1112,15 +1390,26 @@ export class PostgresStore implements AppStore {
         ORDER BY ps.created_at DESC LIMIT 200`,
       [userId, peerId],
     );
-    const allowedShares = await Promise.all(
-      shares.rows.map(async (row) => ({
-        ...row,
-        shared_post:
-          row.shared_post && (await this.listFeed(userId, row.shared_post.id))[0]
-            ? row.shared_post
-            : null,
-      })),
+    const sharedIds = [
+      ...new Set(shares.rows.flatMap((row) => (row.shared_post ? [row.shared_post.id] : []))),
+    ];
+    const visibleIds = new Set(
+      sharedIds.length
+        ? (
+            await this.pool.query<PostRow>(visiblePostsSql, [
+              userId,
+              null,
+              null,
+              new Date(),
+              sharedIds,
+            ])
+          ).rows.map((row) => row.id)
+        : [],
     );
+    const allowedShares = shares.rows.map((row) => ({
+      ...row,
+      shared_post: row.shared_post && visibleIds.has(row.shared_post.id) ? row.shared_post : null,
+    }));
     return [
       ...result.rows.map((row) => this.mapMessage(row)),
       ...allowedShares.map((row) => ({
@@ -1387,6 +1676,55 @@ export class PostgresStore implements AppStore {
     return this.mapKnowledgeFeedback(result.rows[0]!);
   }
 
+  private async backfillLeagueEntries(profiles: Map<string, OnboardingProfile>) {
+    const missing = await this.pool.query<WorkoutRow>(
+      `SELECT w.*
+       FROM workout_sessions w
+       JOIN user_onboarding o ON o.user_id = w.user_id
+       LEFT JOIN league_workout_points p ON p.workout_id = w.id
+       WHERE p.workout_id IS NULL AND o.neighborhood IS NOT NULL AND o.region_key IS NOT NULL
+       ORDER BY w.started_at DESC
+       LIMIT 5000`,
+    );
+    if (missing.rows.length === 0) return;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const row of missing.rows) {
+        const entry = createLeagueEntry(
+          row.user_id,
+          this.mapWorkout(row),
+          profiles.get(row.user_id) ?? null,
+        );
+        if (!entry) continue;
+        await client.query(
+          `INSERT INTO league_workout_points
+             (workout_id, user_id, region_key, region_name, region_province, sport, started_at, points, eligibility, scored_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           ON CONFLICT (workout_id) DO NOTHING`,
+          [
+            entry.workoutId,
+            entry.userId,
+            entry.regionKey,
+            entry.regionName,
+            entry.province,
+            entry.sport,
+            entry.startedAt,
+            entry.points,
+            entry.eligibility,
+            entry.scoredAt,
+          ],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }
@@ -1447,6 +1785,9 @@ export class PostgresStore implements AppStore {
         ? {
             neighborhood: {
               neighborhood: row.neighborhood,
+              ...(row.district ? { district: row.district } : {}),
+              ...(row.province ? { province: row.province } : {}),
+              ...(row.region_key ? { regionCode: row.region_key } : {}),
               latitude: row.latitude,
               longitude: row.longitude,
               verifiedAt: row.neighborhood_verified_at.toISOString(),
@@ -1515,6 +1856,15 @@ export class PostgresStore implements AppStore {
       likeCount: row.like_count,
       shareCount: Number(row.share_count ?? 0),
       ...(row.workout_session_id ? { workoutSessionId: row.workout_session_id } : {}),
+      ...(row.workout_started_at && row.workout_ended_at && row.workout_metrics
+        ? {
+            workoutSummary: {
+              startedAt: row.workout_started_at.toISOString(),
+              endedAt: row.workout_ended_at.toISOString(),
+              metrics: row.workout_metrics,
+            },
+          }
+        : {}),
       ...(row.media_id ? { mediaId: row.media_id } : {}),
       ...(row.media_object_path ? { mediaObjectPath: row.media_object_path } : {}),
       createdAt: row.created_at.toISOString(),
@@ -1593,6 +1943,8 @@ export class PostgresStore implements AppStore {
     return {
       id: row.id,
       userId: row.user_id,
+      sessionId: row.auth_session_id,
+      enabled: row.enabled,
       token: row.token,
       platform: row.platform,
       ...(row.device_name ? { deviceName: row.device_name } : {}),
@@ -1601,3 +1953,5 @@ export class PostgresStore implements AppStore {
     };
   }
 }
+import { deletedOperation, type OperationContext } from "../domain/mutation-operation.js";
+import { claimOperation, completeOperation } from "./postgres-operation-ledger.js";

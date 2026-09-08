@@ -1,0 +1,63 @@
+/* Same dark/orange card; keep the map and live course data in view together. */
+.course-planner .course-summary>div {display:flex;align-items:baseline;gap:6px;min-width:0;}
+.course-planner .course-summary span {font-size:14px;color:#a6a7a7;}
+.course-planner #course-sport-label {font-size:12px;font-weight:600;color:#ff845f;margin-left:6px;}
+.course-quick-actions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px;}
+.course-quick-actions button {min-width:0;min-height:44px;padding:8px 4px;background:#242528;color:#dedbd7;border:1px solid #ffffff22;border-radius:9px;font-family:inherit;font-size:14px;font-weight:600;line-height:1.4;touch-action:manipulation;}
+.course-planner #course-options-toggle {display:none;}
+.course-planner #course-options[hidden] {display:none!important;}
+.course-planner #course-clear {margin-top:12px;min-height:44px;}
+
+@media(max-width:760px),(max-width:1000px) and (max-height:540px){
+  .detail-shell #course-planner[data-mobile-open=true]:not([hidden]) {
+    display:flex!important;flex-direction:column;left:12px;right:66px;top:auto;
+    bottom:calc(24px + env(safe-area-inset-bottom,0px));width:auto;box-sizing:border-box;
+    max-height:min(280px,calc(var(--map-viewport-height,100dvh)*.42),calc(var(--map-viewport-height,100dvh) - var(--detail-hud-bottom,200px) - 140px - env(safe-area-inset-bottom,0px)));
+    padding:4px 12px 10px;overflow:hidden;border-radius:18px;background:#151618f5;
+  }
+  .detail-shell #course-planner[data-mobile-open=true][data-course-expanded=true]:not([hidden]) {
+    max-height:min(500px,calc(var(--map-viewport-height,100dvh)*.56),calc(var(--map-viewport-height,100dvh) - var(--detail-hud-bottom,200px) - 100px - env(safe-area-inset-bottom,0px)));
+  }
+  .detail-shell #course-planner[data-mobile-open=true][data-course-editing=true]:not([hidden]) {
+    max-height:min(320px,calc(var(--map-viewport-height,100dvh)*.5),calc(var(--map-viewport-height,100dvh) - var(--detail-hud-bottom,200px) - 100px - env(safe-area-inset-bottom,0px)));
+  }
+  #course-planner>header {flex:0 0 auto;min-height:44px;gap:6px;padding:0;}
+  #course-planner>header>div {min-width:0;}
+  #course-planner h2 {font-size:16px;line-height:1.4;margin:0;overflow-wrap:anywhere;}
+  #course-planner #course-sport-label {display:inline-block;font-size:12px;}
+  #course-planner>header>#course-close {display:block;width:44px;height:44px;flex:0 0 44px;padding:0;line-height:1;font-size:26px;}
+  #course-planner>.course-summary {flex:0 0 auto;gap:8px;justify-content:space-between;margin:0 0 4px;min-height:34px;align-items:center;}
+  #course-planner .course-summary strong {font-size:28px;line-height:1.2;}
+  #course-planner .course-summary>small {font-size:12px;line-height:1.4;text-align:right;max-width:104px;overflow-wrap:anywhere;}
+  #course-planner>.course-panel-body {min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;overflow-wrap:anywhere;}
+  #course-planner #course-status {font-size:13px;line-height:1.5;margin:4px 0 8px;min-height:0;}
+  #course-planner>.course-quick-actions {flex:0 0 auto;grid-template-columns:1fr 1fr 1.25fr;gap:5px;padding-top:8px;margin-top:0;border-top:1px solid #ffffff19;}
+  #course-planner>.course-quick-actions button {font-family:inherit;font-size:13px;line-height:1.4;min-height:44px;}
+  #course-planner #course-options-toggle {display:flex;align-items:center;justify-content:center;gap:2px;border-color:#ff57335c;background:#ff57331c;color:#ff9b7e;}
+  #course-options-toggle svg {flex-shrink:0;}
+  #course-options-toggle[aria-expanded=true] svg {transform:rotate(180deg);}
+  #course-planner #course-options {padding:10px 0;border-top:1px solid #ffffff19;}
+  #course-planner .course-sports button {font-size:14px;padding:8px 4px;}
+  #course-planner details {margin-top:10px;padding-top:8px;}
+  #course-planner summary {min-height:44px;box-sizing:border-box;padding:10px 0;font-size:14px;line-height:1.5;}
+  #course-planner .course-name {margin-top:12px;}
+  #course-planner .course-pin-editor {margin:4px 0 8px;padding:8px;}
+  #course-planner .course-pin-editor>strong {font-size:14px;}
+  #course-planner .course-pin-editor>div {grid-template-columns:1.4fr 1fr 44px;gap:5px;margin-top:6px;}
+  #course-planner .course-pin-editor button {font-size:13px;min-height:44px;padding:6px 3px;}
+  #course-planner .course-small-actions {gap:6px;}
+  #course-planner .course-small-actions>button {padding:6px;min-height:44px;margin-bottom:8px;}
+  #course-planner button:focus-visible {outline:2px solid #ff916b;outline-offset:-2px;}
+  .detail-shell[data-mobile-keyboard=true] #course-planner[data-mobile-open=true]:not([hidden]) {
+    right:12px;bottom:8px;max-height:calc(var(--map-viewport-height,100dvh) - 76px);
+  }
+}
+@media(max-height:540px) and (max-width:1000px){
+  /* A short landscape screen keeps its working map beside the card. */
+  .detail-shell:not([data-mobile-keyboard=true]) #course-planner[data-mobile-open=true]:not([hidden]),
+  .detail-shell:not([data-mobile-keyboard=true]) #course-planner[data-mobile-open=true][data-course-expanded=true]:not([hidden]),
+  .detail-shell:not([data-mobile-keyboard=true]) #course-planner[data-mobile-open=true][data-course-editing=true]:not([hidden]) {
+    right:auto;width:min(320px,calc(100% - 82px));
+    max-height:calc(var(--map-viewport-height,100dvh) - var(--detail-hud-bottom,122px) - 38px - env(safe-area-inset-bottom,0px));
+  }
+}

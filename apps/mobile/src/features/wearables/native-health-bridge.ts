@@ -1,5 +1,10 @@
 import type { SportType, WorkoutSessionCreateInput } from "@moveall/contracts";
-import type { HealthPermission, HealthProvider, LiveMetricSample } from "./adapter";
+import type {
+  HealthPermission,
+  HealthProvider,
+  LiveMetricSample,
+  HealthImportCandidate,
+} from "./adapter";
 
 export type NativeHealthBridge = {
   readonly supportsLiveMetrics: boolean;
@@ -8,7 +13,7 @@ export type NativeHealthBridge = {
   startWorkout(sport: SportType): Promise<string>;
   readLiveSample(sessionId: string): Promise<LiveMetricSample | null>;
   stopWorkout(sessionId: string): Promise<void>;
-  readWorkouts(sinceIso: string, untilIso: string): Promise<WorkoutSessionCreateInput[]>;
+  readWorkouts(sinceIso: string, untilIso: string): Promise<HealthImportCandidate[]>;
   writeWorkout(workout: WorkoutSessionCreateInput): Promise<boolean>;
 };
 

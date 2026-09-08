@@ -1,0 +1,10 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { initial, load, summary, nearby, topTen, districts, participation, simulate } from "./model.mjs";
+test("v3 starts on neighborhood status", () => { const s = initial(); assert.equal(s.page, "status"); assert.equal(summary(s).rank, 323); assert.equal(summary(s).total, 354); });
+test("nearby ranking keeps two above and below", () => { const rows = nearby(initial()); assert.deepEqual(rows.map((x) => x.rank), [321,322,323,324,325]); assert.equal(rows[2].mine, true); });
+test("top ten stays separate from an outside personal rank", () => { const s = initial(); assert.equal(topTen(s).length, 10); assert.ok(summary(s).rank > 10); });
+test("all six sport modes expose separate summaries", () => { const s = initial(); assert.equal(summary(s,"running").label,"5K PB"); assert.equal(summary(s,"diving").label,"CWT PB"); });
+test("regional participation uses active GROOV users", () => { assert.equal(participation(districts[0]),69.9); });
+test("activity sync updates points without changing sport PB", () => { const s = simulate(initial(),"activity"); assert.equal(summary(s).value,7857); assert.equal(summary(s,"running").value,"22′48″"); });
+test("old state resets to v3", () => { assert.equal(load(JSON.stringify({version:2})).version,3); });

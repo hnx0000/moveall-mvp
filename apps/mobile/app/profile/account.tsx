@@ -65,16 +65,27 @@ export default function AccountScreen() {
       setPostPromptBusy(false);
     }
   }
-  const isAdmin = (process.env.EXPO_PUBLIC_ADMIN_EMAILS ?? "")
-    .split(",")
-    .map((email) => email.trim().toLowerCase())
-    .includes(session?.user.email.toLowerCase() ?? "");
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setIsAdmin(false);
+    if (session)
+      void api
+        .accountCapabilities(session.accessToken)
+        .then((value) => {
+          if (active) setIsAdmin(value.admin);
+        })
+        .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [session?.accessToken, session?.user.id]);
 
   const loadSessions = async () => {
     if (session) setSessions(await api.accountSessions(session.accessToken));
   };
   useEffect(() => {
-    void loadSessions();
+    void loadSessions().catch(() => setNotice("로그인 기기 목록을 불러오지 못했습니다."));
   }, [session]);
 
   const changePassword = async () => {
@@ -120,6 +131,13 @@ export default function AccountScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/profile/saved-drafts")}
+          style={{ paddingVertical: 12 }}
+        >
+          <Text style={{ color: colors.primary }}>보관된 게시 초안</Text>
+        </Pressable>
         <Pressable accessibilityLabel="뒤로" onPress={() => router.back()} style={styles.back}>
           <ChevronLeft color={colors.ink} size={22} />
         </Pressable>

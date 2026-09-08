@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PostCreateInputSchema, storyIsActive, type PostAudience } from "@moveall/contracts";
 import { MemoryStore } from "../src/infrastructure/memory-store.js";
 import { createApp } from "../src/app.js";
+import { postWorkoutId } from "./post-fixture.js";
 
 afterEach(() => vi.useRealTimers());
 
@@ -25,6 +26,7 @@ async function fixture() {
   await store.followUser(follower.id, owner.id);
   await store.followUser(mutual.id, owner.id);
   await store.followUser(owner.id, mutual.id);
+  const workoutSessionId = await postWorkoutId(store, owner.id);
   const publish = (
     audience: PostAudience,
     commentAudience: PostAudience = { scope: "public" },
@@ -33,6 +35,7 @@ async function fixture() {
     store.createPost(owner.id, owner.displayName, {
       sport: "running",
       content: "나의 기록",
+      workoutSessionId,
       audience,
       commentAudience,
       contentType,
@@ -75,12 +78,14 @@ describe("post audience enforcement", () => {
       expect(response.statusCode).toBe(201);
       const account = response.json().data;
       const headers = { authorization: `Bearer ${account.accessToken}` };
+      const workoutSessionId = await postWorkoutId(store, account.user.id);
       const created = await app.inject({
         method: "POST",
         url: "/v1/posts",
         headers,
         payload: {
           content: "나만 보는 기록",
+          workoutSessionId,
           sport: "running",
           audience: { scope: "private" },
           commentAudience: { scope: "none" },
@@ -101,12 +106,13 @@ describe("post audience enforcement", () => {
         headers,
         payload: {
           content: "크루 기록",
+          workoutSessionId,
           sport: "running",
           audience: { scope: "crews", crewIds: ["e94be392-bcbf-44dc-93bb-1e7edeea56cb"] },
         },
       });
       expect(invalid.statusCode).toBe(400);
-      expect(invalid.json().error.code).toBe("CREW_NOT_FOUND");
+      expect(invalid.json().error.code).toBe("POST_INPUT_NOT_CREATED");
     } finally {
       await app.close();
     }
@@ -178,6 +184,7 @@ describe("post audience enforcement", () => {
     await expect(
       store.createPost(follower.id, follower.displayName, {
         content: "글",
+        workoutSessionId: await postWorkoutId(store, follower.id),
         sport: "running",
         audience: { scope: "crews", crewIds: [a.id] },
       }),

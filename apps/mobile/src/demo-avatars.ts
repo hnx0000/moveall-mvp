@@ -1,4 +1,5 @@
 import type { ImageSourcePropType } from "react-native";
+import { characterAvatarSources } from "./character-assets.generated";
 import profileDoyun from "../assets/images/people/doyun/profile.jpg";
 import profileHarin from "../assets/images/people/harin/profile.jpg";
 import profileJiyoung from "../assets/images/people/jiyoung/profile.jpg";
@@ -9,6 +10,7 @@ import profileTaeo from "../assets/images/people/taeo/profile.jpg";
 import profileYuna from "../assets/images/people/yuna/profile.jpg";
 
 export const demoAvatarSources: Partial<Record<string, ImageSourcePropType>> = {
+  ...characterAvatarSources,
   "demo-friend-1": profileMinji,
   "demo-friend-2": profileJun,
   "demo-friend-3": profileDoyun,

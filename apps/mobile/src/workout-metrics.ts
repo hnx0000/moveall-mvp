@@ -1,4 +1,5 @@
 import type { SportType, WorkoutSession } from "@moveall/contracts";
+import { workoutDurationMilliseconds } from "./workout-duration.ts";
 
 export const averageHeartRateKey = "averageHeartRateBpm";
 export const maximumHeartRateKey = "maximumHeartRateBpm";
@@ -144,7 +145,7 @@ function weightedMetricAverage(workouts: WorkoutSession[], key: string): number 
   if (!measured.length) return undefined;
   const weighted = measured.reduce(
     (result, workout) => {
-      const duration = Math.max(1, Date.parse(workout.endedAt) - Date.parse(workout.startedAt));
+      const duration = Math.max(1, workoutDurationMilliseconds(workout));
       return {
         value: result.value + Number(workout.metrics[key]) * duration,
         duration: result.duration + duration,

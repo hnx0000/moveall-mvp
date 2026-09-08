@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { Activity, ChevronLeft, Download, ShieldCheck } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { useAuth } from "../../src/auth/auth-context";
+import { api } from "../../src/api/client";
 import { CenterDialog } from "../../src/components/ui";
 import {
   createPlatformHealthAdapter,
@@ -18,6 +19,7 @@ import {
 } from "../../src/features/wearables";
 import {
   getHealthSyncStatus,
+  isHealthSyncAccount,
   isHealthAutoSyncEnabled,
   markHealthSyncReady,
   setHealthAutoSyncEnabled,
@@ -58,59 +60,126 @@ export default function HealthConnectionScreen() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<HealthSyncStatus | null>(null);
+  const sessionRef = useRef(session);
+  const lifecycle = useRef(0);
+  sessionRef.current = session;
 
   useEffect(() => {
-    void adapter.availability().then(setAvailability);
-    void isHealthAutoSyncEnabled().then(setPermissionGranted);
-    void getHealthSyncStatus().then(setSyncStatus);
-    return subscribeHealthSyncStatus(setSyncStatus);
-  }, [adapter]);
+    lifecycle.current++;
+    let active = true;
+    setBusy(false);
+    setAvailability(null);
+    setPermissionGranted(false);
+    setSyncStatus(null);
+    setNotice(null);
+    if (!session)
+      return () => {
+        lifecycle.current++;
+      };
+    const userId = session.user.id;
+    void adapter
+      .availability()
+      .then((value) => {
+        if (active) setAvailability(value);
+      })
+      .catch(() => undefined);
+    void isHealthAutoSyncEnabled(userId)
+      .then((value) => {
+        if (active) setPermissionGranted(value);
+      })
+      .catch(() => undefined);
+    void getHealthSyncStatus(userId)
+      .then((value) => {
+        if (active) setSyncStatus(value);
+      })
+      .catch(() => undefined);
+    const unsubscribe = subscribeHealthSyncStatus((value) => {
+      if (active) setSyncStatus(value);
+    }, userId);
+    return () => {
+      active = false;
+      lifecycle.current++;
+      unsubscribe();
+    };
+  }, [adapter, session?.user.id]);
 
   const connect = async () => {
+    if (!session) return;
+    const userId = session.user.id;
+    const generation = lifecycle.current;
+    const currentAccount = () =>
+      lifecycle.current === generation &&
+      isHealthSyncAccount(userId) &&
+      sessionRef.current?.user.id === userId;
     setBusy(true);
     try {
+      const consent = await api.consent(session.accessToken);
+      if (!currentAccount()) return;
+      if (!consent?.healthDataAccepted) {
+        setNotice("동의 및 데이터 설정에서 건강정보 이용에 먼저 동의해 주세요.");
+        return;
+      }
       const current = await adapter.availability();
+      if (!currentAccount()) return;
       setAvailability(current);
       if (!current.available) {
         setNotice(availabilityMessage(current));
         return;
       }
       const granted = await adapter.requestPermission();
+      if (!currentAccount()) return;
       setPermissionGranted(granted);
-      await setHealthAutoSyncEnabled(granted);
-      if (granted) await markHealthSyncReady();
+      await setHealthAutoSyncEnabled(granted, userId);
+      if (!currentAccount()) return;
+      if (granted) await markHealthSyncReady(undefined, userId);
+      if (!currentAccount()) return;
       setNotice(
         granted
           ? "건강 기록 읽기·쓰기 권한이 연결되었습니다. 앱을 열 때 완료 운동을 양방향으로 자동 동기화합니다."
           : "일부 필수 읽기·쓰기 권한이 허용되지 않았습니다. 건강 앱의 GROOV 권한을 확인해 주세요.",
       );
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "건강 앱을 연결하지 못했습니다.");
+      if (currentAccount())
+        setNotice(error instanceof Error ? error.message : "건강 앱을 연결하지 못했습니다.");
     } finally {
-      setBusy(false);
+      if (currentAccount()) setBusy(false);
     }
   };
 
   const importWorkouts = async () => {
     if (!session) return;
+    const userId = session.user.id;
+    const generation = lifecycle.current;
+    const currentAccount = () =>
+      lifecycle.current === generation &&
+      isHealthSyncAccount(userId) &&
+      sessionRef.current?.user.id === userId;
     setBusy(true);
     try {
       const current = await adapter.availability();
+      if (!currentAccount()) return;
       setAvailability(current);
       if (!current.available) {
         setNotice(availabilityMessage(current));
         return;
       }
-      const result = await syncHealthData(session.accessToken, adapter, { force: true });
+      const result = await syncHealthData(session.accessToken, adapter, {
+        force: true,
+        userId,
+        isCurrent: currentAccount,
+        getAccessToken: () => sessionRef.current?.accessToken ?? "",
+      });
+      if (!currentAccount()) return;
       setNotice(
         result.imported + result.exported + result.duplicates === 0
           ? "최근 30일 동안 새로 동기화할 운동 기록이 없습니다."
           : `건강 앱 → GROOV ${result.imported}개, GROOV → 건강 앱 ${result.exported}개를 동기화했습니다.${result.duplicates ? ` 중복 ${result.duplicates}개는 건너뛰었습니다.` : ""}${result.failed ? ` ${result.failed}개는 처리하지 못했습니다.` : ""}`,
       );
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "운동 기록을 가져오지 못했습니다.");
+      if (currentAccount())
+        setNotice(error instanceof Error ? error.message : "운동 기록을 가져오지 못했습니다.");
     } finally {
-      setBusy(false);
+      if (currentAccount()) setBusy(false);
     }
   };
 

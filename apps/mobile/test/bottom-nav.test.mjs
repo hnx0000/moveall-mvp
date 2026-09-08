@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { bottomNavItems, bottomNavPalette } from "../src/components/bottom-nav-model.ts";
-import { NAV_ICONS } from "../../../prototypes/tab-lab/nav-icons.mjs";
+import { NAV_ICONS } from "./fixtures/approved-nav-icons.mjs";
 
 test("approved navigation labels preserve route order", () => {
   assert.deepEqual(Object.keys(bottomNavItems), [

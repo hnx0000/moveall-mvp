@@ -3,8 +3,6 @@ import type {
   AccountSession,
   AppleLoginInput,
   AuthorizationCodeLoginInput,
-  ApiFailure,
-  ApiSuccess,
   AuthSession,
   CommentCreateInput,
   ContentReport,
@@ -19,6 +17,8 @@ import type {
   KnowledgeArticle,
   KnowledgeFeedback,
   KnowledgeFeedbackCreateInput,
+  LeagueQuery,
+  LeagueSnapshot,
   LoginInput,
   Medal,
   MediaUploadRequestInput,
@@ -49,44 +49,19 @@ import type {
   WorkoutSessionCreateInput,
   WorkoutSessionUpdateInput,
 } from "@moveall/contracts";
-import { demoApi } from "./demo-client";
+import type { demoApi } from "./demo-client";
+import { isDemoMode, apiBaseUrl } from "../config/runtime";
+import { requestJson } from "./transport";
+import { authenticatedRequest } from "./authenticated-request";
+import { withPendingSave } from "./pending-save-runtime";
+export { ApiError } from "./transport";
+export { apiBaseUrl };
+import { mutationHeaders, type MutationOptions } from "./mutation-options";
 
-export const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
-
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string,
-  ) {
-    super(message);
-  }
-}
-
-async function request<T>(
-  path: string,
-  options: RequestInit & { token?: string } = {},
-): Promise<T> {
-  const headers = new Headers(options.headers);
-  headers.set("Accept", "application/json");
-  if (options.body) headers.set("Content-Type", "application/json");
-  if (options.token) headers.set("Authorization", "Bearer " + options.token);
-
-  try {
-    const response = await fetch(apiBaseUrl + path, { ...options, headers });
-    const payload = (await response.json()) as ApiSuccess<T> | ApiFailure;
-    if (!response.ok || !payload.ok) {
-      const failure = payload as ApiFailure;
-      throw new ApiError(failure.error.message, failure.error.code);
-    }
-    return payload.data;
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError(
-      "서버에 연결할 수 없습니다. API 주소와 실행 상태를 확인해 주세요.",
-      "NETWORK_ERROR",
-    );
-  }
-}
+const request = <T>(path: string, options?: RequestInit & { token?: string }) =>
+  authenticatedRequest<T>(path, options, (next) =>
+    withPendingSave(path, next, () => requestJson<T>(apiBaseUrl, path, next)),
+  );
 
 const liveApi = {
   register: (input: RegisterInput) =>
@@ -139,6 +114,7 @@ const liveApi = {
       kakao: boolean;
       naver: boolean;
       development: boolean;
+      emailRegistration: boolean;
     }>("/v1/auth/providers"),
   profile: (token: string) => request<UserProfile>("/v1/users/me/profile", { token }),
   updateProfile: (token: string, input: ProfileUpdateInput) =>
@@ -155,6 +131,8 @@ const liveApi = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
+  accountCapabilities: (token: string) =>
+    request<{ admin: boolean }>("/v1/account/capabilities", { token }),
   accountSessions: (token: string) => request<AccountSession[]>("/v1/account/sessions", { token }),
   revokeAccountSession: (token: string, sessionId: string) =>
     request<{ revoked: true }>(`/v1/account/sessions/${sessionId}`, {
@@ -230,10 +208,16 @@ const liveApi = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
-  createPost: (token: string, input: PostCreateInput, _previewMediaUri?: string) =>
+  createPost: (
+    token: string,
+    input: PostCreateInput,
+    _previewMediaUri?: string,
+    operation?: MutationOptions,
+  ) =>
     request<FeedPost>("/v1/posts", {
       token,
       method: "POST",
+      headers: mutationHeaders(operation),
       body: JSON.stringify(input),
     }),
   sharingCrews: (token: string) =>
@@ -269,10 +253,15 @@ const liveApi = {
       body: JSON.stringify({ recipientIds }),
     }),
   workouts: (token: string) => request<WorkoutSession[]>("/v1/workout-sessions/me", { token }),
-  createWorkoutSession: (token: string, input: WorkoutSessionCreateInput) =>
+  createWorkoutSession: (
+    token: string,
+    input: WorkoutSessionCreateInput,
+    operation?: MutationOptions,
+  ) =>
     request<WorkoutSession>("/v1/workout-sessions", {
       token,
       method: "POST",
+      headers: mutationHeaders(operation),
       body: JSON.stringify(input),
     }),
   updateWorkoutSession: (token: string, workoutId: string, input: WorkoutSessionUpdateInput) =>
@@ -286,6 +275,11 @@ const liveApi = {
       token,
       method: "DELETE",
     }),
+  league: (token: string, input: LeagueQuery) => {
+    const query = new URLSearchParams({ mode: input.mode, period: input.period });
+    if (input.regionKey) query.set("regionKey", input.regionKey);
+    return request<LeagueSnapshot>(`/v1/league?${query}`, { token });
+  },
   myPosts: (token: string) => request<FeedPost[]>("/v1/posts/me", { token }),
   archivedPosts: (token: string) => request<FeedPost[]>("/v1/posts/me/archive", { token }),
   updatePost: (token: string, postId: string, input: PostUpdateInput) =>
@@ -389,8 +383,8 @@ const liveApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
-  messages: (token: string, userId: string) =>
-    request<DirectMessage[]>(`/v1/messages/${userId}`, { token }),
+  messages: (token: string, userId: string, signal?: AbortSignal) =>
+    request<DirectMessage[]>(`/v1/messages/${userId}`, { token, ...(signal ? { signal } : {}) }),
   sendMessage: (token: string, userId: string, input: DirectMessageCreateInput) =>
     request<DirectMessage>(`/v1/messages/${userId}`, {
       token,
@@ -399,6 +393,15 @@ const liveApi = {
     }),
 };
 
-export const usePreviewApi = process.env.EXPO_PUBLIC_LOGIN_REQUIRED !== "true";
+export const usePreviewApi = isDemoMode;
 
-export const api = usePreviewApi ? demoApi : liveApi;
+// Dynamic import prevents demo seeding/storage writes in a live session.
+const lazyDemo = new Proxy({} as typeof demoApi, {
+  get:
+    (_target, key: keyof typeof demoApi) =>
+    (...args: unknown[]) =>
+      import("./demo-client").then((module) =>
+        Reflect.apply(module.demoApi[key], module.demoApi, args),
+      ),
+});
+export const api = usePreviewApi ? lazyDemo : liveApi;

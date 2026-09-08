@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
 import { MemoryStore } from "../src/infrastructure/memory-store.js";
+import { postWorkoutId } from "./post-fixture.js";
 
 const config: AppConfig = {
   nodeEnv: "test",
@@ -52,6 +53,7 @@ describe("GROOV API", () => {
     const post = (await store.createPost(owner.user.id, owner.user.displayName, {
       sport: "running",
       content: "오늘의 러닝",
+      workoutSessionId: await postWorkoutId(store, owner.user.id),
     }))!;
     return { app, owner, reader, post, url: `/v1/posts/${post.id}/comments` };
   }
@@ -282,14 +284,18 @@ describe("GROOV API", () => {
       url: "/v1/workout-sessions/me",
       headers: owner.headers,
     });
-    expect(own.json().data[0].routePoints).toEqual(routePoints);
+    expect(own.json().data.find((item: { id: string }) => item.id === id).routePoints).toEqual(
+      routePoints,
+    );
     const other = await app.inject({
       method: "GET",
       url: `/v1/users/${owner.user.id}/profile`,
       headers: reader.headers,
     });
     expect(other.statusCode).toBe(200);
-    expect(other.json().data.workouts[0]).not.toHaveProperty("routePoints");
+    expect(
+      other.json().data.workouts.find((item: { id: string }) => item.id === id),
+    ).not.toHaveProperty("routePoints");
     const edited = await app.inject({
       method: "PATCH",
       url: `/v1/workout-sessions/${id}`,
@@ -399,6 +405,7 @@ describe("GROOV API", () => {
     const another = (await store.createPost(owner.user.id, "owner", {
       sport: "running",
       content: "다른 게시물",
+      workoutSessionId: await postWorkoutId(store, owner.user.id),
     }))!;
     expect(
       (
@@ -881,7 +888,8 @@ describe("GROOV API", () => {
   });
 
   it("accepts reports, limits the moderation queue to admins, and delivers status notifications", async () => {
-    const app = await createApp({ config, store });
+    const adminUserIds: string[] = [];
+    const app = await createApp({ config: { ...config, adminUserIds }, store });
     const reporter = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
@@ -903,6 +911,7 @@ describe("GROOV API", () => {
     const reporterHeaders = {
       authorization: `Bearer ${reporter.json().data.accessToken as string}`,
     };
+    adminUserIds.push(admin.json().data.user.id);
     const adminHeaders = { authorization: `Bearer ${admin.json().data.accessToken as string}` };
     const created = await app.inject({
       method: "POST",
@@ -1119,7 +1128,7 @@ describe("GROOV API", () => {
       method: "POST",
       url: "/v1/posts",
       headers: { authorization: `Bearer ${token}` },
-      payload: { sport: "running", content: "#5K 오늘의 러닝 기록" },
+      payload: { sport: "running", content: "#5K 오늘의 러닝 기록", workoutSessionId: workoutId },
     });
     const postId = post.json().data.id as string;
     const shared = await app.inject({
@@ -1228,7 +1237,11 @@ describe("GROOV API", () => {
       method: "POST",
       url: "/v1/posts",
       headers: { authorization: `Bearer ${authorToken}` },
-      payload: { sport: "running", content: "차단 전 게시물" },
+      payload: {
+        sport: "running",
+        content: "차단 전 게시물",
+        workoutSessionId: await postWorkoutId(store, authorId),
+      },
     });
     await app.inject({
       method: "POST",
@@ -1267,6 +1280,7 @@ describe("GROOV API", () => {
     const post = await store.createPost(sender!.user.id, "sender", {
       sport: "cycling",
       content: "오늘의 라이딩을 공유합니다.",
+      workoutSessionId: await postWorkoutId(store, sender!.user.id, "cycling"),
     });
     if (!post) throw new Error("Expected shared post fixture");
     const endpoint = `/v1/posts/${post.id}/share`;
@@ -1397,7 +1411,11 @@ describe("GROOV API", () => {
       method: "POST",
       url: "/v1/posts",
       headers,
-      payload: { sport: "running", content: "프로필 사진 연동 테스트" },
+      payload: {
+        sport: "running",
+        content: "프로필 사진 연동 테스트",
+        workoutSessionId: await postWorkoutId(store, registration.json().data.user.id),
+      },
     });
     const postId = post.json().data.id as string;
     await app.inject({
@@ -1449,7 +1467,7 @@ describe("GROOV API", () => {
     expect(response.statusCode).toBe(404);
     expect(response.json()).toMatchObject({
       ok: false,
-      error: { code: "WORKOUT_NOT_FOUND" },
+      error: { code: "POST_INPUT_NOT_CREATED" },
     });
     await app.close();
   });

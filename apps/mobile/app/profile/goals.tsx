@@ -1,7 +1,8 @@
 import { sportLabels } from "@moveall/contracts";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useAuth } from "../../src/auth/auth-context";
 import { CenterDialog, Screen } from "../../src/components/ui";
 import {
   markRecordGoalAchieved,
@@ -14,6 +15,11 @@ import { useAppTheme } from "../../src/theme-context";
 
 export default function GoalsScreen() {
   const router = useRouter();
+  const { session } = useAuth();
+  const owner = session?.user.id;
+  const activeOwner = useRef(owner);
+  activeOwner.current = owner;
+  const [busy, setBusy] = useState(false);
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [goals, setGoals] = useState<RecordGoal[]>([]);
@@ -22,10 +28,42 @@ export default function GoalsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setGoals(readRecordGoals());
-    }, []),
+      let active = true;
+      setGoals([]);
+      setPendingDeleteGoal(null);
+      setFeedback(null);
+      if (owner)
+        void readRecordGoals(owner)
+          .then((items) => {
+            if (active) setGoals(items);
+          })
+          .catch(() => {
+            if (active) setFeedback("목표를 불러오지 못했습니다.");
+          });
+      return () => {
+        active = false;
+      };
+    }, [owner]),
   );
 
+  async function mutate(change: () => Promise<RecordGoal[]>, message: string) {
+    if (!owner || busy) return;
+    setBusy(true);
+    try {
+      const items = await change();
+      if (activeOwner.current !== owner) return;
+      setGoals(items);
+      setPendingDeleteGoal(null);
+      setFeedback(message);
+    } catch {
+      if (activeOwner.current === owner) {
+        setPendingDeleteGoal(null);
+        setFeedback("저장하지 못했습니다. 다시 시도해 주세요.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <Screen title="나만의 목표" action={<Text style={styles.privateBadge}>PRIVATE</Text>}>
       <CenterDialog
@@ -40,10 +78,11 @@ export default function GoalsScreen() {
         onClose={() => setPendingDeleteGoal(null)}
         onConfirm={() => {
           if (!pendingDeleteGoal) return;
-          removeRecordGoal(pendingDeleteGoal.id);
-          setGoals(readRecordGoals());
-          setPendingDeleteGoal(null);
-          setFeedback("목표를 제거했습니다.");
+          if (owner)
+            void mutate(
+              () => removeRecordGoal(owner, pendingDeleteGoal.id),
+              "목표를 제거했습니다.",
+            );
         }}
         title="이 목표를 제거할까요?"
         visible={pendingDeleteGoal !== null}
@@ -75,11 +114,13 @@ export default function GoalsScreen() {
           {goal.target ? <Text style={styles.target}>달성 기준 · {goal.target.label}</Text> : null}
           <View style={styles.actions}>
             <Pressable
-              disabled={goal.achieved}
+              disabled={goal.achieved || busy}
               onPress={() => {
-                markRecordGoalAchieved(goal.id);
-                setGoals(readRecordGoals());
-                setFeedback("목표를 달성으로 표시했습니다.");
+                if (owner)
+                  void mutate(
+                    () => markRecordGoalAchieved(owner, goal.id),
+                    "목표를 달성으로 표시했습니다.",
+                  );
               }}
               style={[styles.primary, goal.achieved && styles.primaryDone]}
             >

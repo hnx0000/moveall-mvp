@@ -60,6 +60,18 @@ function neighborhoodFromAddress(address?: Location.LocationGeocodedAddress) {
   );
 }
 
+function districtFromAddress(address?: Location.LocationGeocodedAddress) {
+  return address?.district ?? address?.subregion ?? address?.city ?? undefined;
+}
+
+function regionCodeFromAddress(address?: Location.LocationGeocodedAddress) {
+  if (!address) return undefined;
+  const parts = [address.isoCountryCode, address.region, address.city, districtFromAddress(address)]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => value.trim().normalize("NFKC").toLocaleLowerCase("ko-KR"));
+  return parts.length >= 2 ? [...new Set(parts)].join(":") : undefined;
+}
+
 export default function OnboardingScreen() {
   return <OnboardingFlow />;
 }
@@ -134,9 +146,13 @@ export function OnboardingFlow({ preview = false }: { preview?: boolean }) {
         accuracy: Location.Accuracy.Balanced,
       });
       const addresses = await Location.reverseGeocodeAsync(position.coords);
+      const address = addresses[0];
       const verifiedAt = new Date().toISOString();
       const next = {
-        neighborhood: neighborhoodFromAddress(addresses[0]),
+        neighborhood: neighborhoodFromAddress(address),
+        ...(districtFromAddress(address) ? { district: districtFromAddress(address) } : {}),
+        ...(address?.region ? { province: address.region } : {}),
+        ...(regionCodeFromAddress(address) ? { regionCode: regionCodeFromAddress(address) } : {}),
         // 동네 확인에 필요한 수준으로만 좌표를 줄여 정확한 위치 저장을 피합니다.
         latitude: Number(position.coords.latitude.toFixed(2)),
         longitude: Number(position.coords.longitude.toFixed(2)),

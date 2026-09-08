@@ -33,6 +33,16 @@ const EnvironmentSchema = z
     KAKAO_CLIENT_SECRET: z.string().min(1).optional(),
     NAVER_CLIENT_ID: z.string().min(1).optional(),
     NAVER_CLIENT_SECRET: z.string().min(1).optional(),
+    ADMIN_USER_IDS: z
+      .string()
+      .default("")
+      .transform((value) =>
+        value
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean),
+      )
+      .pipe(z.array(z.uuid())),
     ADMIN_EMAILS: z
       .string()
       .default("")
@@ -140,6 +150,8 @@ export type AppConfig = {
   kakaoClientSecret?: string;
   naverClientId?: string;
   naverClientSecret?: string;
+  /** Server-managed immutable account IDs; emails are never authorization. */
+  adminUserIds?: string[];
   adminEmails: string[];
   devAuthBypass: boolean;
   mediaStorage: "disabled" | "supabase";
@@ -179,10 +191,9 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     ...(parsed.data.NAVER_CLIENT_SECRET
       ? { naverClientSecret: parsed.data.NAVER_CLIENT_SECRET }
       : {}),
+    adminUserIds: parsed.data.ADMIN_USER_IDS,
     adminEmails: parsed.data.ADMIN_EMAILS,
-    devAuthBypass:
-      parsed.data.NODE_ENV === "development" &&
-      (environment.DEV_AUTH_BYPASS === undefined || parsed.data.DEV_AUTH_BYPASS),
+    devAuthBypass: parsed.data.NODE_ENV === "development" && parsed.data.DEV_AUTH_BYPASS,
     mediaStorage: parsed.data.MEDIA_STORAGE,
     ...(parsed.data.SUPABASE_URL ? { supabaseUrl: parsed.data.SUPABASE_URL } : {}),
     ...(parsed.data.SUPABASE_SERVICE_ROLE_KEY

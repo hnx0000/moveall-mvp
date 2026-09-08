@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { demoPostWorkout } from "./post-fixture.mjs";
 
 test("successful shares, suggestions, messages and likes survive preview reload", async () => {
   const previous = globalThis.localStorage;
@@ -12,11 +13,20 @@ test("successful shares, suggestions, messages and likes survive preview reload"
     const { demoApi } = await import("../src/api/demo-client.ts?share-history-first");
     const people = [...new Set((await demoApi.feed()).map((post) => post.userId))].slice(0, 5);
     for (const person of people) await demoApi.follow("demo", person);
-    const first = await demoApi.createPost("demo", { sport: "running", content: "공유 테스트" });
+    const workout = await demoPostWorkout(demoApi);
+    const first = await demoApi.createPost("demo", {
+      sport: "running",
+      content: "공유 테스트",
+      workoutSessionId: workout.id,
+    });
     const result = await demoApi.sharePost("demo", first.id, people);
     assert.equal(result.recipientCount, 5);
     assert.equal((await demoApi.sharePost("demo", first.id, people)).recipientCount, 0);
-    const second = await demoApi.createPost("demo", { sport: "running", content: "다음 공유" });
+    const second = await demoApi.createPost("demo", {
+      sport: "running",
+      content: "다음 공유",
+      workoutSessionId: workout.id,
+    });
     await demoApi.sharePost("demo", second.id, [people[4]]);
     const otherPost = (await demoApi.feed()).find((post) => people.includes(post.userId));
     const count = otherPost.likeCount;

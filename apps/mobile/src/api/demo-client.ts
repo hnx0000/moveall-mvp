@@ -1,6 +1,14 @@
 import {
+  POST_CONTENT_REQUIRED_MESSAGE,
+  characters,
+  characterUserId,
+  createCharacterFeedPosts,
+  mergeCharacterFeedPosts,
   audienceAllows,
+  calculateLeaguePoints,
+  currentLeagueSeason,
   firstUsagePurposeResponse,
+  leagueRange,
   summarizeUsagePurposes,
   type UsagePurposeCohort,
   storyIsActive,
@@ -36,6 +44,8 @@ import {
   type KnowledgeArticle,
   type KnowledgeFeedback,
   type KnowledgeFeedbackCreateInput,
+  type LeagueQuery,
+  type LeagueSnapshot,
   type LoginInput,
   type Medal,
   type MediaUploadRequestInput,
@@ -438,6 +448,17 @@ const demoMemberDirectory: Record<
     followingCount: number;
   }
 > = {
+  ...Object.fromEntries(
+    characters.map((character) => [
+      characterUserId(character.id),
+      {
+        displayName: character.name,
+        isPrivate: false,
+        followersCount: 0,
+        followingCount: 0,
+      },
+    ]),
+  ),
   "demo-friend-1": {
     displayName: "새벽러너 민지",
     isPrivate: false,
@@ -727,7 +748,17 @@ for (const post of posts) {
     });
   }
 }
+// Install this collection once. Later reloads respect deleted/archived demo content.
+const characterSeedKey = "groov-demo-character-collection-v1";
+if (!readStored<boolean>(characterSeedKey, false)) {
+  posts.splice(
+    0,
+    posts.length,
+    ...mergeCharacterFeedPosts(posts, archived, createCharacterFeedPosts(now)),
+  );
+}
 persistDemoFeed();
+globalThis.localStorage?.setItem(characterSeedKey, JSON.stringify(true));
 const messages: DirectMessage[] = readStored("groov-demo-messages-v1", []);
 const demoReports: ContentReport[] = [];
 const demoNotifications: (UserNotification & { userId?: string })[] = readStored(
@@ -757,6 +788,172 @@ let demoOnboarding = readStored<OnboardingProfile | null>("groov-demo-onboarding
 let activeSession: AuthSession = sessionFor("mvp@groov.demo", "MVP 점검자");
 let activeConsent: ConsentState | null = null;
 
+const demoLeagueMembers = [
+  { userId: "demo-friend-1", regionKey: "kr:seoul:dobong", regionName: "도봉구", province: "서울" },
+  { userId: "demo-friend-2", regionKey: "kr:seoul:dobong", regionName: "도봉구", province: "서울" },
+  {
+    userId: "demo-friend-3",
+    regionKey: "kr:seoul:gangnam",
+    regionName: "강남구",
+    province: "서울",
+  },
+  {
+    userId: "demo-friend-4",
+    regionKey: "kr:seoul:gangnam",
+    regionName: "강남구",
+    province: "서울",
+  },
+  {
+    userId: "demo-friend-private",
+    regionKey: "kr:seoul:gangnam",
+    regionName: "강남구",
+    province: "서울",
+  },
+  { userId: "demo-friend-6", regionKey: "kr:seoul:mapo", regionName: "마포구", province: "서울" },
+  { userId: "demo-friend-7", regionKey: "kr:seoul:mapo", regionName: "마포구", province: "서울" },
+  { userId: "demo-friend-8", regionKey: "kr:seoul:songpa", regionName: "송파구", province: "서울" },
+] as const;
+
+function previewLeagueSnapshot(query: LeagueQuery): LeagueSnapshot {
+  const generatedAt = new Date();
+  const range = leagueRange(query.period, generatedAt);
+  const rangeStart = Date.parse(range.startAt);
+  const rangeEnd = Date.parse(range.endAt);
+  const viewerNeighborhood = demoOnboarding?.neighborhood;
+  const viewerRegionKey = viewerNeighborhood
+    ? (
+        viewerNeighborhood.regionCode ??
+        `${viewerNeighborhood.district ?? viewerNeighborhood.neighborhood}@${viewerNeighborhood.latitude.toFixed(1)},${viewerNeighborhood.longitude.toFixed(1)}`
+      )
+        .normalize("NFKC")
+        .toLocaleLowerCase("ko-KR")
+    : null;
+  const viewerRegionName = viewerNeighborhood
+    ? (viewerNeighborhood.district ?? viewerNeighborhood.neighborhood)
+    : null;
+  const members = [
+    ...demoLeagueMembers.map((member) => ({
+      ...member,
+      displayName: demoMemberDirectory[member.userId]?.displayName ?? "GROOV 멤버",
+      workouts: demoMemberWorkouts[member.userId] ?? [],
+    })),
+    ...(viewerRegionKey && viewerRegionName
+      ? [
+          {
+            userId: activeSession.user.id,
+            displayName: activeSession.user.displayName,
+            regionKey: viewerRegionKey,
+            regionName: viewerRegionName,
+            province: viewerNeighborhood?.province ?? null,
+            workouts,
+          },
+        ]
+      : []),
+  ];
+  const matchesQuery = (workout: WorkoutSession) =>
+    Date.parse(workout.startedAt) >= rangeStart &&
+    Date.parse(workout.startedAt) < rangeEnd &&
+    (query.mode === "activity" || workout.sport === query.mode);
+  const regions = [...new Set(members.map((member) => member.regionKey))].map((regionKey) => {
+    const regionMembers = members.filter((member) => member.regionKey === regionKey);
+    const players = regionMembers
+      .map((member) => {
+        const matchingWorkouts = member.workouts.filter(matchesQuery);
+        return {
+          userId: member.userId,
+          displayName: member.displayName,
+          rank: 0,
+          points: matchingWorkouts.reduce(
+            (total, workout) => total + calculateLeaguePoints(workout),
+            0,
+          ),
+          activityCount: matchingWorkouts.length,
+          mine: member.userId === activeSession.user.id,
+        };
+      })
+      .filter((player) => player.points > 0)
+      .sort((left, right) => right.points - left.points || left.userId.localeCompare(right.userId))
+      .map((player, index) => ({ ...player, rank: index + 1 }));
+    const activeMemberCount = regionMembers.filter((member) =>
+      member.workouts.some(matchesQuery),
+    ).length;
+    return {
+      regionKey,
+      regionName: regionMembers[0]?.regionName ?? "확인되지 않은 지역",
+      province: regionMembers[0]?.province ?? null,
+      rank: 0,
+      points: players.reduce((total, player) => total + player.points, 0),
+      activityCount: players.reduce((total, player) => total + player.activityCount, 0),
+      memberCount: regionMembers.length,
+      activeMemberCount,
+      participantCount: players.length,
+      participationRate:
+        regionMembers.length > 0
+          ? Math.round((players.length / regionMembers.length) * 1_000) / 10
+          : 0,
+      leader: players[0] ?? null,
+      players,
+    };
+  });
+  regions.sort(
+    (left, right) =>
+      right.points - left.points ||
+      right.participantCount - left.participantCount ||
+      left.regionKey.localeCompare(right.regionKey),
+  );
+  regions.forEach((region, index) => {
+    region.rank = index + 1;
+  });
+  const targetRegionKey = query.regionKey ?? viewerRegionKey;
+  const selected = regions.find((region) => region.regionKey === targetRegionKey) ?? null;
+  const viewerPlayer = regions
+    .find((region) => region.regionKey === viewerRegionKey)
+    ?.players.find((player) => player.mine);
+  const verifiedAt = viewerNeighborhood ? Date.parse(viewerNeighborhood.verifiedAt) : 0;
+  const verification = !viewerNeighborhood
+    ? ("missing" as const)
+    : Number.isFinite(verifiedAt) &&
+        verifiedAt <= generatedAt.getTime() + 5 * 60 * 1000 &&
+        generatedAt.getTime() - verifiedAt < 30 * 24 * 60 * 60 * 1000
+      ? ("verified" as const)
+      : ("expired" as const);
+  return {
+    query,
+    season: currentLeagueSeason(generatedAt),
+    range,
+    generatedAt: generatedAt.toISOString(),
+    revision: `${workouts.length}-${workouts[0]?.id ?? "none"}-${selected?.points ?? 0}`,
+    viewer: {
+      verification,
+      regionKey: viewerRegionKey,
+      regionName: viewerRegionName,
+      verificationExpiresAt: viewerNeighborhood
+        ? new Date(verifiedAt + 30 * 24 * 60 * 60 * 1000).toISOString()
+        : null,
+      rank: viewerPlayer?.rank ?? null,
+      points: viewerPlayer?.points ?? 0,
+      activityCount: viewerPlayer?.activityCount ?? 0,
+    },
+    region: selected
+      ? {
+          regionKey: selected.regionKey,
+          regionName: selected.regionName,
+          province: selected.province,
+          rank: selected.rank,
+          points: selected.points,
+          activityCount: selected.activityCount,
+          memberCount: selected.memberCount,
+          activeMemberCount: selected.activeMemberCount,
+          participantCount: selected.participantCount,
+          participationRate: selected.participationRate,
+          leader: selected.leader,
+        }
+      : null,
+    regions: regions.map(({ players: _players, ...region }) => region),
+    players: selected?.players ?? [],
+  };
+}
+
 export const demoApi = {
   register: async (input: RegisterInput) => {
     activeSession = sessionFor(input.email, input.displayName);
@@ -780,6 +977,7 @@ export const demoApi = {
   logout: async (_token: string) => ({ loggedOut: true as const }),
   me: async (_token: string) => activeSession.user,
   authProviders: async () => ({
+    emailRegistration: true,
     google: true,
     apple: true,
     kakao: true,
@@ -817,6 +1015,7 @@ export const demoApi = {
     persistDemoOnboarding();
     return demoOnboarding;
   },
+  accountCapabilities: async () => ({ admin: false }),
   accountSessions: async (_token: string): Promise<AccountSession[]> => [
     {
       id: "demo-session",
@@ -943,6 +1142,20 @@ export const demoApi = {
     return crew;
   },
   createPost: async (_token: string, input: PostCreateInput, previewMediaUri?: string) => {
+    const ownWorkout = input.workoutSessionId
+      ? workouts.find(
+          (item) => item.id === input.workoutSessionId && item.userId === activeSession.user.id,
+        )
+      : undefined;
+    if (input.workoutSessionId && !ownWorkout)
+      throw Object.assign(new Error("본인의 저장된 운동 기록을 다시 선택해 주세요."), {
+        code: "POST_INPUT_NOT_CREATED",
+      });
+    // Preview media is stored locally, so a made-up live mediaId is not a usable attachment here.
+    if (input.contentType !== "story" && !previewMediaUri?.trim() && !ownWorkout)
+      throw Object.assign(new Error(POST_CONTENT_REQUIRED_MESSAGE), {
+        code: "POST_INPUT_NOT_CREATED",
+      });
     const item: FeedPost = {
       id: makeId("post"),
       userId: activeSession.user.id,
@@ -1134,6 +1347,7 @@ export const demoApi = {
     persistDemoState();
     return { deleted: true as const };
   },
+  league: async (_token: string, query: LeagueQuery) => previewLeagueSnapshot(query),
   myPosts: async (_token: string) => {
     await hydratePreviewImages(posts);
     return posts
