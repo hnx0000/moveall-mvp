@@ -15,6 +15,7 @@ import { PushRegistration } from "../src/features/notifications/push-registratio
 import { HealthAutoSync } from "../src/features/wearables/health-auto-sync";
 import { PendingSaveRecovery } from "../src/components/pending-save-recovery";
 import { ThemeProvider, useAppTheme } from "../src/theme-context";
+import { isDemoMode } from "../src/config/runtime";
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -64,7 +65,8 @@ function SessionGate() {
   // map-connect has explicit, read-only session and origin checks of its own.
   const onLocalMapConnect = (segments[0] as string) === "map-connect";
   const bypassSessionGate = onOnboardingPreview || onIsolatedLab || onLocalMapConnect;
-  const onboardingComplete = Boolean(onboarding?.completedAt);
+  // Preview navigation must not fabricate survey answers or verified neighborhoods.
+  const onboardingComplete = isDemoMode || Boolean(onboarding?.completedAt);
 
   useEffect(() => {
     if (bypassSessionGate || !navigationState?.key || restoring || (session && onboardingLoading))

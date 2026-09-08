@@ -34,8 +34,15 @@ const demoMode = isDemoMode;
 export default function LoginScreen() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const { login, register, loginWithApple, loginWithGoogle, loginWithKakao, loginWithNaver } =
-    useAuth();
+  const {
+    login,
+    register,
+    enterDemo,
+    loginWithApple,
+    loginWithGoogle,
+    loginWithKakao,
+    loginWithNaver,
+  } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [emailRegistration, setEmailRegistration] = useState(false);
@@ -55,6 +62,17 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const startDemo = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await enterDemo();
+    } catch {
+      setError("개발용 화면을 열지 못했습니다. 새로고침 후 다시 시도해 주세요.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
   const configuredClientId = Platform.select({
     ios: iosClientId,
     android: androidClientId,
@@ -226,6 +244,33 @@ export default function LoginScreen() {
           <Text style={styles.brand}>GROOV</Text>
           <Text style={styles.edition}>GROOV 2.0</Text>
         </View>
+
+        {demoMode ? (
+          <View style={styles.demoEntry}>
+            <Text style={styles.demoHeading}>개발·검토용 미리보기</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="개발용 앱 들어가기"
+              disabled={submitting}
+              onPress={() => void startDemo()}
+              style={[styles.emailButton, submitting && styles.buttonDisabled]}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.emailButtonText}>개발용 앱 들어가기</Text>
+              )}
+            </Pressable>
+            <Text style={styles.demoCaption}>
+              실제 계정·운영 데이터와 분리된 데모입니다. 관리자 권한을 부여하지 않습니다.
+            </Text>
+            {error ? (
+              <Text accessibilityRole="alert" style={styles.error}>
+                {error}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={styles.hero}>
           <Text style={styles.kicker}>YOUR MOVE, YOUR GROOV.</Text>
@@ -400,15 +445,6 @@ export default function LoginScreen() {
               </Text>
             )}
           </Pressable>
-          {demoMode ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => void loginWithGoogle("demo-id-token-".padEnd(120, "x"))}
-              style={styles.demoButton}
-            >
-              <Text style={styles.demoButtonText}>MVP 화면 미리보기</Text>
-            </Pressable>
-          ) : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <View style={styles.legalBlock}>
             <Text style={styles.legal}>계속하면 GROOV의 필수 정책에 동의합니다.</Text>
@@ -561,8 +597,16 @@ function createStyles(colors: ThemeColors) {
     },
     emailButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
     error: { color: colors.primary, fontSize: 11, lineHeight: 17, fontWeight: "700" },
-    demoButton: { minHeight: 42, alignItems: "center", justifyContent: "center" },
-    demoButtonText: { color: colors.muted, fontSize: 9, fontWeight: "800" },
+    demoEntry: {
+      gap: 12,
+      padding: 18,
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderWidth: 1,
+    },
+    demoHeading: { color: colors.ink, fontSize: 16, fontWeight: "800" },
+    demoCaption: { color: colors.muted, fontSize: 12, lineHeight: 19 },
     legalBlock: { gap: 7, marginTop: 4 },
     legal: { color: colors.muted, fontSize: 8, lineHeight: 14 },
     legalLinks: { flexDirection: "row", gap: 14 },

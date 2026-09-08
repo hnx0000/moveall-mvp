@@ -25,6 +25,7 @@ import { registerAuthBridge } from "../api/authenticated-request";
 import { isOnboardingPending } from "./onboarding-readiness";
 import { createSessionRefresher } from "./session-refresh";
 import { retireSession } from "./session-handoff";
+import { restoreAuthSession } from "./session-bootstrap";
 import { setHealthSyncAccount } from "../features/wearables/health-sync";
 import { setNotificationIdentity } from "../features/notifications/push-lifecycle";
 import {
@@ -37,7 +38,6 @@ import { authStorageKey as storageKey, isDemoMode } from "../config/runtime";
 const sessionRefresher = createSessionRefresher((refreshToken: string) =>
   api.refreshSession({ refreshToken }),
 );
-const authenticationBypass = isDemoMode;
 
 type AuthContextValue = {
   session: AuthSession | null;
@@ -46,6 +46,7 @@ type AuthContextValue = {
   onboarding: OnboardingProfile | null;
   onboardingLoading: boolean;
   login(input: LoginInput): Promise<void>;
+  enterDemo(): Promise<void>;
   register(input: RegisterInput): Promise<void>;
   loginWithGoogle(idToken: string): Promise<void>;
   loginWithApple(input: AppleLoginInput): Promise<void>;
@@ -117,7 +118,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setSession(nextSession);
     const write = writeQueueRef.current
       .catch(() => undefined)
-      .then(() => writeSession(nextSession));
+      .then(() => writeSession(nextSession))
+      .catch((error) => {
+        // Demo use can continue in memory when the browser blocks/full storage.
+        // Live session persistence still reports the failure.
+        if (!isDemoMode) throw error;
+      });
     writeQueueRef.current = write;
     await write;
   }, []);
@@ -181,36 +187,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     let active = true;
     const intent = ++authIntentRef.current;
-    void readSession()
-      .then(async (storedSession) => {
-        if (!active || intent !== authIntentRef.current) return null;
-        if (storedSession) {
-          let recoverableSession = storedSession;
-          try {
-            const shouldRefresh =
-              Date.parse(storedSession.accessTokenExpiresAt) <= Date.now() + 60_000;
-            const refreshedSession = shouldRefresh
-              ? await sessionRefresher.refresh(storedSession.refreshToken)
-              : storedSession;
-            recoverableSession = refreshedSession;
-            const user = await api.me(refreshedSession.accessToken);
-            const verifiedSession = { ...refreshedSession, user };
-            return verifiedSession;
-          } catch (error) {
-            if (!isTerminalAuthFailure(error)) return recoverableSession;
-            return null;
-          }
-        }
-
-        if (!authenticationBypass) return null;
-
-        try {
-          const developmentSession = await api.devLogin();
-          return developmentSession;
-        } catch {
-          return null;
-        }
-      })
+    void restoreAuthSession({
+      demoMode: isDemoMode,
+      read: readSession,
+      refresh: sessionRefresher.refresh,
+      me: api.me,
+      demoLogin: api.devLogin,
+      isCurrent: () => active && intent === authIntentRef.current,
+    })
       .then(async (restored) => {
         if (active && intent === authIntentRef.current) await persist(restored);
       })
@@ -293,6 +277,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       onboarding,
       onboardingLoading: awaitingOnboarding,
       login: async (input) => authenticate(() => api.login(input)),
+      enterDemo: async () => {
+        if (!isDemoMode) throw new Error("운영 앱에서는 실제 계정으로 로그인해 주세요.");
+        await authenticate(() => api.devLogin());
+      },
       register: async (input) => authenticate(() => api.register(input)),
       loginWithGoogle: async (idToken) => authenticate(() => api.googleLogin({ idToken })),
       loginWithApple: async (input) => authenticate(() => api.appleLogin(input)),

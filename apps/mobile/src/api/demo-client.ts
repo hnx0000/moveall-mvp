@@ -758,7 +758,11 @@ if (!readStored<boolean>(characterSeedKey, false)) {
   );
 }
 persistDemoFeed();
-globalThis.localStorage?.setItem(characterSeedKey, JSON.stringify(true));
+try {
+  globalThis.localStorage?.setItem(characterSeedKey, JSON.stringify(true));
+} catch {
+  // The optional seed marker must never prevent the demo module from loading.
+}
 const messages: DirectMessage[] = readStored("groov-demo-messages-v1", []);
 const demoReports: ContentReport[] = [];
 const demoNotifications: (UserNotification & { userId?: string })[] = readStored(
