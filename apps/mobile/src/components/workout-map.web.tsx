@@ -1,4 +1,4 @@
-import "leaflet/dist/leaflet.css";
+import "leaflet/dist/leaflet.css"; import { uiLayout } from "../theme";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { type Map as LeafletMap, type LayerGroup, type LeafletMouseEvent } from "leaflet";
@@ -274,7 +274,7 @@ function addEndpoint(
 const styles = StyleSheet.create({
   container: {
     height: 232,
-    borderRadius: 12,
+    borderRadius: uiLayout.panelRadius,
     overflow: "hidden",
     position: "relative",
   },
@@ -286,7 +286,7 @@ const styles = StyleSheet.create({
     top: 12,
     minHeight: 27,
     paddingHorizontal: 10,
-    borderRadius: 14,
+    borderRadius: uiLayout.controlRadius,
     backgroundColor: "rgba(16,16,17,0.88)",
     flexDirection: "row",
     alignItems: "center",

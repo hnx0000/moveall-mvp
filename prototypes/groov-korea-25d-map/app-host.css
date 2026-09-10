@@ -1,4 +1,14 @@
 /* App chrome and recorder remain owned by React Native, not by the map runtime. */
+.groov-map-credits {position:absolute;z-index:90;top:8px;right:8px;max-width:calc(100% - 16px);font:10px/1.4 sans-serif;color:#ccc;}
+.groov-map-credits button {width:24px;height:24px;border:1px solid #888;border-radius:50%;color:#ddd;background:#191d1bee;float:right;}
+.groov-map-credits div {clear:both;background:#191d1bf2;padding:6px 8px;border-radius:0;}
+.groov-map-credits a {color:inherit;}
+.groov-map-credits[data-open=false] div {display:none;}
+.groov-map-credits[data-open=true] {top:auto;bottom:3px;right:3px;}
+html[data-map-preview=false] .groov-map-credits {top:auto;bottom:3px;right:3px;}
+html[data-map-preview=false] .groov-map-credits div {display:block;}
+html[data-map-preview=false] .groov-map-credits button {display:none;}
+html[data-map-preview=true] .maplibregl-ctrl-attrib {display:none;}
 html[data-embedded] .season-lockup, html[data-embedded] #live-switch,
 html[data-embedded] .ranking-content > footer,
 html[data-embedded="course"] #detail-ranking,
@@ -26,3 +36,41 @@ html[data-embedded] .maplibregl-ctrl-attrib { font-size:9px; }
   html[data-embedded] .detail-top-controls {top:52px;}
 }
 html[data-embedded] .detail-shell[data-mobile-keyboard=true] .detail-top-controls {top:8px;}
+
+/* Match the app's angular charcoal surfaces; preserve logos, pins and hit areas. */
+html[data-embedded] {
+  --app-panel-radius: 0px;
+  --app-control-radius: 0px;
+}
+html[data-embedded] :is(.saved-places-dialog,.saved-place-composer,.saved-place-item,.course-planner,.explore-popover,.focus-card,.index-card,.selection-card,.area-search ul) {
+  border-radius: var(--app-panel-radius);
+  border-color: #303330;
+  background-color: #111312;
+}
+html[data-embedded] :is(.saved-places-dialog button,.saved-place-composer input,.course-quick-actions button,.course-pin-editor button,.course-auto input,.course-auto select,.place-search-form input,.place-search-form button,.national-link,.view-tabs,.view-tabs button,.map-zoom-stack) {
+  border-radius: var(--app-control-radius);
+}
+html[data-embedded] :is(.map-controls>button,.map-actions>button) {
+  border-radius: var(--app-control-radius);
+}
+html[data-embedded] .selection-image { border-radius: 0; }
+
+/* Mobile sheets and higher-specificity map rules must follow the same theme.
+   Pin artwork, position dots, the GROOV lockup and attribution icon are excluded. */
+html[data-embedded] :is(
+  .course-planner,.explore-popover,.place-search-form,.area-search>p,.area-search>details,
+  .course-pin-editor,.run-card,.area-card,.detail-ranking,.detail-ranking li.is-selected,
+  .rank-toggle,.ranking-toggle,.ranking-panel,.heat-tag,.heat-legend,.detail-toast,.toast,
+  .dna-dialog,.asset-tile,.terrain-status,.verified-neighborhood,.mobile-map-dock,
+  .map-controls,.zoom-control,.map-zoom-stack,.view-tabs,.saved-places-dialog,
+  .saved-place-composer,.saved-place-item,[data-mobile-sheet][data-mobile-open=true]
+) { border-radius: 0 !important; }
+html[data-embedded] :is(
+  .course-planner button,.course-planner input,.course-planner select,
+  .explore-popover button,.explore-popover input,.saved-places-dialog button,
+  .saved-places-dialog input,.mobile-map-dock button,.mobile-map-core button,
+  .mobile-shortcuts>button,.map-controls>button,.map-actions>button,
+  .zoom-control>button,.view-tabs button,.region-button,.street-atlas-link,
+  .national-link,.header-search-toggle,.hud-button,.primary-button,.secondary-button,
+  .selection-card>button,.dna-head button,.place-results .search-more
+) { border-radius: 0 !important; }

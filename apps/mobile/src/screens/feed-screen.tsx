@@ -6,14 +6,14 @@ import {
 } from "@moveall/contracts";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { Bookmark, Heart, MessageCircle, Plus } from "lucide-react-native";
+import { Bookmark, Ellipsis, Heart, MessageCircle, Plus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Image,
   ImageBackground,
   Modal,
   PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -42,6 +42,7 @@ import seoaStory02 from "../../assets/images/people/seoa/story-02.jpg";
 import taeoStory01 from "../../assets/images/people/taeo/story-01.jpg";
 import yunaStory01 from "../../assets/images/people/yuna/story-01.jpg";
 import { api, usePreviewApi } from "../../src/api/client";
+import { demoSocialName } from "../api/demo-social-identity";
 import { TapShareSheet } from "../components/tap-share-sheet";
 import { UnfollowDialog } from "../components/unfollow-dialog";
 import { PostComments } from "../components/post-comments";
@@ -61,6 +62,7 @@ import { RouteTrace } from "../../src/components/route-trace";
 import { TapShareIcon } from "../../src/components/tap-icons";
 import { saveRecordGoal } from "../../src/goals";
 import { useAsyncData } from "../../src/hooks/use-async-data";
+import { useStoryViews } from "../hooks/use-story-views";
 import { PostArtwork } from "../components/post-artwork";
 import { FeedLikeSurface } from "../components/feed-like-surface";
 import {
@@ -68,7 +70,7 @@ import {
   hasFeedVisual,
   rankHomeFeed,
 } from "../components/feed-ranking";
-import { fonts, gradients, radius, space, type ThemeColors } from "../../src/theme";
+import { uiLayout, fonts, gradients, radius, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
 type DemoStory = {
@@ -522,7 +524,7 @@ export default function FeedScreen() {
           owners.some((entry) => entry.profileUserId === owner.profileUserId)
         )
           continue;
-        if (posts?.some((post) => post.userId === owner.profileUserId)) owners.push(owner);
+        if (posts?.some((post) => post.userId === owner.profileUserId)) owners.push({ ...owner, name: demoSocialName(owner.profileUserId, owner.name) });
       }
     }
     return owners;
@@ -567,6 +569,7 @@ export default function FeedScreen() {
     [],
   );
   const likeRequests = useRef(new Set<string>());
+  const [centerLikePulses, setCenterLikePulses] = useState<Record<string, number>>({});
   const [openComments, setOpenComments] = useState<string[]>([]);
   useEffect(() => {
     if (sharedPostId && params.comments === "1")
@@ -574,6 +577,11 @@ export default function FeedScreen() {
   }, [sharedPostId, params.comments]);
   const [bookmarkedPosts, setBookmarkedPosts] = useState<string[]>([]);
   const [deleteTargetPost, setDeleteTargetPost] = useState<FeedPost | null>(null);
+  const [menuPost, setMenuPost] = useState<FeedPost | null>(null);
+  const pendingMenuAction = useRef<(() => void) | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ targetType: "post" | "comment"; targetId: string } | null>(null);
+  const [reportBusy, setReportBusy] = useState(false);
+  const reportBusyRef = useRef(false);
   const [deletingPost, setDeletingPost] = useState(false);
   const deleteBusyRef = useRef(false);
   const [sharedCounts, setSharedCounts] = useState<Record<string, number>>({});
@@ -632,6 +640,10 @@ export default function FeedScreen() {
     [selectedStoryOwnerId, storyOwners],
   );
   const activeDemoStory = selectedStoryOwner?.stories[storyIndex] ?? null;
+  const viewedStories = useStoryViews(
+    `${usePreviewApi ? "demo" : "live"}:${session?.user.id ?? "guest"}`,
+    selectedStoryOwner && activeDemoStory ? `${selectedStoryOwner.id}:${activeDemoStory.id}` : null,
+  );
   const storyViewerMaxWidth = Math.min(420, Math.max(240, windowWidth - 28));
   const storyCanvasHeight = Math.max(
     0,
@@ -846,29 +858,30 @@ export default function FeedScreen() {
 
   function reportContent(targetType: "post" | "comment", targetId: string) {
     if (!session) return;
-    Alert.alert(
-      targetType === "post" ? "게시물을 신고할까요?" : "댓글을 신고할까요?",
-      "운영팀이 내용을 확인합니다. 반복 신고나 허위 신고는 제한될 수 있습니다.",
-      [
-        { text: "취소", style: "cancel" },
-        {
-          text: "신고",
-          onPress: () => {
-            void api
-              .createReport(session.accessToken, {
-                targetType,
-                targetId,
-                reason: "other",
-                details: "앱 내 피드에서 신고됨",
-              })
-              .then(() => setFeedNotice("신고를 접수했습니다. 운영팀이 확인할게요."))
-              .catch((caught) =>
-                setFeedNotice(caught instanceof Error ? caught.message : "신고하지 못했습니다."),
-              );
-          },
-        },
-      ],
-    );
+    setReportTarget({ targetType, targetId });
+  }
+
+  async function confirmReport() {
+    if (!session || !reportTarget || reportBusyRef.current) return;
+    reportBusyRef.current = true;
+    setReportBusy(true);
+    try {
+      await api.createReport(session.accessToken, { ...reportTarget, reason: "other", details: "앱 내 피드에서 신고됨" });
+      setReportTarget(null);
+      setFeedNotice("신고를 접수했습니다. 운영팀이 확인할게요.");
+    } catch (caught) {
+      setReportTarget(null);
+      setFeedNotice(caught instanceof Error ? caught.message : "신고하지 못했습니다.");
+    } finally {
+      reportBusyRef.current = false;
+      setReportBusy(false);
+    }
+  }
+
+  function closePostMenu(action?: () => void) {
+    setMenuPost(null);
+    if (action && Platform.OS === "ios") pendingMenuAction.current = action;
+    else action?.();
   }
 
   async function createGoal() {
@@ -925,8 +938,72 @@ export default function FeedScreen() {
       title=""
       onRefresh={refreshFeed}
       refreshing={refreshing}
-      action={<NotificationBell />}
+      action={
+        <View style={styles.feedHeaderActions}>
+          <NotificationBell />
+          {!sharedPostId ? (
+            <Pressable
+              accessibilityLabel={
+                feedLayout === "cards" ? "피드를 4열 목록으로 보기" : "피드를 카드로 보기"
+              }
+              accessibilityRole="button"
+              accessibilityState={{ selected: feedLayout === "grid" }}
+              onPress={() => setFeedLayout((current) => (current === "cards" ? "grid" : "cards"))}
+              style={styles.layoutToggle}
+            >
+              <View style={styles.gridMark}>
+                {[0, 1, 2, 3].map((square) => (
+                  <View
+                    key={square}
+                    style={[
+                      styles.gridMarkSquare,
+                      { borderColor: feedLayout === "grid" ? colors.primary : colors.ink },
+                    ]}
+                  />
+                ))}
+              </View>
+            </Pressable>
+          ) : null}
+        </View>
+      }
     >
+      <Modal transparent animationType="fade" visible={menuPost !== null} statusBarTranslucent
+        onRequestClose={() => closePostMenu()}
+        onDismiss={() => {
+          const action = pendingMenuAction.current;
+          pendingMenuAction.current = null;
+          action?.();
+        }}>
+        <View style={styles.postMenuBackdrop} accessibilityViewIsModal>
+          <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="게시물 메뉴 닫기"
+            onPress={() => closePostMenu()} />
+          <View style={styles.postMenuCard}>
+            <Text style={styles.postMenuTitle}>{menuPost?.authorDisplayName}</Text>
+            {menuPost && session?.user.id !== menuPost.userId ? <>
+              <Pressable accessibilityRole="button" disabled={!session || followBusyIds.includes(menuPost.userId)}
+                style={styles.postMenuItem} onPress={() => closePostMenu(() => void toggleFollow(menuPost.userId))}>
+                <Text style={styles.postMenuText}>{followingIds.includes(menuPost.userId) ? "팔로잉 · 팔로우 해제" : "팔로우"}</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" disabled={!session} style={styles.postMenuItem}
+                onPress={() => closePostMenu(() => reportContent("post", menuPost.id))}>
+                <Text style={[styles.postMenuText, styles.postMenuDanger]}>신고</Text>
+              </Pressable>
+            </> : menuPost ? (
+              <Pressable accessibilityRole="button" style={styles.postMenuItem}
+                onPress={() => closePostMenu(() => setDeleteTargetPost(menuPost))}>
+                <Text style={[styles.postMenuText, styles.postMenuDanger]}>게시물 삭제</Text>
+              </Pressable>
+            ) : null}
+            <Pressable accessibilityRole="button" style={styles.postMenuItem} onPress={() => closePostMenu()}>
+              <Text style={styles.postMenuText}>닫기</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+      <CenterDialog visible={reportTarget !== null} title={reportTarget?.targetType === "comment" ? "댓글을 신고할까요?" : "게시물을 신고할까요?"}
+        message="운영팀이 내용을 확인합니다. 반복 신고나 허위 신고는 제한될 수 있습니다."
+        confirmLabel={reportBusy ? "접수 중…" : "신고"} busy={reportBusy} danger
+        onClose={() => setReportTarget(null)} onConfirm={() => void confirmReport()} />
       <UnfollowDialog
         visible={unfollowTargetId !== null}
         busy={unfollowTargetId !== null && followBusyIds.includes(unfollowTargetId)}
@@ -1076,7 +1153,7 @@ export default function FeedScreen() {
                       backgroundColor: "#171513",
                       justifyContent: "center",
                       overflow: "hidden",
-                      borderRadius: 20,
+                      borderRadius: uiLayout.panelRadius,
                     }}
                   >
                     {activeDemoStory.post.mediaUrl ? (
@@ -1175,11 +1252,12 @@ export default function FeedScreen() {
           >
             {storyOwners.map((owner, index) => {
               const selected = selectedStoryOwnerId === owner.id;
+              const hasUnviewed = owner.stories.some((story) => !viewedStories.has(`${owner.id}:${story.id}`));
               const avatarSource = avatarSourceForUser(owner.profileUserId);
               return (
                 <View key={owner.id} style={styles.story}>
                   <Pressable
-                    accessibilityLabel={`${owner.name} 스토리 ${owner.stories.length}개 열기`}
+                    accessibilityLabel={`${owner.name}, ${owner.stories.length ? (hasUnviewed ? "아직 확인하지 않은 스토리" : "확인한 스토리") : "새 스토리 만들기"}`}
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
                     onPress={() =>
@@ -1189,7 +1267,10 @@ export default function FeedScreen() {
                     }
                     style={styles.story}
                   >
-                    <View style={[styles.storyRing, selected && styles.storyRingSelected]}>
+                    <View style={[
+                      styles.storyRing,
+                      owner.stories.length > 0 && (hasUnviewed ? styles.storyRingUnviewed : styles.storyRingViewed),
+                    ]}>
                       <View style={[styles.storyAvatar, index === 0 && styles.myStory]}>
                         {avatarSource ? (
                           <Image source={avatarSource} style={styles.avatarImage} />
@@ -1199,11 +1280,6 @@ export default function FeedScreen() {
                           </Text>
                         )}
                       </View>
-                      {owner.id !== "me" ? (
-                        <View style={styles.storyCountBadge}>
-                          <Text style={styles.storyCountText}>{owner.stories.length}</Text>
-                        </View>
-                      ) : null}
                     </View>
                     <Text numberOfLines={1} style={styles.storyName}>
                       {owner.name}
@@ -1218,7 +1294,7 @@ export default function FeedScreen() {
                         router.push({ pathname: "/compose", params: { kind: "story" } })
                       }
                       style={[
-                        styles.storyCountBadge,
+                        styles.storyAddBadge,
                         {
                           top: 32,
                           bottom: undefined,
@@ -1238,34 +1314,9 @@ export default function FeedScreen() {
           </ScrollView>
         </>
       ) : null}
-      <View style={styles.feedTitleRow}>
-        <View>
-          <Text style={styles.sectionEyebrow}>LATEST FEED</Text>
-          <Text style={styles.sectionTitle}>{sharedPostId ? "공유된 피드" : "최신 피드"}</Text>
-        </View>
-        {!sharedPostId ? (
-          <Pressable
-            accessibilityLabel={
-              feedLayout === "cards" ? "피드를 4열 목록으로 보기" : "피드를 카드로 보기"
-            }
-            accessibilityRole="button"
-            onPress={() => setFeedLayout((current) => (current === "cards" ? "grid" : "cards"))}
-            style={styles.layoutToggle}
-          >
-            <View style={styles.gridMark}>
-              {[0, 1, 2, 3].map((square) => (
-                <View
-                  key={square}
-                  style={[
-                    styles.gridMarkSquare,
-                    { backgroundColor: feedLayout === "grid" ? colors.primary : colors.ink },
-                  ]}
-                />
-              ))}
-            </View>
-          </Pressable>
-        ) : null}
-        {sharedPostId ? (
+      {sharedPostId ? (
+        <View style={styles.feedTitleRow}>
+          <Text style={styles.sectionTitle}>공유된 피드</Text>
           <Pressable
             accessibilityRole="button"
             onPress={() => {
@@ -1276,8 +1327,8 @@ export default function FeedScreen() {
           >
             <Text style={styles.hashtagClearText}>전체 피드 보기 →</Text>
           </Pressable>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
       {feedLayout === "grid" && !sharedPostId && normalizedHashtag ? (
         <Text style={styles.hashtagResult}>#{normalizedHashtag} 피드만 보기</Text>
       ) : null}
@@ -1361,61 +1412,23 @@ export default function FeedScreen() {
                       <Text style={styles.authorInitial}>{post.authorDisplayName.slice(0, 1)}</Text>
                     )}
                   </View>
-                  <Text style={styles.author}>{post.authorDisplayName}</Text>
+                  <View style={styles.authorCopy}>
+                    <Text numberOfLines={1} style={styles.author}>{post.authorDisplayName}</Text>
+                    <Text numberOfLines={1} style={styles.time}>
+                      {relativeTime(post.createdAt)} · {post.authorRegionLabel || "지역 미설정"}
+                    </Text>
+                  </View>
                 </Pressable>
-                {session?.user.id !== post.userId ? (
-                  <Pressable
-                    accessibilityLabel="게시물 신고"
-                    accessibilityRole="button"
-                    hitSlop={8}
-                    onPress={() => reportContent("post", post.id)}
-                    style={styles.reportButton}
-                  >
-                    <Text style={styles.reportText}>신고</Text>
-                  </Pressable>
-                ) : null}
-                <View style={styles.postHeaderMeta}>
-                  <Text style={styles.time}>{relativeTime(post.createdAt)}</Text>
-                  {session?.user.id !== post.userId ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => void toggleFollow(post.userId)}
-                      disabled={followBusyIds.includes(post.userId)}
-                      style={[
-                        styles.followButton,
-                        followingIds.includes(post.userId) && styles.followButtonActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.followText,
-                          followingIds.includes(post.userId) && styles.followTextActive,
-                        ]}
-                      >
-                        {followBusyIds.includes(post.userId)
-                          ? "…"
-                          : followingIds.includes(post.userId)
-                            ? "팔로잉"
-                            : "+ 팔로우"}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                  {session?.user.id === post.userId ? (
-                    <Pressable
-                      accessibilityLabel="내 게시물 삭제"
-                      accessibilityRole="button"
-                      hitSlop={8}
-                      onPress={() => setDeleteTargetPost(post)}
-                      style={styles.deletePostButton}
-                    >
-                      <Text style={styles.deletePostText}>삭제</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
+                <Pressable accessibilityRole="button" accessibilityLabel={`${post.authorDisplayName} 게시물 더보기`}
+                  accessibilityState={{ expanded: menuPost?.id === post.id }} style={styles.postMoreButton}
+                  onPress={event => { event.stopPropagation(); setMenuPost(post); }}>
+                  <Ellipsis color={colors.ink} size={21} strokeWidth={2} />
+                </Pressable>
               </View>
               <FeedPostVisual
                 imageSource={postImageSource}
                 liked={cheered}
+                centerPulse={centerLikePulses[post.id] ?? 0}
                 onLike={() => void saveLike(post, true)}
                 onRetryMedia={() => void reload()}
                 post={post}
@@ -1449,7 +1462,15 @@ export default function FeedScreen() {
                   accessibilityLabel={cheered ? "좋아요 취소" : "좋아요"}
                   accessibilityRole="button"
                   accessibilityState={{ selected: cheered }}
-                  onPress={() => void saveLike(post, !cheered)}
+                  onPress={() => {
+                    if (session && !cheered && !likeRequests.current.has(post.id)) {
+                      setCenterLikePulses((current) => ({
+                        ...current,
+                        [post.id]: (current[post.id] ?? 0) + 1,
+                      }));
+                    }
+                    void saveLike(post, !cheered);
+                  }}
                   style={styles.action}
                 >
                   <Heart
@@ -1636,6 +1657,7 @@ function supportsGpsRoute(sport: SportType) {
 function FeedPostVisual({
   imageSource,
   liked,
+  centerPulse,
   onLike,
   onRetryMedia,
   post,
@@ -1643,6 +1665,7 @@ function FeedPostVisual({
 }: {
   imageSource?: ImageSourcePropType | undefined;
   liked: boolean;
+  centerPulse: number;
   onLike: () => void;
   onRetryMedia: () => void;
   post: FeedPost;
@@ -1656,6 +1679,7 @@ function FeedPostVisual({
     <FeedLikeSurface
       label={`${post.authorDisplayName}의 ${sportLabels[post.sport]} 피드`}
       liked={liked}
+      centerPulse={centerPulse}
       onLike={onLike}
     >
       {presentation === "record-only" && post.workoutSummary ? (
@@ -1958,7 +1982,7 @@ function createStyles(colors: ThemeColors) {
     goalModalCard: {
       width: "100%",
       maxWidth: 420,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.dialogRadius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
@@ -1972,14 +1996,14 @@ function createStyles(colors: ThemeColors) {
       flexDirection: "row",
       alignItems: "center",
       gap: 10,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.surfaceMuted,
       padding: 12,
     },
     goalCheck: {
       width: 22,
       height: 22,
-      borderRadius: 7,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -1994,7 +2018,7 @@ function createStyles(colors: ThemeColors) {
     goalModalCancel: {
       minWidth: 74,
       minHeight: 44,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -2004,7 +2028,7 @@ function createStyles(colors: ThemeColors) {
     goalModalSave: {
       flex: 1,
       minHeight: 44,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
@@ -2023,7 +2047,8 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       position: "relative",
     },
-    storyRingSelected: { borderColor: colors.primary },
+    storyRingUnviewed: { borderColor: colors.primary },
+    storyRingViewed: { borderColor: "#FFFFFF" },
     storyAvatar: {
       width: 39,
       height: 39,
@@ -2037,7 +2062,7 @@ function createStyles(colors: ThemeColors) {
     avatarImage: { width: "100%", height: "100%", borderRadius: radius.full },
     myStoryText: { color: colors.primary, fontSize: 22, fontFamily: fonts.regular },
     storyName: { color: colors.ink, fontSize: 10, fontFamily: fonts.regular },
-    storyCountBadge: {
+    storyAddBadge: {
       position: "absolute",
       right: -5,
       bottom: -3,
@@ -2051,7 +2076,6 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "center",
     },
-    storyCountText: { color: "#FFFFFF", fontSize: 7, fontFamily: fonts.bold },
     storyModalBackdrop: {
       flex: 1,
       backgroundColor: "rgba(5,5,6,0.96)",
@@ -2116,7 +2140,7 @@ function createStyles(colors: ThemeColors) {
       lineHeight: 32,
       fontFamily: fonts.regular,
     },
-    storyCanvasTouchArea: { position: "relative", borderRadius: 14, overflow: "hidden" },
+    storyCanvasTouchArea: { position: "relative", borderRadius: uiLayout.photoRadius, overflow: "hidden" },
     storyTapZones: {
       position: "absolute",
       top: 0,
@@ -2160,7 +2184,7 @@ function createStyles(colors: ThemeColors) {
     composerActionLabel: { color: colors.muted, fontSize: 7, fontFamily: fonts.semibold },
     composerForm: { padding: space[4], borderTopWidth: 1, borderTopColor: colors.border },
     workoutPickerPanel: {
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surfaceMuted,
@@ -2172,7 +2196,7 @@ function createStyles(colors: ThemeColors) {
     workoutPickerList: { gap: 7 },
     workoutPickerItem: {
       minHeight: 48,
-      borderRadius: radius.sm,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       paddingHorizontal: 11,
       paddingVertical: 9,
@@ -2199,7 +2223,7 @@ function createStyles(colors: ThemeColors) {
     },
     sportPicker: { flexDirection: "row", gap: 6, paddingBottom: 9 },
     sportChip: {
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       paddingHorizontal: 10,
       paddingVertical: 6,
       backgroundColor: colors.surfaceMuted,
@@ -2234,7 +2258,7 @@ function createStyles(colors: ThemeColors) {
     storyEditorOptions: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
     storyEditorOption: {
       minHeight: 30,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       paddingHorizontal: 10,
@@ -2248,7 +2272,7 @@ function createStyles(colors: ThemeColors) {
     storyOrderList: { gap: 6 },
     storyOrderItem: {
       minHeight: 38,
-      borderRadius: radius.sm,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surfaceMuted,
       flexDirection: "row",
       alignItems: "center",
@@ -2262,7 +2286,7 @@ function createStyles(colors: ThemeColors) {
     storyOrderButton: {
       width: 29,
       height: 27,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -2284,7 +2308,7 @@ function createStyles(colors: ThemeColors) {
       gap: 5,
       minHeight: 30,
       paddingHorizontal: 9,
-      borderRadius: 15,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
     },
@@ -2303,7 +2327,7 @@ function createStyles(colors: ThemeColors) {
       color: colors.ink,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       padding: 10,
       textAlignVertical: "top",
       marginBottom: 9,
@@ -2311,13 +2335,6 @@ function createStyles(colors: ThemeColors) {
     composerHashtags: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
     composerHashtag: { color: colors.primary, fontSize: 11, fontFamily: fonts.bold },
     error: { color: colors.danger, fontSize: 10, marginBottom: 8 },
-    sectionEyebrow: {
-      color: colors.primary,
-      fontSize: 8,
-      fontFamily: fonts.bold,
-      letterSpacing: 1,
-      marginBottom: 4,
-    },
     sectionTitle: { color: colors.ink, fontSize: 17, fontFamily: fonts.bold },
     feedTitleRow: {
       flexDirection: "row",
@@ -2325,9 +2342,10 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "space-between",
       gap: 12,
     },
+    feedHeaderActions: { flexDirection: "row", alignItems: "center", gap: 4 },
     layoutToggle: {
-      width: 42,
-      height: 42,
+      width: 44,
+      height: 44,
       alignItems: "center",
       justifyContent: "center",
     },
@@ -2338,7 +2356,7 @@ function createStyles(colors: ThemeColors) {
       flexWrap: "wrap",
       gap: 3,
     },
-    gridMarkSquare: { width: 9, height: 9, borderRadius: 1.5 },
+    gridMarkSquare: { width: 9, height: 9, borderRadius: 1.5, borderWidth: 1.3, backgroundColor: "transparent" },
     feedGrid: { flexDirection: "row", flexWrap: "wrap", gap: 2 },
     feedGridCell: {
       width: "24.4%",
@@ -2371,7 +2389,7 @@ function createStyles(colors: ThemeColors) {
     },
     feedGridCoreTag: {
       alignSelf: "flex-start",
-      borderRadius: 8,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       paddingHorizontal: 5,
       paddingVertical: 3,
@@ -2441,7 +2459,7 @@ function createStyles(colors: ThemeColors) {
     },
     recommendationLabel: {
       alignSelf: "flex-start",
-      borderRadius: radius.full,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.primarySoft,
       paddingHorizontal: 9,
       paddingVertical: 4,
@@ -2461,7 +2479,7 @@ function createStyles(colors: ThemeColors) {
     hashtagSearchInput: {
       flex: 1,
       minHeight: 42,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       color: colors.ink,
@@ -2471,7 +2489,7 @@ function createStyles(colors: ThemeColors) {
     hashtagClear: {
       minHeight: 42,
       paddingHorizontal: 13,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.surfaceMuted,
       alignItems: "center",
       justifyContent: "center",
@@ -2485,7 +2503,8 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       marginBottom: 10,
     },
-    authorRow: { flexDirection: "row", alignItems: "center", gap: 9, minWidth: 0 },
+    authorRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: 9, minWidth: 0 },
+    authorCopy: { flex: 1, minWidth: 0, gap: 3 },
     authorAvatar: {
       width: 31,
       height: 31,
@@ -2496,37 +2515,25 @@ function createStyles(colors: ThemeColors) {
     },
     authorInitial: { color: colors.primary, fontSize: 11, fontFamily: fonts.bold },
     author: { color: colors.ink, fontSize: 13, fontFamily: fonts.semibold },
-    reportButton: { marginLeft: 7, paddingHorizontal: 2, paddingVertical: 5 },
-    postHeaderMeta: {
-      marginLeft: "auto",
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 9,
-    },
-    followButton: {
-      minHeight: 28,
-      borderRadius: 14,
-      backgroundColor: colors.primary,
-      paddingHorizontal: 10,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    followButtonActive: { backgroundColor: colors.surfaceMuted },
-    followText: { color: "#FFFFFF", fontSize: 9, fontFamily: fonts.bold },
-    followTextActive: { color: colors.ink },
-    reportText: { color: colors.muted, fontSize: 8, fontFamily: fonts.medium },
+    postMoreButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", marginLeft: 8 },
+    postMenuBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.72)", justifyContent: "center", alignItems: "center", padding: 24 },
+    postMenuCard: { width: "100%", maxWidth: 320, borderWidth: 1, borderColor: colors.border, borderRadius: uiLayout.dialogRadius, backgroundColor: colors.background },
+    postMenuTitle: { color: colors.muted, fontSize: 13, fontFamily: fonts.semibold, padding: 18 },
+    postMenuItem: { minHeight: 50, paddingHorizontal: 18, justifyContent: "center", borderTopWidth: 1, borderTopColor: colors.border },
+    postMenuText: { color: colors.ink, fontSize: 14, fontFamily: fonts.medium },
+    postMenuDanger: { color: colors.primary },
     time: { color: colors.muted, fontSize: 10, fontFamily: fonts.regular },
     routeOnlyVisual: {
       height: 340,
       overflow: "hidden",
-      borderRadius: radius["2xl"],
+      borderRadius: uiLayout.panelRadius,
       position: "relative",
     },
     routeOnlyMetric: {
       position: "absolute",
       left: 16,
       bottom: 16,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: "rgba(15,14,13,0.9)",
       paddingHorizontal: 13,
       paddingVertical: 10,
@@ -2554,7 +2561,7 @@ function createStyles(colors: ThemeColors) {
       bottom: 18,
       width: 150,
       height: 92,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.photoRadius,
       backgroundColor: "rgba(12,12,12,0.72)",
       overflow: "hidden",
     },
@@ -2595,7 +2602,7 @@ function createStyles(colors: ThemeColors) {
     workoutSummaryCard: {
       marginTop: 10,
       aspectRatio: 16 / 9,
-      borderRadius: 28,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: "#0A0A09",
       borderWidth: 1,
       borderColor: "#2A1712",
@@ -2608,7 +2615,7 @@ function createStyles(colors: ThemeColors) {
     recordCoreTag: {
       alignSelf: "flex-start",
       backgroundColor: colors.primary,
-      borderRadius: 20,
+      borderRadius: uiLayout.controlRadius,
       paddingHorizontal: 11,
       paddingVertical: 6,
     },
@@ -2643,7 +2650,7 @@ function createStyles(colors: ThemeColors) {
       marginTop: 10,
       aspectRatio: 16 / 9,
       flexDirection: "row",
-      borderRadius: 18,
+      borderRadius: uiLayout.panelRadius,
       overflow: "hidden",
       backgroundColor: "#0A0A09",
       borderWidth: 1,
@@ -2679,7 +2686,7 @@ function createStyles(colors: ThemeColors) {
     },
     recordTicketVerified: {
       backgroundColor: colors.primary,
-      borderRadius: 18,
+      borderRadius: uiLayout.panelRadius,
       paddingHorizontal: 10,
       paddingVertical: 6,
     },
@@ -2758,7 +2765,7 @@ function createStyles(colors: ThemeColors) {
     feedArtwork: {
       width: "100%",
       aspectRatio: 4 / 5,
-      borderRadius: radius["2xl"],
+      borderRadius: uiLayout.photoRadius,
       overflow: "hidden",
       backgroundColor: colors.hero,
       padding: space[5],
@@ -2767,7 +2774,7 @@ function createStyles(colors: ThemeColors) {
     feedArtworkImage: {
       width: "100%",
       height: "100%",
-      borderRadius: radius["2xl"],
+      borderRadius: uiLayout.photoRadius,
     },
     feedRecordArtwork: {
       aspectRatio: 16 / 9,
@@ -2814,7 +2821,5 @@ function createStyles(colors: ThemeColors) {
     activeAction: { color: colors.primary },
     bookmark: { minHeight: 30, justifyContent: "center", marginLeft: "auto" },
     hiddenComments: { display: "none" },
-    deletePostButton: { minHeight: 32, justifyContent: "center" },
-    deletePostText: { color: colors.primary, fontSize: 10, fontFamily: fonts.medium },
   });
 }

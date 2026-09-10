@@ -1,3 +1,4 @@
+import { Wordmark } from "../../src/components/ui";
 import {
   characters,
   characterUserId,
@@ -28,7 +29,7 @@ import { demoAvatarSources } from "../../src/demo-avatars";
 import { TapTalkIcon } from "../../src/components/tap-icons";
 import { UnfollowDialog } from "../../src/components/unfollow-dialog";
 import { CenterDialog } from "../../src/components/ui";
-import { fonts, radius, space, type ThemeColors } from "../../src/theme";
+import { fonts, radius, space, maxContentWidth, uiLayout, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 import { formatSensorMetricLine } from "../../src/workout-metrics";
 
@@ -220,7 +221,7 @@ export default function MemberProfilePage() {
           <Pressable accessibilityRole="button" onPress={() => router.back()}>
             <Text style={styles.back}>← BACK</Text>
           </Pressable>
-          <Text style={styles.brand}>GROOV</Text>
+          <Wordmark />
           <View style={styles.topSpacer} />
         </View>
 
@@ -272,11 +273,7 @@ export default function MemberProfilePage() {
                 style={[styles.followButton, following && styles.followButtonActive]}
               >
                 <Text style={[styles.followText, following && styles.followTextActive]}>
-                  {followBusy
-                    ? "…"
-                    : following
-                      ? "팔로잉"
-                      : "+ 팔로우"}
+                  {followBusy ? "…" : following ? "팔로잉" : "+ 팔로우"}
                 </Text>
               </Pressable>
               <Pressable
@@ -592,9 +589,9 @@ function createStyles(colors: ThemeColors) {
     safe: { flex: 1, backgroundColor: colors.background },
     page: {
       width: "100%",
-      maxWidth: 448,
+      maxWidth: maxContentWidth,
       alignSelf: "center",
-      paddingHorizontal: 22,
+      paddingHorizontal: uiLayout.pageInset,
       paddingTop: 16,
       paddingBottom: 110,
       gap: space[5],
@@ -608,7 +605,7 @@ function createStyles(colors: ThemeColors) {
     errorCard: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       padding: 14,
       gap: 8,
     },
@@ -624,13 +621,13 @@ function createStyles(colors: ThemeColors) {
     avatarText: { color: "#FFFFFF", fontSize: 24, fontFamily: fonts.bold },
     identityCopy: { flex: 1, gap: 5 },
     nameRow: { flexDirection: "row", alignItems: "center", gap: 7 },
-    name: { color: colors.ink, fontSize: 23, fontFamily: fonts.displayExtra, flexShrink: 1 },
+    name: { color: colors.ink, fontSize: 18, lineHeight: 23, fontFamily: fonts.bold, flexShrink: 1 },
     handle: { color: colors.muted, fontSize: 7, fontFamily: fonts.bold, letterSpacing: 0.7 },
     actions: { flexDirection: "row", gap: 8 },
     followButton: {
       flex: 1,
       minHeight: 42,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
@@ -645,7 +642,7 @@ function createStyles(colors: ThemeColors) {
     messageButton: {
       flex: 1,
       minHeight: 42,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
@@ -658,7 +655,7 @@ function createStyles(colors: ThemeColors) {
     reportButton: {
       minWidth: 58,
       minHeight: 42,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -679,7 +676,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 310,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.panelRadius,
       alignItems: "center",
       justifyContent: "center",
       padding: 36,
@@ -758,7 +755,7 @@ function createStyles(colors: ThemeColors) {
     },
     recordList: { gap: 9 },
     recordCard: {
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
@@ -781,7 +778,7 @@ function createStyles(colors: ThemeColors) {
     postCard: {
       width: "48.8%",
       minHeight: 190,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.ink,
       padding: 14,
       justifyContent: "space-between",

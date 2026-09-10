@@ -583,6 +583,7 @@ function addLeagueSourcesAndLayers() {
 
 function bindMapInteractions() {
   map.on("click", "groov-region-hit", (event) => {
+    if (map.getContainer?.().dataset.savedPlacePicking === 'true') return;
     const feature = event.features?.[0];
     if (!feature || map.getZoom() >= 14.1) return;
     const code = String(feature.properties.code);
@@ -590,6 +591,7 @@ function bindMapInteractions() {
     selectDistrict(code, { animateCamera: true, burst: [point.x, point.y] });
   });
   map.on("dblclick", "groov-region-hit", (event) => {
+    if (map.getContainer?.().dataset.savedPlacePicking === 'true') { event.preventDefault(); return; }
     event.preventDefault();
     const feature = event.features?.[0];
     if (feature) focusDistrict(String(feature.properties.code));

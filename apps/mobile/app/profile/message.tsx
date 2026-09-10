@@ -19,6 +19,7 @@ import { isNotificationIdentity } from "../../src/features/notifications/push-li
 import { ApiError, api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { useAppTheme } from "../../src/theme-context";
+import { maxContentWidth, uiLayout } from "../../src/theme";
 import { TapShareIcon } from "../../src/components/tap-icons";
 
 export default function MessagePage() {
@@ -223,7 +224,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
     safe: { flex: 1 },
     flex: { flex: 1 },
-    page: { flex: 1, width: "100%", maxWidth: 448, alignSelf: "center", padding: 20, gap: 12 },
+    page: { flex: 1, width: "100%", maxWidth: maxContentWidth, alignSelf: "center", padding: uiLayout.pageInset, gap: 12 },
     top: {
       flexDirection: "row",
       justifyContent: "space-between",
@@ -236,12 +237,12 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     name: { fontSize: 15, fontWeight: "900", textAlign: "right" },
     status: { fontSize: 6, fontWeight: "900", marginTop: 2, textAlign: "right" },
     messages: { paddingVertical: 14, gap: 8 },
-    bubble: { maxWidth: "78%", padding: 12, borderRadius: 12, gap: 4 },
+    bubble: { maxWidth: "78%", padding: 12, borderRadius: uiLayout.panelRadius, gap: 4 },
     mine: { alignSelf: "flex-end", backgroundColor: colors.primary },
     sharedCard: {
       minWidth: 180,
       backgroundColor: colors.surface,
-      borderRadius: 8,
+      borderRadius: uiLayout.panelRadius,
       padding: 12,
       gap: 8,
     },
@@ -255,7 +256,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     empty: { textAlign: "center", paddingVertical: 70, fontSize: 10 },
     composer: { flexDirection: "row", borderTopWidth: 1, paddingTop: 12, gap: 8 },
     input: { flex: 1, minHeight: 44, fontSize: 11 },
-    send: { minWidth: 74, borderRadius: 7, alignItems: "center", justifyContent: "center" },
+    send: { minWidth: 74, borderRadius: uiLayout.controlRadius, alignItems: "center", justifyContent: "center" },
     sendText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
     error: { color: colors.primary, fontSize: 9 },
   });

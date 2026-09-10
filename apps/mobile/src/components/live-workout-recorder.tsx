@@ -27,6 +27,7 @@ import {
   Easing,
   Modal,
   Pressable,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -37,6 +38,7 @@ import {
 import { api } from "../api/client";
 import { createMutationAttempt, makeOperationKey } from "../api/mutation-attempt";
 import { activeWorkouts } from "../features/location/active-workout-runtime";
+import { keepWorkoutScreenAwake, watchWorkoutLocation } from "../features/location/workout-location";
 import type { ActiveWorkoutCheckpoint } from "../features/location/active-workout-recovery";
 import { isNotificationIdentity } from "../features/notifications/push-lifecycle";
 import { indoorSwimMetrics, requiresOutdoorGps } from "../features/location/swim-metrics";
@@ -51,7 +53,7 @@ import {
   startBackgroundTrack,
   stopBackgroundTrack,
 } from "../features/location/background-location";
-import { fonts, radius, space, type ThemeColors } from "../theme";
+import { uiLayout, fonts, radius, space, type ThemeColors } from "../theme";
 import { formatWorkoutClock } from "../workout-duration";
 import { useAppTheme } from "../theme-context";
 import { GroovCourseMap } from "./groov-course-map";
@@ -62,6 +64,7 @@ export type WorkoutTrackPreview = {
   points: MapPoint[];
   status: string;
   usesGps: boolean;
+  recording: boolean;
 };
 
 type RecorderPhase = "setup" | "starting" | "recording" | "paused" | "review" | "saving" | "done";
@@ -123,6 +126,7 @@ export function LiveWorkoutRecorder({
   const [elapsedMilliseconds, setElapsedMilliseconds] = useState(recovery?.elapsedMs ?? 0);
   const [points, setPoints] = useState<TrackPoint[]>(recovery?.points ?? []);
   const [gpsStatus, setGpsStatus] = useState("기록 준비 중");
+  const [backgroundNotice, setBackgroundNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(
     recovery
       ? "중단된 운동을 마지막 확인 시점까지 복구했습니다. 확인되지 않은 시간은 더하지 않았습니다. 재개를 눌러야 다시 측정합니다."
@@ -223,6 +227,7 @@ export function LiveWorkoutRecorder({
       startedAt: workoutStartedAt.current,
       savedAt: checkpointEndedAt.current,
       elapsedMs: elapsedBaseMsRef.current + (runningSince === null ? 0 : Date.now() - runningSince),
+      recordingSince: runningSince,
       points: pointsRef.current,
       pauseBoundaries: pauseBoundaries.current,
       fields: checkpointFields.current,
@@ -312,8 +317,9 @@ export function LiveWorkoutRecorder({
       points,
       status: gpsStatus,
       usesGps: usesOutdoorGps,
+      recording: active,
     });
-  }, [gpsStatus, onTrackChange, points, usesOutdoorGps]);
+  }, [gpsStatus, onTrackChange, points, usesOutdoorGps, active]);
 
   const stopGps = useCallback(() => {
     lifetime.invalidate();
@@ -384,12 +390,19 @@ export function LiveWorkoutRecorder({
 
   useEffect(() => {
     if (phase !== "recording") return undefined;
-    timerStartedAtMsRef.current = Date.now();
+    timerStartedAtMsRef.current ??= Date.now();
     const timer = setInterval(() => {
       if (timerStartedAtMsRef.current === null) return;
       setElapsedMilliseconds(elapsedBaseMsRef.current + (Date.now() - timerStartedAtMsRef.current));
-    }, 10);
+    }, 250);
     return () => clearInterval(timer);
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "recording") return;
+    return keepWorkoutScreenAwake(() => {
+      setBackgroundNotice("화면 유지가 지원되지 않습니다. 웹에서는 화면을 켜 둬야 GPS가 계속 수신됩니다.");
+    });
   }, [phase]);
 
   useEffect(() => {
@@ -408,6 +421,25 @@ export function LiveWorkoutRecorder({
       appStateSubscription.remove();
     };
   }, [drainBackgroundPoints, lifetime, phase, usesOutdoorGps]);
+
+  useEffect(() => {
+    if (Platform.OS === "web" || phase !== "recording" || !usesOutdoorGps) return;
+    let current = true, checking = false;
+    const reconnect = async () => {
+      if (!current || checking || AppState.currentState !== "active" || timerStartedAtMsRef.current === null) return;
+      checking = true;
+      try {
+        const available = await startBackgroundTrack(sport,
+          () => current && lifetime.isMounted() && !finishedRef.current && timerStartedAtMsRef.current !== null,
+          timerStartedAtMsRef.current, checkpointId, false);
+        if (current) setBackgroundNotice(available ? null : "백그라운드 GPS가 꺼져 있습니다. 항상 위치 허용과 배터리 제한을 확인해 주세요.");
+      } catch { if (current) setBackgroundNotice("백그라운드 GPS를 다시 연결하지 못했습니다. 화면을 켜 두고 위치 설정을 확인해 주세요."); }
+      finally { checking = false; }
+    };
+    const state = AppState.addEventListener("change", value => { if (value === "active") void reconnect(); });
+    const timer = setInterval(() => void reconnect(), 30_000);
+    return () => { current = false; clearInterval(timer); state.remove(); };
+  }, [phase, usesOutdoorGps, sport, checkpointId, lifetime]);
 
   useEffect(() => {
     if (!countdownValue) return undefined;
@@ -489,35 +521,23 @@ export function LiveWorkoutRecorder({
           pointsRef.current = [];
         }
         await writeCheckpoint();
-        await clearBackgroundTrack();
         if (!isCurrent()) return;
-        const permission = await Location.requestForegroundPermissionsAsync();
+        await clearBackgroundTrack(checkpointId, isCurrent);
         if (!isCurrent()) return;
-        if (!permission.granted) {
-          freezeTimer();
-          setPhase(setupSports.includes(sport) ? "setup" : "paused");
-          setGpsStatus("GPS 권한 필요");
-          setError("실시간 거리 기록을 위해 위치 권한을 허용해 주세요.");
-          return;
-        }
-        const current = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-        if (!isCurrent()) return;
-        const firstPoint = toTrackPoint(current);
-        const initialResult = appendPoint(firstPoint, reset);
+        // The stopwatch must not wait for a first fix or permission dialog.
+        timerStartedAtMsRef.current = Date.now();
         setPhase("recording");
-        setGpsStatus(
-          initialResult.accepted
-            ? describeGpsAccuracy(firstPoint.accuracy)
-            : describeGpsRejection(initialResult.reason),
-        );
-        const subscription = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.BestForNavigation,
-            timeInterval: 1000,
-            distanceInterval: 2,
-          },
+        await writeCheckpoint();
+        if (!isCurrent()) return;
+        if (Platform.OS !== "web") {
+          const permission = await Location.requestForegroundPermissionsAsync();
+          if (!isCurrent()) return;
+          if (!permission.granted) {
+            setGpsStatus("GPS 권한 필요 · 시간 기록 중");
+            setBackgroundNotice("위치 권한을 허용한 뒤 앱으로 돌아오면 GPS 연결을 다시 시도합니다.");
+          }
+        }
+        const subscription = watchWorkoutLocation(
           (nextLocation) => {
             if (!isCurrent() || finishedRef.current) return;
             const nextPoint = toTrackPoint(nextLocation);
@@ -528,11 +548,12 @@ export function LiveWorkoutRecorder({
                 : describeGpsRejection(result.reason),
             );
           },
-          () => {
+          (failure) => {
             if (!isCurrent() || finishedRef.current) return;
-            setGpsStatus("GPS 연결 끊김");
-            setError("GPS 수신이 끊겼습니다. 타이머는 계속 기록됩니다.");
+            setGpsStatus(failure.code === 1 ? "GPS 권한 필요 · 시간 기록 중" : "GPS 재연결 중 · 시간 기록 중");
+            if (failure.code === 1) setBackgroundNotice(failure.message || "브라우저 위치 권한을 허용한 뒤 앱으로 돌아와 주세요. 시간 기록은 계속됩니다.");
           },
+          () => { if (isCurrent()) setGpsStatus("GPS 재연결 중 · 시간 기록 중"); },
         );
         lifetime.attach(subscription, isCurrent);
         if (!isCurrent()) return;
@@ -543,7 +564,9 @@ export function LiveWorkoutRecorder({
           checkpointId,
         ).catch(() => false);
         if (!isCurrent()) return;
-        if (!backgroundActive) setGpsStatus("GPS 기록 중 · 화면 유지 권장");
+        setBackgroundNotice(backgroundActive ? null : Platform.OS === "web"
+          ? "웹에서는 화면 잠금·다른 앱 사용 중 GPS가 중단될 수 있습니다. 화면을 켜 두세요. 복귀하면 자동 재연결하며 빈 구간은 경로로 잇지 않습니다."
+          : "백그라운드 GPS가 활성화되지 않았습니다. 위치 권한을 ‘항상 허용’으로 설정하고 배터리 제한을 확인해 주세요.");
       } catch {
         if (!isCurrent()) return;
         freezeTimer();
@@ -1204,6 +1227,7 @@ export function LiveWorkoutRecorder({
             style={[styles.fullscreenMapFrame, { width: mapFrameWidth, height: mapFrameHeight, paddingTop: mapInsets.top + 48 }]}
           >
             <GroovCourseMap
+              recording={active}
               backgroundColor={colors.map}
               badgeLabel={gpsStatus}
               currentPoint={points.at(-1)}
@@ -1340,6 +1364,7 @@ export function LiveWorkoutRecorder({
             <>
               {showMap && usesOutdoorGps ? (
                 <GroovCourseMap
+                  recording={active}
                   backgroundColor={colors.map}
                   badgeLabel={gpsStatus}
                   compact
@@ -1459,6 +1484,7 @@ export function LiveWorkoutRecorder({
             </Pressable>
           ) : null}
 
+          {backgroundNotice ? <Text style={styles.gpsInfoText}>{backgroundNotice}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <View style={styles.controls}>
             <Pressable
@@ -2247,7 +2273,7 @@ function createStyles(colors: ThemeColors) {
     confirmCard: {
       width: "100%",
       maxWidth: 400,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.dialogRadius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
@@ -2332,7 +2358,7 @@ function createStyles(colors: ThemeColors) {
       right: 16,
       bottom: 18,
       gap: 12,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.panelRadius,
       padding: 15,
       backgroundColor: "rgba(16,16,17,0.88)",
     },
@@ -2381,7 +2407,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 42,
       flexDirection: "row",
       alignItems: "center",
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.background,
@@ -2420,7 +2446,7 @@ function createStyles(colors: ThemeColors) {
     confirmCancel: {
       flex: 1,
       minHeight: 44,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -2430,7 +2456,7 @@ function createStyles(colors: ThemeColors) {
     confirmFinish: {
       flex: 1.25,
       minHeight: 44,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
@@ -2449,7 +2475,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       gap: 5,
       backgroundColor: colors.primarySoft,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       paddingHorizontal: 9,
       paddingVertical: 6,
     },
@@ -2471,7 +2497,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "space-between",
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.background,
       paddingHorizontal: 12,
     },
@@ -2479,7 +2505,7 @@ function createStyles(colors: ThemeColors) {
     selectMenu: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.dialogRadius,
       overflow: "hidden",
     },
     selectMenuItem: {
@@ -2495,7 +2521,7 @@ function createStyles(colors: ThemeColors) {
       gap: 8,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.background,
       padding: 11,
     },
@@ -2524,7 +2550,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.background,
       paddingHorizontal: 12,
     },
@@ -2540,7 +2566,7 @@ function createStyles(colors: ThemeColors) {
       gap: 6,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.background,
     },
     inlineInput: {
@@ -2549,7 +2575,7 @@ function createStyles(colors: ThemeColors) {
       color: colors.ink,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       paddingHorizontal: 11,
       fontFamily: fonts.medium,
       fontSize: 10,
@@ -2560,7 +2586,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.background,
       paddingHorizontal: 11,
     },
@@ -2578,7 +2604,7 @@ function createStyles(colors: ThemeColors) {
       color: colors.ink,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.background,
       paddingHorizontal: 11,
       fontFamily: fonts.medium,
@@ -2592,7 +2618,7 @@ function createStyles(colors: ThemeColors) {
       gap: 6,
       borderWidth: 1,
       borderColor: colors.primary,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
     },
     linkButtonReady: { backgroundColor: colors.primary },
     linkButtonText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 10 },
@@ -2604,7 +2630,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       gap: 7,
       backgroundColor: colors.primary,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.controlRadius,
     },
     primaryButton: {
       flex: 1,
@@ -2612,7 +2638,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.primary,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
     },
     primaryButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 11 },
     trackingPanel: { gap: space[4], marginTop: space[4] },
@@ -2630,7 +2656,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       gap: 4,
       backgroundColor: colors.primarySoft,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       paddingHorizontal: 9,
       paddingVertical: 6,
       marginBottom: 4,
@@ -2643,7 +2669,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       gap: 6,
       paddingHorizontal: 10,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.primarySoft,
     },
     gpsInfoText: { flex: 1, color: colors.ink, fontFamily: fonts.medium, fontSize: 8 },
@@ -2652,7 +2678,7 @@ function createStyles(colors: ThemeColors) {
       flexWrap: "wrap",
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.panelRadius,
       overflow: "hidden",
     },
     metricCell: {
@@ -2674,14 +2700,14 @@ function createStyles(colors: ThemeColors) {
       gap: 10,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       padding: 11,
     },
     routineItemChecked: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
     checkBox: {
       width: 22,
       height: 22,
-      borderRadius: 7,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -2696,7 +2722,7 @@ function createStyles(colors: ThemeColors) {
     routineSetButton: {
       width: 29,
       height: 29,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -2718,7 +2744,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       gap: 10,
       backgroundColor: colors.primarySoft,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       padding: 12,
     },
     deviceLiveCopy: { flex: 1 },
@@ -2731,7 +2757,7 @@ function createStyles(colors: ThemeColors) {
       marginTop: 2,
     },
     targetAlert: {
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       borderWidth: 1,
       borderColor: colors.primary,
       backgroundColor: colors.primarySoft,
@@ -2755,7 +2781,7 @@ function createStyles(colors: ThemeColors) {
       gap: 6,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.background,
     },
     secondaryButtonText: { color: colors.ink, fontFamily: fonts.bold, fontSize: 10 },
@@ -2767,7 +2793,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       gap: 6,
       backgroundColor: colors.primary,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
     },
     stopButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
     error: { color: colors.danger, fontFamily: fonts.medium, fontSize: 9, lineHeight: 15 },
@@ -2795,7 +2821,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       gap: 7,
       backgroundColor: colors.primarySoft,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       padding: 11,
     },
     reviewSourceText: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 9 },

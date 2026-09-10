@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { ApiError, api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
-import { fonts, maxContentWidth, radius, space, type ThemeColors } from "../../src/theme";
+import { fonts, maxContentWidth, radius, uiLayout, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
 const statusLabels: Record<ContentReport["status"], string> = {
@@ -151,21 +151,21 @@ function createStyles(colors: ThemeColors) {
       width: "100%",
       maxWidth: maxContentWidth,
       alignSelf: "center",
-      padding: space[5],
+      padding: uiLayout.pageInset,
       paddingBottom: 64,
       gap: 12,
     },
     back: { width: 42, height: 42, justifyContent: "center" },
     hero: { gap: 7, marginBottom: 10 },
     eyebrow: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9, letterSpacing: 1.3 },
-    title: { color: colors.ink, fontFamily: fonts.bold, fontSize: 28 },
+    title: { color: colors.ink, fontFamily: fonts.bold, fontSize: uiLayout.titleSize, lineHeight: 28 },
     copy: { color: colors.muted, fontFamily: fonts.regular, fontSize: 12, lineHeight: 19 },
     error: { color: colors.primary, fontFamily: fonts.bold, fontSize: 11 },
     empty: {
       minHeight: 180,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.panelRadius,
       alignItems: "center",
       justifyContent: "center",
       gap: 10,
@@ -174,7 +174,7 @@ function createStyles(colors: ThemeColors) {
     card: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.panelRadius,
       padding: 16,
       gap: 8,
       backgroundColor: colors.surface,
@@ -191,7 +191,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 38,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       alignItems: "center",
       justifyContent: "center",
     },

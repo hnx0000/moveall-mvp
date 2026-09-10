@@ -389,6 +389,36 @@ export const SharingCrewCreateInputSchema = z.object({
 });
 export type SharingCrewCreateInput = z.infer<typeof SharingCrewCreateInputSchema>;
 export type SharingCrew = SharingCrewCreateInput & { id: string; userId: string };
+export const PlannerEntryInputSchema = z.object({
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine(
+      (value) =>
+        !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value,
+      "날짜를 확인해 주세요.",
+    ),
+  kind: z.enum(["workout", "meal"]),
+  title: z.string().trim().min(1).max(120),
+  time: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .optional(),
+  crewIds: z.array(z.uuid()).max(20).default([]),
+});
+export type PlannerEntryInput = z.infer<typeof PlannerEntryInputSchema>;
+export type PlannerEntry = PlannerEntryInput & {
+  id: string;
+  userId: string;
+  displayName: string;
+  sharedWith: string[];
+};
+export const SavedPlaceInputSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  coordinate: z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]),
+});
+export type SavedPlaceInput = z.infer<typeof SavedPlaceInputSchema>;
+export type SavedPlace = SavedPlaceInput & { id: string };
 
 export const PostCreateInputSchema = z
   .object({
@@ -581,6 +611,7 @@ export type FeedComment = {
 };
 
 export type FeedPost = PostCreateInput & {
+  authorRegionLabel?: string;
   likedByMe?: boolean;
   id: string;
   userId: string;

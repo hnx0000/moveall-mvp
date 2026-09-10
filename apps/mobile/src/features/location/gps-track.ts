@@ -32,6 +32,7 @@ export type TrackPointValidationOptions = {
   /** Wall-clock time at receipt. Omit when replaying a previously recorded route. */
   receivedAt?: number;
   maxFutureSkewMs?: number;
+  maxAgeMs?: number;
   smooth?: boolean;
 };
 
@@ -87,6 +88,12 @@ export function appendTrackPointResult(
     next.timestamp > options.receivedAt + (options.maxFutureSkewMs ?? 30_000)
   ) {
     return { points, accepted: false, reason: "future" };
+  }
+  if (
+    options.receivedAt !== undefined &&
+    options.receivedAt - next.timestamp > (options.maxAgeMs ?? 15_000)
+  ) {
+    return { points, accepted: false, reason: "stale" };
   }
   if (next.accuracy !== null && (next.accuracy < 0 || next.accuracy > profile.maxAccuracyM)) {
     return { points, accepted: false, reason: "inaccurate" };

@@ -899,6 +899,72 @@ export class PostgresStore implements AppStore {
     });
   }
 
+  async listSavedPlaces(userId: string): Promise<import("@moveall/contracts").SavedPlace[]> {
+    const result = await this.pool.query(
+      `SELECT id, name, coordinate FROM saved_places WHERE user_id=$1 ORDER BY created_at`,
+      [userId],
+    );
+    return result.rows as import("@moveall/contracts").SavedPlace[];
+  }
+  async savePlace(userId: string, input: import("@moveall/contracts").SavedPlaceInput) {
+    await this.pool.query(`INSERT INTO saved_places(user_id,name,coordinate) VALUES($1,$2,$3)`, [
+      userId,
+      input.name,
+      JSON.stringify(input.coordinate),
+    ]);
+  }
+  async deletePlace(userId: string, id: string) {
+    await this.pool.query(`DELETE FROM saved_places WHERE id=$1 AND user_id=$2`, [id, userId]);
+  }
+  async listPlannerEntries(
+    userId: string,
+    month: string,
+  ): Promise<import("@moveall/contracts").PlannerEntry[]> {
+    const result = await this.pool.query(
+      `SELECT p.id, p.user_id AS "userId", u.display_name AS "displayName", p.payload
+       FROM planner_entries p JOIN users u ON u.id=p.user_id
+       WHERE left(p.payload->>'date',7)=$2 AND (p.user_id=$1::uuid OR p.shared_with ? $1::text)
+       AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$1 AND b.blocked_id=p.user_id) OR (b.blocker_id=p.user_id AND b.blocked_id=$1))
+       ORDER BY p.payload->>'date', p.payload->>'time', p.id`,
+      [userId, month],
+    );
+    return result.rows.map((row) => ({
+      ...row.payload,
+      id: row.id,
+      userId: row.userId,
+      displayName: row.displayName,
+      crewIds: row.userId === userId ? row.payload.crewIds : [],
+      sharedWith: [],
+    }));
+  }
+  async createPlannerEntry(
+    userId: string,
+    input: import("@moveall/contracts").PlannerEntryInput,
+  ): Promise<import("@moveall/contracts").PlannerEntry> {
+    const crews = await this.listSharingCrews(userId);
+    if (input.crewIds.some((id) => !crews.some((crew) => crew.id === id)))
+      throw new AppError(400, "INVALID_CREW", "공유할 크루를 확인해 주세요.");
+    const sharedWith = [
+      ...new Set(
+        crews.filter((crew) => input.crewIds.includes(crew.id)).flatMap((crew) => crew.memberIds),
+      ),
+    ];
+    const result = await this.pool.query(
+      `INSERT INTO planner_entries(user_id,payload,shared_with) VALUES($1,$2,$3) RETURNING id`,
+      [userId, JSON.stringify(input), JSON.stringify(sharedWith)],
+    );
+    const user = await this.pool.query(`SELECT display_name FROM users WHERE id=$1`, [userId]);
+    return {
+      ...input,
+      id: result.rows[0].id,
+      userId,
+      displayName: user.rows[0].display_name,
+      sharedWith: [],
+    };
+  }
+  async deletePlannerEntry(userId: string, id: string) {
+    await this.pool.query(`DELETE FROM planner_entries WHERE id=$1 AND user_id=$2`, [id, userId]);
+  }
   async listSharingCrews(userId: string): Promise<SharingCrew[]> {
     const result = await this.pool.query<SharingCrew & QueryResultRow>(
       'SELECT id, user_id AS "userId", name, member_ids AS "memberIds" FROM sharing_crews WHERE user_id = $1 ORDER BY created_at DESC',

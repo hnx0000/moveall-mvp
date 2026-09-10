@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from "react"; import { uiLayout } from "../theme";
 import { Image } from "react-native";
 
 // No extra gradient/branding is painted over the user's finished composition.
@@ -22,7 +22,7 @@ export function PostArtwork({ uri, label }: { uri: string; label: string }) {
       accessibilityLabel={label}
       source={{ uri }}
       resizeMode="contain"
-      style={{ width: "100%", aspectRatio: ratio, borderRadius: 20, backgroundColor: "#171513" }}
+      style={{ width: "100%", aspectRatio: ratio, borderRadius: uiLayout.photoRadius, backgroundColor: "#171513" }}
     />
   );
 }

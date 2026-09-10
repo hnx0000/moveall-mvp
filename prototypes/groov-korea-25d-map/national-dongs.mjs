@@ -70,6 +70,7 @@ export async function mountNationalDongs(
         },
       });
       map.on("click", `context-${key}-hit`, (event) => {
+        if (map.getContainer?.().dataset.savedPlacePicking === 'true') return;
         if (!isInteractive()) return;
         const entry = index[key].find((e) => e.code === event.features?.[0]?.properties?.code);
         if (entry) select(entry);
@@ -187,6 +188,7 @@ export async function mountNationalDongs(
   };
   map.on("moveend", schedule);
   map.on("click", "national-dong-tint", async (e) => {
+    if (map.getContainer?.().dataset.savedPlacePicking === 'true') return;
     if (!isInteractive() || map.getZoom() < 14.1) return;
     const code = e.features?.[0]?.properties?.adm_cd2;
     const entry = index.dong.find((d) => d.code === code);

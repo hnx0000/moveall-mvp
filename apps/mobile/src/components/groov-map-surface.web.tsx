@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef, useState } from "react";
+import { createElement, useEffect, useRef, useState } from "react"; import { uiLayout } from "../theme";
 import { acceptsMapMessage } from "../features/maps/map-state";
 import type { MapSurfaceProps } from "./groov-map-surface.types";
 
@@ -77,7 +77,7 @@ export function GroovMapSurface({ kind, compact = false, state, onMessage }: Map
               background: "#161616",
               color: "#ff5733",
               border: "1px solid #ff5733",
-              borderRadius: 12,
+              borderRadius: uiLayout.panelRadius,
               padding: 16,
             },
           },

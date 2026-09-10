@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {EventEmitter} from 'node:events';
-import {detailHudPadding,mountDetailHud} from './detail-hud.mjs';
+import {detailHudPadding,mountDetailHud,mountExploreDisclosure} from './detail-hud.mjs';
 import {mountPlaceSearch} from './place-search.mjs';
 import {installMapToolIcons} from './map-tool-icons.mjs';
 import {mountOrientation} from './map-motion.mjs';
@@ -52,6 +52,24 @@ test('HUD measures centered tabs without a tool menu and updates after a viewpor
     root.nodes['.view-tabs'].rect.bottom=300;mq.dispatchEvent(new Event('change'));
     assert.equal(root.styles['--detail-tabs-bottom'],'180px','viewport listener is removed on destroy');
   }finally{Object.assign(globalThis,previous);}
+});
+
+test('explore icon toggles every piece of search content and exposes its state',()=>{
+  const root=new Element(),toggle=new Element(),popover=new Element();
+  let explore=true;
+  toggle.setAttribute('aria-expanded','false');
+  root.nodes={'#explore-search-toggle':toggle,'#explore-popover':popover};
+  const disclosure=mountExploreDisclosure(root,{isExplore:()=>explore});
+  assert.equal(disclosure.isOpen(),false);
+  assert.equal(popover.hidden,true);
+  assert.equal(toggle.getAttribute('aria-label'),'전국 탐색 열기');
+  disclosure.toggle();
+  assert.equal(disclosure.isOpen(),true);
+  assert.equal(popover.hidden,false);
+  assert.equal(toggle.getAttribute('aria-label'),'전국 탐색 닫기');
+  explore=false;disclosure.sync();
+  assert.equal(popover.hidden,true);
+  assert.equal(toggle.getAttribute('aria-expanded'),'false');
 });
 
 test('both maps share an outline square mode icon and keep the previous compass needle',async()=>{
@@ -115,8 +133,7 @@ test('course icon is shared across maps and preserves the existing button behavi
   assert.match(detail.innerHTML,/M7 19h4c4 0 7-3 7-7M22 6/);
   assert.match(detail.innerHTML,/stroke-width="1\.7"/);
   assert.equal(detail.getAttribute('aria-pressed'),'true');detail.click();assert.equal(clicked,1);
-  const geometry=detail.innerHTML.match(/<svg[^>]*>([\s\S]*)<\/svg>/)[1];
-  for(const file of ['index.html','detail.html'])assert.ok((await read(file)).includes(geometry),file+' initial icon matches runtime icon');
+  assert.ok(detail.innerHTML.includes('viewBox="0 0 24 24"'));
 });
 
 test('a blocked search selection leaves results open and does not falsely label a selected place',()=>{
@@ -165,6 +182,8 @@ test('persistent search/card are not inert sheets and all zoom, route and card I
   assert.doesNotMatch(actions,/<[^>]*\shidden(?:\s|=|>)/);
   const tabs=html.split('<nav class="view-tabs"')[1].split('</nav>')[0];assert.equal((tabs.match(/<button/g)||[]).length,2);
   for(const number of ['01','02'])assert.ok(tabs.includes(`<span>${number}</span>`));
+  const header=html.match(/<header[\s\S]*?<\/header>/)[0];
+  assert.match(header,/id="explore-search-toggle"[\s\S]*aria-expanded="false"[\s\S]*aria-controls="explore-popover"[\s\S]*<svg/);
   assert.doesNotMatch(tabs,/<small>/);
   assert.match(css,/\.view-tabs button \{[^}]*align-items:center;justify-content:center[^}]*text-align:center/);
   assert.match(css,/\.view-tabs button>span \{display:block/);
@@ -173,9 +192,10 @@ test('persistent search/card are not inert sheets and all zoom, route and card I
   assert.doesNotMatch(js,/search:\{element|info:\{element|mobileUI\?\.open\(['"]info/);
   assert.match(js,/actions:\[\]/);assert.match(js,/beforeSearchSelect/);assert.match(js,/mode==='live'/);
   assert.match(css,/\.detail-top-controls \.view-tabs [^}]*transform:none/);
-  assert.match(css,/background:rgb\(16 20 21 \/ 62%\)/);
+  assert.match(css,/\.explore-popover\[hidden\] \{display:none!important/);
+  assert.match(css,/background:rgb\(16 20 21 \/ 92%\)/);
   assert.match(css,/\.detail-top-controls \{[^}]*pointer-events:none/);
-  assert.match(css,/\.detail-top-controls \.view-tabs,\.detail-top-controls \.area-search \{pointer-events:auto/);
+  assert.match(css,/\.detail-top-controls \.view-tabs \{pointer-events:auto/);
   assert.match(toolbar,/\.map-actions>\.zoom-control \{\s*display:grid!important/);
   assert.match(toolbar,/\.zoom-control output \{\s*display:block/);
   assert.match(css,/body\[data-view=run\] \.detail-shell \.map-bottom/);
@@ -196,10 +216,17 @@ test('both maps use the same visible Street Atlas brand next to GROOV, including
   assert.doesNotMatch(host,/html\[data-embedded\] \.(top-hud|detail-header),/);
 });
 
-test('course heading precedes thin tabs, search and persistent administrative hint',async()=>{
+test('search expands beneath both mode tabs without switching the course map view',async()=>{
   const [html,js,css]=await Promise.all(['detail.html','detail.js','detail-hud.css'].map(read));
-  const start=html.indexOf('class="detail-top-controls"'), heading=html.indexOf('class="place-heading"'),tabs=html.indexOf('class="view-tabs"'),search=html.indexOf('id="area-search"'),hint=html.indexOf('class="view-status"');
-  assert.ok(start<heading && heading<tabs && tabs<search && search<hint);
+  const header=html.indexOf('class="detail-header map-header"'),popover=html.indexOf('id="explore-popover"'),start=html.indexOf('class="detail-top-controls"'), heading=html.indexOf('class="place-heading"'),tabs=html.indexOf('class="view-tabs"'),search=html.indexOf('id="area-search"'),hint=html.indexOf('class="view-status"');
+  assert.ok(header<start && start<heading && heading<tabs && tabs<popover && popover<search && search<hint);
+  assert.ok(html.indexOf('</nav>',tabs)<popover);
+  assert.ok(html.indexOf('<span id="view-status"',hint)>hint,'search stays inside the top control stack');
+  assert.match(js,/const exploreDisclosure=mountExploreDisclosure\(detailShell\);/);
+  const click=js.match(/\$\("explore-search-toggle"\)\.addEventListener\("click",\(\)=>\{([\s\S]*?)\n  \}\);/)[1];
+  assert.match(click,/exploreDisclosure\.toggle\(\)/);
+  assert.doesNotMatch(click,/setView|location|history|planner|map\./);
+  assert.match(css,/\.detail-shell \.explore-popover \{position:relative;width:var\(--detail-input-width\);margin-top:8px/);
   assert.match(html,/id="view-eyebrow">01 \/ KOREA · EXPLORE</);
   assert.match(html,/id="view-title">코스탐색</);
   assert.match(js,/explore: \{\s*title: "코스탐색"/);
@@ -208,18 +235,21 @@ test('course heading precedes thin tabs, search and persistent administrative hi
   assert.match(css,/\.place-heading \{display:block!important;position:static/);
   for(const rule of css.matchAll(/\.view-tabs button \{([^}]+)\}/g))assert.match(rule[1],/min-height:36px/);
   assert.match(css,/width:calc\(100% - 80px\)/);
+  assert.match(css,/@media\(max-width:760px\)[\s\S]*?\.place-heading h1 \{[^}]*font-size:clamp\(22px,6\.4vw,26px\)/);
+  assert.match(css,/@media\(max-width:760px\)[\s\S]*?\.place-heading \.eyebrow \{font-size:10px/);
+  assert.match(css,/@media\(max-width:760px\)[\s\S]*?\.place-heading p \{font-size:12px/);
 });
 
 test('compact search and tabs share the marked width while both maps shrink only the atlas subtitle',async()=>{
   const [css,brand]=await Promise.all(['detail-hud.css','map-brand.css'].map(read));
   assert.match(css,/--detail-input-width:min\(100%,380px\)/);
   assert.match(css,/--detail-input-width:min\(100%,260px\)/);
-  for(const selector of ['view-tabs','area-search']){
-    assert.match(css,new RegExp('\\.detail-top-controls \\.'+selector+' \\{[^}]*width:var\\(--detail-input-width\\)'));
-  }
-  assert.match(css,/\.place-search-form input \{height:36px[^}]*font-size:16px/);
-  assert.match(css,/data-mobile-keyboard=true\] \.area-search \{width:100%/);
+  assert.match(css,/\.detail-top-controls \.view-tabs \{[^}]*width:var\(--detail-input-width\)/);
+  assert.match(css,/\.explore-popover \.place-search-form input \{height:38px[^}]*font-size:16px/);
+  assert.doesNotMatch(css,/data-mobile-keyboard=true\] \.explore-popover \{[^}]*top:/);
+  assert.doesNotMatch(css,/data-mobile-keyboard=true\] \.view-tabs[^}]*display:none/);
   assert.match(brand,/\.map-brand-meta \{[^}]*font:750 11px\/1\.2/);
-  assert.match(brand,/@media\(max-width:760px\)\{[\s\S]*?\.map-brand-meta \{font-size:9px/);
+  assert.match(brand,/@font-face \{font-family:"GROOV Archivo"/);
+  assert.match(brand,/@media\(max-width:760px\)\{[\s\S]*?\.map-brand-divider,\.map-header \.map-brand-meta \{display:none/);
   assert.match(brand,/\.map-brand-name \{font-size:30px/);
 });

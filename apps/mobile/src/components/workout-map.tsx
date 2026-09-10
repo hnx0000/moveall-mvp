@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef } from "react"; import { uiLayout } from "../theme";
 import MapView, { Marker, Polyline, type LatLng } from "react-native-maps";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { mapFitPoints, splitRouteSegments } from "./workout-map-model";
@@ -214,7 +214,7 @@ function Endpoint({ color, label }: { color: string; label: string }) {
 const styles = StyleSheet.create({
   container: {
     height: 232,
-    borderRadius: 12,
+    borderRadius: uiLayout.panelRadius,
     overflow: "hidden",
     position: "relative",
   },
@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
     top: 12,
     minHeight: 27,
     paddingHorizontal: 10,
-    borderRadius: 14,
+    borderRadius: uiLayout.controlRadius,
     backgroundColor: "rgba(16,16,17,0.88)",
     flexDirection: "row",
     alignItems: "center",

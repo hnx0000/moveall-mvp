@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState } from "react"; import { uiLayout } from "../../src/theme";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { PostCreateInputSchema } from "@moveall/contracts";
@@ -58,7 +58,7 @@ export default function SavedDrafts() {
             style={{
               borderWidth: 1,
               borderColor: colors.primary,
-              borderRadius: 18,
+              borderRadius: uiLayout.panelRadius,
               padding: 18,
               gap: 14,
             }}

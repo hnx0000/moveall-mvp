@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { fonts } from "../theme";
+import { uiLayout, fonts } from "../theme";
 
 export default function GroovCityHeatNativeNotice() {
   const router = useRouter();
@@ -21,6 +21,6 @@ const styles = StyleSheet.create({
   eyebrow: { color: "#FF4D24", fontFamily: fonts.displayExtra, fontSize: 11, letterSpacing: 2 },
   title: { color: "#FFF8F4", fontFamily: fonts.bold, fontSize: 24, marginTop: 10 },
   copy: { color: "#A99A92", fontFamily: fonts.regular, fontSize: 14, marginTop: 8, textAlign: "center" },
-  button: { backgroundColor: "#FF4D24", borderRadius: 14, marginTop: 20, paddingHorizontal: 20, paddingVertical: 13 },
+  button: { backgroundColor: "#FF4D24", borderRadius: uiLayout.controlRadius, marginTop: 20, paddingHorizontal: 20, paddingVertical: 13 },
   buttonText: { color: "#080706", fontFamily: fonts.bold, fontSize: 14 },
 });

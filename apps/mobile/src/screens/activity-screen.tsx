@@ -7,7 +7,7 @@ import {
   type WorkoutSessionCreateInput,
 } from "@moveall/contracts";
 import { useFocusEffect, useRouter } from "expo-router";
-import * as Location from "expo-location";
+import { previewWorkoutLocation } from "../features/location/workout-location";
 import { MapPin } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -25,8 +25,8 @@ import {
 import { createMutationAttempt } from "../api/mutation-attempt";
 import { activeWorkouts } from "../features/location/active-workout-runtime";
 import type { ActiveWorkoutCheckpoint } from "../features/location/active-workout-recovery";
-import { readBackgroundTrack, stopBackgroundTrack } from "../features/location/background-location";
-import { mergeTrackPointSources } from "../features/location/gps-track";
+import { clearBackgroundTrack, readBackgroundTrack, stopBackgroundTrack } from "../features/location/background-location";
+import { recoverBackgroundWorkout } from "../features/location/recover-background-workout";
 import { pendingSaves, subscribePendingSaves } from "../api/pending-save-runtime";
 import { isNotificationIdentity } from "../features/notifications/push-lifecycle";
 import { api } from "../../src/api/client";
@@ -38,14 +38,14 @@ import {
 import { GroovCourseMap } from "../components/groov-course-map";
 import { type MapPoint } from "../components/workout-map.types";
 import { createGroovPulseAnimation, GroovPulseRings } from "../components/groov-pulse-rings";
-import { SportLogo } from "../../src/components/sport-logo";
+import { ActivitySportIcon } from "../components/activity-sport-icon";
 import { Card, CenterDialog, PrimaryButton, Screen, StatePanel } from "../../src/components/ui";
 import { postWorkoutSettings } from "../post-workout-settings";
 import { workoutPostRoute } from "../post-workout-preference";
 import { NotificationBell } from "../components/notification-bell";
 import { markRecordGoalAchieved, readRecordGoals, workoutMeetsRecordGoal } from "../../src/goals";
 import { useAsyncData } from "../../src/hooks/use-async-data";
-import { fonts, radius, shadows, space, typography, type ThemeColors } from "../../src/theme";
+import { uiLayout, fonts, radius, shadows, space, typography, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 import { sortWorkoutsForDisplay } from "../../src/workout-display";
 import { formatWorkoutClock, workoutDurationMilliseconds } from "../workout-duration";
@@ -137,6 +137,7 @@ export default function ActivityScreen() {
   const [completionMessage, setCompletionMessage] = useState<string | null>(null);
   const [savingRoutineId, setSavingRoutineId] = useState<string | null>(null);
   const [selectedSport, setSelectedSport] = useState<SportType>("running");
+  const [sportIgnition, setSportIgnition] = useState(0);
   const [recordingSport, setRecordingSport] = useState<SportType | null>(null);
   const [recoverable, setRecoverable] = useState<ActiveWorkoutCheckpoint | null>(null);
   const [restoredWorkout, setRestoredWorkout] = useState<ActiveWorkoutCheckpoint | null>(null);
@@ -210,14 +211,7 @@ export default function ActivityScreen() {
       }
       const buffered = await readBackgroundTrack(recoverable.id);
       if (!isNotificationIdentity(owner, epoch)) return;
-      // Only previously confirmed time; do not fabricate movement across process death.
-      const points = mergeTrackPointSources(
-        recoverable.points,
-        buffered.filter((p) => p.timestamp <= recoverable.savedAt),
-        recoverable.sport,
-        recoverable.pauseBoundaries,
-      );
-      const restored = { ...recoverable, points };
+      const restored = recoverBackgroundWorkout(recoverable, buffered);
       const accepted = await activeWorkouts.write(restored);
       if (!accepted) {
         await recoveryCheck();
@@ -320,22 +314,20 @@ export default function ActivityScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      void Promise.all([
-        Location.hasServicesEnabledAsync(),
-        Location.getForegroundPermissionsAsync(),
-      ])
-        .then(async ([servicesEnabled, permission]) => {
+      if (recordingSport) return;
+      void previewWorkoutLocation()
+        .then(location => {
           if (!active) return;
-          if (!servicesEnabled || !permission.granted) {
+          if (!location) {
             setPreviewLocation(undefined);
-            setGpsReadiness(!servicesEnabled ? "위치 서비스 꺼짐" : "시작 시 위치 권한 요청");
+            setGpsReadiness("시작 시 위치 권한 확인");
             return;
           }
-          setGpsReadiness("현재 위치 확인 중");
-          const location = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          if (!active) return;
+          if (Date.now() - location.timestamp > 15_000 || (location.coords.accuracy ?? Infinity) > 100) {
+            setPreviewLocation(undefined);
+            setGpsReadiness("GPS 정확도 확인 중 · 시작 시 다시 연결");
+            return;
+          }
           setPreviewLocation({
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
@@ -354,7 +346,7 @@ export default function ActivityScreen() {
       return () => {
         active = false;
       };
-    }, []),
+    }, [recordingSport]),
   );
 
   const todayWorkouts = useMemo(
@@ -601,13 +593,12 @@ export default function ActivityScreen() {
         ) : (
           <>
             <ScrollView
-              contentContainerStyle={styles.activitySportTabs}
+              contentContainerStyle={[styles.activitySportTabs, styles.activitySportIconSpacing]}
               horizontal
               showsHorizontalScrollIndicator={false}
             >
               {homeSportOrder.map((sport) => {
                 const active = selectedSport === sport;
-                const count = todayWorkouts.filter((workout) => workout.sport === sport).length;
                 return (
                   <Pressable
                     accessibilityLabel={`${sportLabels[sport]} 기록 보기`}
@@ -624,33 +615,20 @@ export default function ActivityScreen() {
                         ).blur?.();
                       }
                       setSelectedSport(sport);
+                      setSportIgnition((value) => value + 1);
                     }}
                     style={[
                       styles.activitySportIconTab,
-                      active && styles.activitySportIconTabActive,
                       recordingSport !== null && styles.recordingSelectionLocked,
                     ]}
                   >
                     <View style={styles.activitySportIconFrame}>
-                      <SportLogo selected={active} size={27} sport={sport} />
+                      <ActivitySportIcon
+                        selected={active}
+                        sport={sport}
+                        ignition={active ? sportIgnition : 0}
+                      />
                     </View>
-                    {count > 0 ? (
-                      <View
-                        style={[
-                          styles.activitySportCount,
-                          active && styles.activitySportCountActive,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.activitySportCountText,
-                            active && styles.activitySportCountTextActive,
-                          ]}
-                        >
-                          {count}
-                        </Text>
-                      </View>
-                    ) : null}
                   </Pressable>
                 );
               })}
@@ -707,8 +685,9 @@ export default function ActivityScreen() {
                 setRecoveryWorking(true);
                 const item = recoverable,
                   epoch = loginLifetime;
-                void activeWorkouts
-                  .complete(session.user.id, item.id)
+                void stopBackgroundTrack()
+                  .then(() => clearBackgroundTrack(item.id))
+                  .then(() => activeWorkouts.complete(item.owner, item.id))
                   .then(() => {
                     if (isNotificationIdentity(item.owner, epoch)) {
                       setConfirmDiscardRecovery(false);
@@ -1649,7 +1628,7 @@ function createStyles(colors: ThemeColors) {
       borderColor: colors.border,
       backgroundColor: colors.surface,
       padding: space[4],
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
     },
     noticeItem: {
       gap: 3,
@@ -1687,23 +1666,26 @@ function createStyles(colors: ThemeColors) {
     },
     activityDayCount: { color: colors.muted, fontFamily: fonts.medium, fontSize: 10 },
     recordSportDragSurface: { width: "100%", overflow: "hidden" },
-    activitySportTabs: { gap: 8, paddingTop: space[3], paddingBottom: space[3] },
+    activitySportTabs: {
+      flexGrow: 1,
+      justifyContent: "space-between",
+      gap: 4,
+      paddingTop: space[3],
+      paddingBottom: space[3],
+    },
+    activitySportIconSpacing: { justifyContent: "space-evenly", gap: 2 },
     activitySportIconTab: {
-      width: 46,
-      height: 46,
+      width: 44,
+      height: 44,
       padding: 0,
-      borderRadius: 23,
       alignItems: "center",
       justifyContent: "center",
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      outlineColor: "transparent",
-      outlineWidth: 0,
+      borderWidth: 0,
+      backgroundColor: "transparent",
     },
     activitySportIconFrame: {
-      width: 27,
-      height: 27,
+      width: 32,
+      height: 32,
       alignItems: "center",
       justifyContent: "center",
     },
@@ -1731,7 +1713,7 @@ function createStyles(colors: ThemeColors) {
     activitySportTab: {
       minHeight: 32,
       paddingHorizontal: 13,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.panelRadius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
@@ -1767,7 +1749,7 @@ function createStyles(colors: ThemeColors) {
     activityStartButton: {
       minHeight: 34,
       paddingHorizontal: 13,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
@@ -1778,7 +1760,7 @@ function createStyles(colors: ThemeColors) {
     cyclePanel: {
       marginTop: space[3],
       padding: space[3],
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surfaceMuted,
       gap: space[2],
     },
@@ -1793,7 +1775,7 @@ function createStyles(colors: ThemeColors) {
     cycleCheck: {
       width: 28,
       height: 28,
-      borderRadius: 8,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
@@ -1865,7 +1847,7 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: 10,
       paddingVertical: 6,
       backgroundColor: colors.primarySoft,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
     },
     recordCountText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
     distanceRow: { flexDirection: "row", alignItems: "flex-end", marginTop: 4 },
@@ -1932,7 +1914,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 44,
       alignItems: "center",
       justifyContent: "center",
-      borderRadius: radius.full,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.primary,
       marginTop: 10,
       paddingHorizontal: 28,
@@ -1944,7 +1926,7 @@ function createStyles(colors: ThemeColors) {
     },
     counter: {
       backgroundColor: colors.primarySoft,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       paddingHorizontal: 10,
       paddingVertical: 5,
     },
@@ -2012,7 +1994,7 @@ function createStyles(colors: ThemeColors) {
     historyStartButton: {
       minHeight: 38,
       marginTop: space[2],
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.hero,
       alignItems: "center",
       justifyContent: "center",
@@ -2096,7 +2078,7 @@ function createStyles(colors: ThemeColors) {
       paddingVertical: space[3],
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.surfaceMuted,
       color: colors.ink,
       fontFamily: fonts.regular,
@@ -2111,7 +2093,7 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: space[3],
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.surfaceMuted,
       color: colors.ink,
       fontFamily: fonts.semibold,
@@ -2125,7 +2107,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.surface,
     },
     recordSecondaryButtonText: { color: colors.ink, fontFamily: fonts.bold, fontSize: 10 },
@@ -2134,7 +2116,7 @@ function createStyles(colors: ThemeColors) {
       flex: 2,
       alignItems: "center",
       justifyContent: "center",
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
     },
     recordSaveButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },
@@ -2152,7 +2134,7 @@ function createStyles(colors: ThemeColors) {
       gap: space[3],
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       ...shadows.card,
     },
@@ -2178,7 +2160,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surfaceMuted,
     },
     recordDeleteCancelText: { color: colors.ink, fontFamily: fonts.bold, fontSize: 10 },
@@ -2187,7 +2169,7 @@ function createStyles(colors: ThemeColors) {
       flex: 1.4,
       alignItems: "center",
       justifyContent: "center",
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.danger,
     },
     recordDeleteButtonText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 10 },

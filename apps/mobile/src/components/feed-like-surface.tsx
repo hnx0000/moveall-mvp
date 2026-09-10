@@ -10,8 +10,9 @@ import {
   StyleSheet,
   View,
   type GestureResponderEvent,
+  type ViewStyle,
 } from "react-native";
-import { radius } from "../theme";
+import { uiLayout } from "../theme";
 import { useAppTheme } from "../theme-context";
 import {
   FeedLikeGesture,
@@ -26,11 +27,13 @@ export function FeedLikeSurface({
   label,
   liked,
   onLike,
-}: PropsWithChildren<{ label: string; liked: boolean; onLike: () => void }>) {
+  centerPulse = 0,
+}: PropsWithChildren<{ label: string; liked: boolean; onLike: () => void; centerPulse?: number }>) {
   const { colors } = useAppTheme();
   const gesture = useRef(new FeedLikeGesture()).current;
   const layout = useRef({ width: 0, height: 0 });
   const sequence = useRef(0);
+  const lastCenterPulse = useRef(centerPulse);
   const [pulses, setPulses] = useState<Pulse[]>([]);
   // Until the OS preference is known, choose the less animated fallback.
   const [reducedMotion, setReducedMotion] = useState(true);
@@ -74,8 +77,7 @@ export function FeedLikeSurface({
     setPulses((current) => current.filter((pulse) => pulse.id !== id));
   }, []);
 
-  function react(x = layout.current.width / 2, y = layout.current.height * 0.43) {
-    onLike();
+  const emitPulse = useCallback((x: number, y: number) => {
     const { width, height } = layout.current;
     if (width <= 0 || height <= 0) return;
     const pulse: Pulse = {
@@ -84,8 +86,19 @@ export function FeedLikeSurface({
       level: gesture.nextPulse(Date.now()),
       reduced: reducedMotion,
     };
-    // Keep outgoing waves alive, but bound the work during rapid repeated taps.
+    // Keep outgoing lights alive, but bound the work during rapid repeated taps.
     setPulses((current) => [...current.slice(-4), pulse]);
+  }, [gesture, reducedMotion]);
+
+  useEffect(() => {
+    if (centerPulse === lastCenterPulse.current) return;
+    lastCenterPulse.current = centerPulse;
+    if (centerPulse > 0) emitPulse(layout.current.width / 2, layout.current.height / 2);
+  }, [centerPulse, emitPulse]);
+
+  function react(x = layout.current.width / 2, y = layout.current.height * 0.43) {
+    onLike();
+    emitPulse(x, y);
   }
 
   function press(event: GestureResponderEvent) {
@@ -190,8 +203,7 @@ function LikePulse({
   onFinish: (id: number) => void;
 }) {
   const progress = useRef(new Animated.Value(0)).current;
-  const rings = 2 + Math.min(pulse.level, 3);
-  const duration = pulse.reduced ? 550 : 1000 + (rings - 1) * 88;
+  const duration = pulse.reduced ? 600 : 1100 + Math.min(pulse.level, 3) * 60;
   useEffect(() => {
     const animation = Animated.timing(progress, {
       toValue: 1,
@@ -214,74 +226,37 @@ function LikePulse({
   }
 
   const heartSize = (70 + pulse.level * 4) * pulse.unit;
-  const ringSize = 74 * pulse.unit;
+  const glow: ViewStyle = Platform.OS === "web"
+    ? ({ filter: `drop-shadow(0 0 3px ${color}) drop-shadow(0 0 9px ${color})` } as ViewStyle)
+    : { shadowColor: color, shadowOffset: { width: 0, height: 0 }, shadowRadius: 9, shadowOpacity: 0.9 };
   return (
     <View style={[styles.origin, { left: pulse.x, top: pulse.y }]}>
-      {!pulse.reduced ? (
-        <>
-          <Animated.View
-            style={[
-              styles.circle,
-              {
-                left: -80 * pulse.unit,
-                top: -80 * pulse.unit,
-                width: 160 * pulse.unit,
-                height: 160 * pulse.unit,
-                backgroundColor: color,
-                opacity: track([0, 180, 900], [0, 0.1, 0]),
-                transform: [{ scale: track([0, 900], [0.35, 1.6 + pulse.level * 0.14]) }],
-              },
-            ]}
-          />
-          {Array.from({ length: rings }, (_, index) => {
-            const delay = index * 88;
-            return (
-              <Animated.View
-                key={index}
-                style={[
-                  styles.circle,
-                  {
-                    left: -ringSize / 2,
-                    top: -ringSize / 2,
-                    width: ringSize,
-                    height: ringSize,
-                    borderColor: color,
-                    borderWidth: Math.max(1.2, 2.3 - index * 0.35),
-                    opacity: track([delay, delay + 150, delay + 1000], [0, 0.92, 0]),
-                    transform: [
-                      {
-                        scale: track(
-                          [delay, delay + 150, delay + 1000],
-                          [0.5, 0.78, 2.4 + pulse.level * 0.12 + index * 0.22],
-                        ),
-                      },
-                    ],
-                  },
-                ]}
-              />
-            );
-          })}
-        </>
-      ) : null}
       <Animated.View
         style={[
           styles.heart,
           {
             left: -heartSize / 2,
             top: -heartSize / 2,
+            width: heartSize,
+            height: heartSize,
+            // One soft ignition dip, then steady light. No repeating strobe.
             opacity: pulse.reduced
-              ? track([0, 410, 550], [0.95, 0.95, 0])
-              : track([0, 167, 446, 930], [0, 1, 1, 0]),
+              ? track([0, 440, duration], [0.95, 0.95, 0])
+              : track([0, 150, 240, 370, duration - 300, duration], [0, 0.85, 0.45, 1, 1, 0]),
             transform: pulse.reduced
               ? []
               : [
-                  { scale: track([0, 167, 279, 446, 930], [0.12, 1.22, 0.94, 1, 1.06]) },
-                  { translateY: track([0, 446, 930], [0, 0, -9]) },
+                  { scale: track([0, 370, duration], [0.9, 1, 1.03]) },
                 ],
           },
         ]}
       >
-        <Heart color={color} fill={color} size={heartSize} strokeWidth={1.2} />
+        <View style={[StyleSheet.absoluteFill, glow]}>
+          <Heart style={StyleSheet.absoluteFill} color={color} fill="none" size={heartSize} strokeWidth={7} opacity={0.13} />
+          <Heart style={StyleSheet.absoluteFill} color={color} fill="none" size={heartSize} strokeWidth={4.5} opacity={0.35} />
+          <Heart style={StyleSheet.absoluteFill} color={color} fill="none" size={heartSize} strokeWidth={2.7} />
+          <Heart style={StyleSheet.absoluteFill} color="#FFF2DB" fill="none" size={heartSize} strokeWidth={1.15} />
+        </View>
       </Animated.View>
     </View>
   );
@@ -290,13 +265,12 @@ function LikePulse({
 const styles = StyleSheet.create({
   surface: {
     width: "100%",
-    borderRadius: radius["2xl"],
+    borderRadius: uiLayout.photoRadius,
     overflow: "hidden",
     ...(Platform.OS === "web"
       ? ({ touchAction: "manipulation", userSelect: "none" } as const)
       : {}),
   },
   origin: { position: "absolute", width: 0, height: 0 },
-  circle: { position: "absolute", borderRadius: 999 },
   heart: { position: "absolute" },
 });

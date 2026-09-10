@@ -59,6 +59,58 @@ import {
 } from "../domain/league.js";
 
 export class MemoryStore implements AppStore {
+  private readonly savedPlaces = new Map<string, import("@moveall/contracts").SavedPlace[]>();
+  async listSavedPlaces(userId: string) {
+    return this.savedPlaces.get(userId) ?? [];
+  }
+  async savePlace(userId: string, input: import("@moveall/contracts").SavedPlaceInput) {
+    this.savedPlaces.set(userId, [
+      ...(await this.listSavedPlaces(userId)),
+      { ...input, id: randomUUID() },
+    ]);
+  }
+  async deletePlace(userId: string, id: string) {
+    this.savedPlaces.set(
+      userId,
+      (await this.listSavedPlaces(userId)).filter((place) => place.id !== id),
+    );
+  }
+  private readonly plannerEntries: import("@moveall/contracts").PlannerEntry[] = [];
+  async listPlannerEntries(userId: string, month: string) {
+    return this.plannerEntries
+      .filter(
+        (entry) =>
+          entry.date.startsWith(month) &&
+          !this.isBlockedPair(userId, entry.userId) &&
+          (entry.userId === userId || entry.sharedWith.includes(userId)),
+      )
+      .map((entry) => ({
+        ...entry,
+        sharedWith: [],
+        crewIds: entry.userId === userId ? entry.crewIds : [],
+      }));
+  }
+  async createPlannerEntry(userId: string, input: import("@moveall/contracts").PlannerEntryInput) {
+    const crews = await this.listSharingCrews(userId);
+    if (input.crewIds.some((id) => !crews.some((crew) => crew.id === id)))
+      throw new AppError(400, "INVALID_CREW", "공유할 크루를 확인해 주세요.");
+    const entry = {
+      ...input,
+      id: randomUUID(),
+      userId,
+      displayName: this.users.get(userId)?.displayName ?? "크루",
+      sharedWith: [
+        ...new Set(
+          crews.filter((crew) => input.crewIds.includes(crew.id)).flatMap((crew) => crew.memberIds),
+        ),
+      ],
+    };
+    this.plannerEntries.push(entry);
+    return { ...entry, sharedWith: [] };
+  }
+  async deletePlannerEntry(userId: string, id: string) {
+    this.removeWhere(this.plannerEntries, (entry) => entry.id === id && entry.userId === userId);
+  }
   private readonly operations = new MemoryOperationLedger();
   private readonly users = new Map<string, User>();
   private readonly routines: Routine[] = [];
@@ -202,6 +254,10 @@ export class MemoryStore implements AppStore {
     this.removeWhere(this.leagueEntries, (item) => item.userId === userId);
     this.removeWhere(this.posts, (item) => item.userId === userId);
     this.removeWhere(this.sharingCrews, (item) => item.userId === userId);
+    this.removeWhere(this.plannerEntries, (item) => item.userId === userId);
+    this.savedPlaces.delete(userId);
+    for (const entry of this.plannerEntries)
+      entry.sharedWith = entry.sharedWith.filter((id) => id !== userId);
     for (const crew of this.sharingCrews)
       crew.memberIds = crew.memberIds.filter((id) => id !== userId);
     for (const post of this.posts) {

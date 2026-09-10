@@ -1,3 +1,4 @@
+import { Wordmark } from "../src/components/ui";
 import {
   sportLabels,
   sportValues,
@@ -23,7 +24,7 @@ import {
 } from "react-native";
 import { useAuth } from "../src/auth/auth-context";
 import { saveNeighborhoodPreferences } from "../src/neighborhood-preferences";
-import { fonts, type ThemeColors } from "../src/theme";
+import { uiLayout, fonts, maxContentWidth, type ThemeColors } from "../src/theme";
 import { useAppTheme } from "../src/theme-context";
 
 const steps = ["사용 목적", "주 운동", "현재 수준", "목표", "동네 인증"] as const;
@@ -242,7 +243,7 @@ export function OnboardingFlow({ preview = false }: { preview?: boolean }) {
             >
               <ChevronLeft color={colors.ink} size={19} />
             </Pressable>
-            <Text style={styles.brand}>GROOV</Text>
+            <Wordmark />
             <Text style={styles.stepCount}>
               {step + 1} / {steps.length}
             </Text>
@@ -491,7 +492,7 @@ export function OnboardingFlow({ preview = false }: { preview?: boolean }) {
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
-    previewBanner: { paddingHorizontal: 24, paddingTop: 12, backgroundColor: colors.surface },
+    previewBanner: { paddingHorizontal: uiLayout.pageInset, paddingTop: 12, backgroundColor: colors.surface },
     previewNote: {
       color: colors.primary,
       fontFamily: fonts.regular,
@@ -499,8 +500,8 @@ function createStyles(colors: ThemeColors) {
       textAlign: "center",
     },
     safeArea: { flex: 1, backgroundColor: colors.background },
-    shell: { flex: 1, width: "100%", maxWidth: 448, alignSelf: "center" },
-    header: { paddingHorizontal: 24, paddingTop: 18, gap: 14 },
+    shell: { flex: 1, width: "100%", maxWidth: maxContentWidth, alignSelf: "center" },
+    header: { paddingHorizontal: uiLayout.pageInset, paddingTop: 18, gap: 14 },
     headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     backButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
     backButtonHidden: { opacity: 0 },
@@ -524,7 +525,7 @@ function createStyles(colors: ThemeColors) {
       overflow: "hidden",
     },
     progressFill: { height: "100%", borderRadius: 2, backgroundColor: colors.primary },
-    content: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 38, paddingBottom: 24 },
+    content: { flexGrow: 1, paddingHorizontal: uiLayout.pageInset, paddingTop: 26, paddingBottom: 24 },
     eyebrow: {
       color: colors.primary,
       fontFamily: fonts.display,
@@ -535,9 +536,9 @@ function createStyles(colors: ThemeColors) {
     title: {
       color: colors.ink,
       fontFamily: fonts.bold,
-      fontSize: 28,
-      lineHeight: 38,
-      letterSpacing: -1.2,
+      fontSize: 24,
+      lineHeight: 34,
+      letterSpacing: -0.5,
     },
     description: {
       color: colors.muted,
@@ -553,7 +554,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 106,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 16,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       padding: 15,
       justifyContent: "flex-end",
@@ -581,7 +582,7 @@ function createStyles(colors: ThemeColors) {
       top: 12,
       width: 21,
       height: 21,
-      borderRadius: 11,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -593,7 +594,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 78,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 16,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       paddingHorizontal: 17,
       flexDirection: "row",
@@ -624,7 +625,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 112,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 18,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       padding: 18,
       flexDirection: "row",
@@ -658,7 +659,7 @@ function createStyles(colors: ThemeColors) {
       marginTop: 18,
     },
     footer: {
-      paddingHorizontal: 24,
+      paddingHorizontal: uiLayout.pageInset,
       paddingTop: 10,
       paddingBottom: 26,
       gap: 5,
@@ -668,7 +669,7 @@ function createStyles(colors: ThemeColors) {
     },
     primaryButton: {
       minHeight: 56,
-      borderRadius: 14,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",

@@ -4,11 +4,11 @@ import { ChevronLeft, Flame, ShieldCheck, Trophy } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
 import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { GroovRankingMap } from "../src/components/groov-map-frame";
-import { api } from "../src/api/client";
+import { api, usePreviewApi } from "../src/api/client";
 import { useAuth } from "../src/auth/auth-context";
 import { Screen, StatePanel } from "../src/components/ui";
 import { koreaMunicipalities, type KoreaMunicipality } from "../src/assets/korea-municipal-paths";
-import { fonts, radius, type ThemeColors } from "../src/theme";
+import { uiLayout, fonts, radius, type ThemeColors } from "../src/theme";
 import { useAppTheme } from "../src/theme-context";
 
 const sports = ["전체", "러닝", "근력", "사이클", "등산", "수영", "다이빙"] as const;
@@ -151,7 +151,7 @@ export default function LeagueRegionScreen() {
           <ChevronLeft color={colors.ink} size={25} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={styles.eyebrow}>MUNICIPAL LEAGUE / LIVE</Text>
+          <Text style={styles.eyebrow}>{usePreviewApi ? "MUNICIPAL LEAGUE / DEMO" : "MUNICIPAL LEAGUE / LIVE"}</Text>
           <Text style={styles.title}>지역 리그</Text>
         </View>
         <Pressable onPress={selectMyRegion}>
@@ -161,7 +161,7 @@ export default function LeagueRegionScreen() {
       <View style={styles.intro}>
         <View>
           <Text style={styles.introTitle}>움직임이 도시를 달군다</Text>
-          <Text style={styles.introCopy}>운동 저장 즉시 서버 집계 · 3초 간격 순위 갱신</Text>
+          <Text style={styles.introCopy}>{usePreviewApi ? "가상 운동 기록으로 계산한 샘플 점수와 순위입니다" : "운동 저장 즉시 서버 집계 · 3초 간격 순위 갱신"}</Text>
         </View>
         <Flame color={colors.primary} fill={colors.primary} size={25} />
       </View>
@@ -286,8 +286,9 @@ export default function LeagueRegionScreen() {
       <View style={styles.notice}>
         <ShieldCheck color={colors.primary} size={19} />
         <Text style={styles.noticeText}>
-          지도 경계는 통계청 시군구 자료를 단순화한 시각 정보입니다. 점수·인원·참여율·순위는 서버의
-          실제 운동 원장에서 집계하며, 사용자의 정확한 위치와 운동 경로는 공개하지 않습니다.
+          {usePreviewApi
+            ? "지도 경계는 통계청 시군구 자료를 단순화한 시각 정보입니다. 현재 점수·인원·참여율·순위는 가상 운동 기록을 바탕으로 한 데모이며 실제 지역 순위가 아닙니다."
+            : "지도 경계는 통계청 시군구 자료를 단순화한 시각 정보입니다. 점수·인원·참여율·순위는 서버의 실제 운동 원장에서 집계하며, 사용자의 정확한 위치와 운동 경로는 공개하지 않습니다."}
         </Text>
       </View>
     </Screen>
@@ -366,7 +367,7 @@ function createStyles(colors: ThemeColors) {
     introCopy: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9, marginTop: 3 },
     filters: { gap: 6 },
     filter: {
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       paddingHorizontal: 12,
@@ -377,7 +378,7 @@ function createStyles(colors: ThemeColors) {
     filterText: { color: colors.muted, fontFamily: fonts.medium, fontSize: 9 },
     filterTextActive: { color: colors.primary, fontFamily: fonts.bold },
     panel: {
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.panelRadius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
@@ -478,7 +479,7 @@ function createStyles(colors: ThemeColors) {
       borderWidth: 1,
       borderStyle: "dashed",
       borderColor: colors.border,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.panelRadius,
       padding: 14,
     },
     noticeText: {

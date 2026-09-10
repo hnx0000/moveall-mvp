@@ -36,7 +36,7 @@ export const characters: readonly Character[] = [
     gender: "female",
     sport: "swimming",
     sportLabel: "수영",
-    handle: "seoa.inwater",
+    handle: "seoa_yoon",
     bio: "출근 전 물속 한 시간 🏊 작은 리듬을 쌓아요.",
     concept:
       "출근 전 수영장을 찾는 아침형. 청량하고 단정하며, 운동 직후의 잔머리와 홍조가 자연스러운 매력.",
@@ -99,7 +99,7 @@ export const characters: readonly Character[] = [
     gender: "female",
     sport: "hiking",
     sportLabel: "등산",
-    handle: "jiyu.ontrail",
+    handle: "jiyu.trail",
     bio: "주말엔 산으로 🌿 올라갈 땐 천천히, 풍경은 오래.",
     concept: "기록보다 풍경과 함께 걷는 시간을 즐기는 주말 등산인. 시원한 웃음과 털털한 성격.",
     appearance:
@@ -161,7 +161,7 @@ export const characters: readonly Character[] = [
     gender: "female",
     sport: "running",
     sportLabel: "러닝",
-    handle: "nakyung.run",
+    handle: "na_kyung",
     bio: "퇴근 후 한강, 주말엔 트랙 🏃‍♀️ 오늘의 리듬을 기록해요.",
     concept: "평일 저녁 한강 러닝과 주말 크루 모임을 즐기는 도시적인 러너. 세련되고 활기찬 분위기.",
     appearance:
@@ -220,7 +220,7 @@ export const characters: readonly Character[] = [
     gender: "female",
     sport: "diving",
     sportLabel: "프리다이빙",
-    handle: "haerin.belowblue",
+    handle: "hailey_run",
     bio: "버디와 함께 바다로 🌊 물빛과 작은 순간을 남겨요.",
     concept:
       "평소에는 차분하지만 바다에서 밝아지는 프리다이버. 파란 바다, 젖은 머리와 잠수복 질감이 피드의 중심.",
@@ -280,7 +280,7 @@ export const characters: readonly Character[] = [
     gender: "male",
     sport: "strength",
     sportLabel: "헬스",
-    handle: "dohyun.lifts",
+    handle: "dohyun.k",
     bio: "웨이트와 회복을 꾸준히. 오늘 할 만큼, 정확하게.",
     concept:
       "꾸준한 웨이트 기록을 올리는 타입. 또렷한 인상이지만 웃으면 편안해진다. 과장된 보디빌더 체형은 아님.",
@@ -343,7 +343,7 @@ export const characters: readonly Character[] = [
     gender: "male",
     sport: "cycling",
     sportLabel: "사이클",
-    handle: "taeo.onwheels",
+    handle: "taeo_ride",
     bio: "아침 라이딩과 커피 한 잔 🚲 페달 위의 주말.",
     concept:
       "이른 아침 라이딩과 라이딩 후 카페를 즐기는 타입. 도현보다 슬림한 상체와 발달한 하체. 깔끔하고 차분한 미소.",

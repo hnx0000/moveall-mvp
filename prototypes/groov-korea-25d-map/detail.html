@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="mobile-map.css" />
     <link rel="stylesheet" href="detail-hud.css" />
     <link rel="stylesheet" href="course-panel.css" />
+    <link rel="stylesheet" href="saved-places.css" />
     <link rel="stylesheet" href="map-toolbar.css" />
     <link rel="stylesheet" href="map-brand.css" />
   </head>
@@ -25,9 +26,22 @@
           <div class="map-brand-meta">STREET ATLAS <span>2.5D</span></div>
         </div>
         <a class="national-link" href="./">랭킹지도 ↗</a>
+        <button
+          id="explore-search-toggle"
+          class="header-search-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="explore-popover"
+          aria-label="전국 탐색 열기"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="10.75" cy="10.75" r="6.25"></circle>
+            <path d="m15.5 15.5 4 4"></path>
+          </svg>
+        </button>
       </header>
       <section class="detail-top-controls" aria-label="지도 탐색">
-      <section class="place-heading" aria-live="polite">
+      <section id="explore-heading" class="place-heading" aria-live="polite">
         <span class="eyebrow" id="view-eyebrow">01 / KOREA · EXPLORE</span>
         <h1 id="view-title">코스탐색</h1>
         <p id="view-description">달리고 싶은 곳을 찾고, 나만의 코스를 그려보세요.</p>
@@ -40,10 +54,12 @@
           <span>02</span><b>코스 · 러닝</b>
         </button>
       </nav>
-      <div id="area-search" class="area-search"></div>
-      <div class="view-status" aria-label="행정구역 탐색 범위">
-        <i aria-hidden="true"></i><span>시·군·구 → 읍·면·동</span>
-      </div>
+      <section id="explore-popover" class="explore-popover" aria-label="전국 탐색 검색" hidden>
+        <div id="area-search" class="area-search"></div>
+        <div id="explore-status" class="view-status" aria-label="행정구역 탐색 범위">
+          <i aria-hidden="true"></i><span>시·군·구 → 읍·면·동</span>
+        </div>
+      </section>
       <span id="view-status" hidden></span>
       </section>
       <div class="map-actions" aria-label="지도 조작">

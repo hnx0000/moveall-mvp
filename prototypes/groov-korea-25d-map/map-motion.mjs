@@ -1,6 +1,8 @@
+import { mountSavedPlaces } from './saved-places.mjs';
 const reduced = () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 export function mountOrientation(map, tiltButton, compassButton, defaultPitch = 48) {
+  mountSavedPlaces(map, tiltButton.parentElement);
   let target = null;
   const camera = () => target || { pitch: map.getPitch(), bearing: map.getBearing() };
   const sync = () => {
@@ -20,9 +22,27 @@ export function mountOrientation(map, tiltButton, compassButton, defaultPitch = 
     sync();
     map.easeTo({ ...next, duration: reduced() ? 0 : 650 });
   };
-  tiltButton.addEventListener("click", () =>
-    turn({ ...camera(), pitch: camera().pitch > 1 ? 0 : defaultPitch }),
-  );
+  let holdTimer, holding = false, held = false, startY = 0, startPitch = 0;
+  tiltButton.style.touchAction = 'none';
+  tiltButton.addEventListener('pointerdown', event => {
+    held = false; startY = event.clientY; startPitch = map.getPitch();
+    tiltButton.setPointerCapture?.(event.pointerId);
+    holdTimer = setTimeout(() => { holding = true; held = true; map.stop(); target = null; }, 380);
+  });
+  tiltButton.addEventListener('pointermove', event => {
+    if (!holding) return;
+    map.jumpTo({ pitch: Math.max(0, Math.min(65, startPitch + (startY - event.clientY) * .5)) });
+  });
+  const release = () => { clearTimeout(holdTimer); holding = false; };
+  tiltButton.addEventListener('pointerup', release);
+  tiltButton.addEventListener('pointercancel', release);
+  tiltButton.addEventListener('lostpointercapture', release);
+  tiltButton.addEventListener('contextmenu', event => event.preventDefault());
+  tiltButton.addEventListener("click", () => {
+    if (held) { held = false; return; }
+    turn({ ...camera(), pitch: camera().pitch > 1 ? 0 : defaultPitch });
+  });
+  tiltButton.setAttribute('aria-description', '누르면 2.5D 전환, 길게 누른 채 위아래로 움직이면 각도 조절');
   compassButton?.addEventListener("click", () => turn({ ...camera(), bearing: 0 }));
   map.on("movestart", (event) => {
     if (event.originalEvent) target = null;

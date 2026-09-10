@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native"; import { uiLayout } from "../theme";
 import type { ThemeColors } from "../theme";
 
 export function RunningArtwork({
@@ -57,11 +57,11 @@ function createStyles(colors: ThemeColors) {
     scene: {
       height: 232,
       overflow: "hidden",
-      borderRadius: 8,
+      borderRadius: uiLayout.photoRadius,
       backgroundColor: colors.map,
       position: "relative",
     },
-    sceneCompact: { height: 92, borderRadius: 7 },
+    sceneCompact: { height: 92, borderRadius: uiLayout.photoRadius },
     sun: {
       position: "absolute",
       right: "12%",
@@ -125,7 +125,7 @@ function createStyles(colors: ThemeColors) {
     article: {
       width: 74,
       height: 74,
-      borderRadius: 7,
+      borderRadius: uiLayout.panelRadius,
       overflow: "hidden",
       alignItems: "center",
       justifyContent: "center",

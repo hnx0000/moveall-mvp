@@ -6,7 +6,7 @@ import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { useAsyncData } from "../../src/hooks/use-async-data";
 import { Screen } from "../../src/components/ui";
-import { fonts } from "../../src/theme";
+import { uiLayout, fonts } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
 export default function ProductInsightsScreen() {
@@ -131,11 +131,11 @@ const s = StyleSheet.create({
   row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 12 },
   body: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 22 },
   section: { gap: 14 },
-  chip: { paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderRadius: 12 },
-  notice: { padding: 16, borderRadius: 16 },
-  summary: { padding: 20, gap: 10, borderWidth: 1, borderRadius: 18 },
+  chip: { paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderRadius: uiLayout.controlRadius },
+  notice: { padding: 16, borderRadius: uiLayout.panelRadius },
+  summary: { padding: 20, gap: 10, borderWidth: 1, borderRadius: uiLayout.panelRadius },
   total: { fontFamily: fonts.bold, fontSize: 26 },
-  metric: { padding: 18, gap: 10, borderWidth: 1, borderRadius: 16 },
+  metric: { padding: 18, gap: 10, borderWidth: 1, borderRadius: uiLayout.panelRadius },
   metricName: { fontFamily: fonts.semibold, fontSize: 16 },
   percent: { fontFamily: fonts.displayExtra, fontSize: 24 },
   track: { height: 7, borderRadius: 4, overflow: "hidden" },

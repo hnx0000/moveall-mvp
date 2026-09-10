@@ -12,13 +12,17 @@ import {
   type WorkoutSession,
 } from "@moveall/contracts";
 import * as ImagePicker from "expo-image-picker";
-import * as ImageManipulator from "expo-image-manipulator";
+import { AvatarEditor } from "../../src/components/avatar-editor";
+import { AchievementMedal, medalProgressPercent } from "../../src/components/achievement-medal";
+import { ReorderableList } from "../../src/components/reorderable-list";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { Settings } from "lucide-react-native";
-import { useCallback, useMemo, useState } from "react";
+import { ArrowRight, Camera, ChevronRight, Images, Plus, Settings, X } from "lucide-react-native";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  Modal,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -26,14 +30,14 @@ import {
   Switch,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { ApiError, api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
-import { CenterDialog } from "../../src/components/ui";
-import {
+import { CenterDialog, Wordmark } from "../../src/components/ui";
+import { uiLayout,
   fonts,
-  maxContentWidth,
   radius,
   shadows,
   typography,
@@ -43,6 +47,7 @@ import { useAppTheme } from "../../src/theme-context";
 
 type ProfileTab = "posts" | "routines";
 type RoutineDraftItem = {
+  draftId: string;
   name: string;
   target: string;
   repetitions: string;
@@ -52,7 +57,9 @@ type RoutineDraftItem = {
 };
 
 const routineSports = sportValues;
+let routineDraftSequence = 0;
 const emptyRoutineItem = (): RoutineDraftItem => ({
+  draftId: `routine-draft-${++routineDraftSequence}`,
   name: "",
   target: "",
   repetitions: "",
@@ -67,6 +74,7 @@ function strengthRoutineTarget(item: RoutineDraftItem) {
 
 function parseStrengthRoutineTarget(name: string, target: string): RoutineDraftItem {
   return {
+    ...emptyRoutineItem(),
     name,
     target,
     repetitions: target.match(/(\d+(?:\.\d+)?)\s*회/)?.[1] ?? "",
@@ -84,19 +92,26 @@ const emptySocial: SocialSummary = {
 };
 
 export default function ProfileScreen() {
+  const routineScrollView = useRef<ScrollView>(null);
+  const routineScrollMetrics = useRef({ offset: 0, height: 0, contentHeight: 0 });
+  const routineScroll = { view: routineScrollView, metrics: routineScrollMetrics };
   const router = useRouter();
   const params = useLocalSearchParams<{ tab?: string }>();
+  const { width: viewportWidth } = useWindowDimensions();
   const { colors, mode, setMode } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createStyles(colors, Math.min(viewportWidth, 430)), [colors, viewportWidth]);
   const { session, logout, updateUser } = useAuth();
   const [tab, setTab] = useState<ProfileTab>(params.tab === "routines" ? "routines" : "posts");
   const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [medals, setMedals] = useState<Medal[]>([]);
+  const [showAllMedals, setShowAllMedals] = useState(false);
   const [social, setSocial] = useState<SocialSummary>(emptySocial);
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const pendingAvatarSource = useRef<"camera" | "library" | null>(null);
+  const [pendingPhoto, setPendingPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [temporarySettingsOpen, setTemporarySettingsOpen] = useState(false);
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState("");
@@ -109,6 +124,8 @@ export default function ProfileScreen() {
   const [routineMessage, setRoutineMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingRoutine, setSavingRoutine] = useState(false);
+  const [draggingRoutine, setDraggingRoutine] = useState(false);
+  const [reorderingRoutine, setReorderingRoutine] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadProfile = useCallback(async () => {
@@ -191,15 +208,15 @@ export default function ProfileScreen() {
     const result =
       source === "camera"
         ? await ImagePicker.launchCameraAsync({
-            allowsEditing: true,
+            allowsEditing: false,
             aspect: [1, 1],
-            quality: 0.35,
+            quality: 1,
           })
         : await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ["images"],
-            allowsEditing: true,
+            allowsEditing: false,
             aspect: [1, 1],
-            quality: 0.35,
+            quality: 1,
           });
     if (result.canceled) return;
     const asset = result.assets[0];
@@ -207,23 +224,31 @@ export default function ProfileScreen() {
       setError("사진을 처리하지 못했습니다. 다른 사진을 선택해 주세요.");
       return;
     }
-    const sanitized = await ImageManipulator.manipulateAsync(
-      asset.uri,
-      [{ resize: { width: 512, height: 512 } }],
-      { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG, base64: true },
-    ).catch(() => null);
-    if (!sanitized?.base64) {
-      setError("사진을 처리하지 못했습니다. 다른 사진을 선택해 주세요.");
-      return;
-    }
-    const avatarDataUri = `data:image/jpeg;base64,${sanitized.base64}`;
+    setPendingPhoto(asset);
+    setAvatarMenuOpen(false);
+  };
+
+  const launchAvatarSource = (source: "camera" | "library") => {
+    void changeAvatar(source).catch(() =>
+      setError(source === "camera" ? "카메라를 열지 못했습니다. 다시 시도해 주세요." : "사진첩을 열지 못했습니다. 다시 시도해 주세요."),
+    );
+  };
+
+  const selectAvatarSource = (source: "camera" | "library") => {
+    setAvatarMenuOpen(false);
+    // iOS must finish dismissing this modal before presenting the native picker.
+    if (Platform.OS === "ios") pendingAvatarSource.current = source;
+    else launchAvatarSource(source);
+  };
+
+  const saveAvatar = async (avatarDataUri: string) => {
+    if (!session) throw new Error("로그인이 필요합니다.");
     setSavingProfile(true);
     try {
       const nextProfile = await api.updateProfile(session.accessToken, { avatarDataUri });
       setProfile(nextProfile);
       setAvatarMenuOpen(false);
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "프로필 사진을 변경하지 못했습니다.");
+      setPendingPhoto(null);
     } finally {
       setSavingProfile(false);
     }
@@ -336,12 +361,9 @@ export default function ProfileScreen() {
     }
   };
 
-  const moveRoutine = async (index: number, direction: -1 | 1) => {
-    if (!session) return;
-    const target = index + direction;
-    if (target < 0 || target >= routines.length) return;
-    const next = [...routines];
-    [next[index], next[target]] = [next[target]!, next[index]!];
+  const reorderRoutines = async (next: Routine[]) => {
+    if (!session || reorderingRoutine) return;
+    setReorderingRoutine(true);
     setRoutines(next);
     try {
       const ordered = await api.reorderRoutines(session.accessToken, {
@@ -352,6 +374,8 @@ export default function ProfileScreen() {
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "순서를 변경하지 못했습니다.");
       await loadProfile();
+    } finally {
+      setReorderingRoutine(false);
     }
   };
 
@@ -361,20 +385,43 @@ export default function ProfileScreen() {
     );
   };
 
-  const moveRoutineItem = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= routineItems.length) return;
-    setRoutineItems((current) => {
-      const next = [...current];
-      [next[index], next[target]] = [next[target]!, next[index]!];
-      return next;
-    });
-  };
-
   if (!session) return null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <Modal transparent animationType="fade" statusBarTranslucent visible={avatarMenuOpen}
+        onRequestClose={() => setAvatarMenuOpen(false)}
+        onDismiss={() => {
+          const source = pendingAvatarSource.current;
+          pendingAvatarSource.current = null;
+          if (source) launchAvatarSource(source);
+        }}>
+        <View style={styles.avatarMenuBackdrop} accessibilityViewIsModal>
+          <Pressable accessibilityRole="button" accessibilityLabel="프로필 사진 선택 닫기"
+            onPress={() => setAvatarMenuOpen(false)} style={StyleSheet.absoluteFill} />
+          <View style={styles.avatarMenu}>
+            <View style={styles.avatarMenuHeader}>
+              <Text accessibilityRole="header" style={styles.avatarMenuTitle}>프로필 사진</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="닫기"
+                onPress={() => setAvatarMenuOpen(false)} style={styles.avatarMenuClose}>
+                <X size={19} strokeWidth={1.6} color={colors.muted} />
+              </Pressable>
+            </View>
+            <View style={styles.avatarMenuActions}>
+              <Pressable accessibilityRole="button" onPress={() => selectAvatarSource("camera")}
+                style={({ pressed }) => [styles.avatarMenuButton, pressed && styles.avatarMenuButtonPressed]}>
+                <Camera size={23} strokeWidth={1.5} color={colors.primary} />
+                <Text style={styles.avatarMenuButtonText}>카메라</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" onPress={() => selectAvatarSource("library")}
+                style={({ pressed }) => [styles.avatarMenuButton, pressed && styles.avatarMenuButtonPressed]}>
+                <Images size={23} strokeWidth={1.5} color={colors.primary} />
+                <Text style={styles.avatarMenuButtonText}>사진첩</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <CenterDialog
         busy={savingRoutine}
         confirmLabel={savingRoutine ? "제거 중" : "루틴 제거"}
@@ -404,41 +451,54 @@ export default function ProfileScreen() {
         title="처리했습니다"
         visible={routineMessage !== null && error === null && pendingDeleteRoutine === null}
       />
-      <ScrollView contentContainerStyle={styles.page}>
+      <ScrollView ref={routineScrollView} contentContainerStyle={styles.page} scrollEnabled={!draggingRoutine}
+        scrollEventThrottle={16}
+        onContentSizeChange={(_width, height) => { routineScrollMetrics.current.contentHeight = height; }}
+        onLayout={event => { routineScrollMetrics.current.height = event.nativeEvent.layout.height; }}
+        onScroll={event => { routineScrollMetrics.current.offset = event.nativeEvent.contentOffset.y; }}>
+        {pendingPhoto ? (
+          <AvatarEditor
+            photo={pendingPhoto}
+            onCancel={() => setPendingPhoto(null)}
+            onSave={saveAvatar}
+          />
+        ) : null}
         <View style={styles.topBar}>
-          <Text style={styles.brand}>GROOV</Text>
+          <View>
+            <View style={styles.brandWordmarkBox}><Wordmark size={24} /></View>
+          </View>
           <Pressable
-            accessibilityLabel="임시 설정 메뉴"
+            accessibilityLabel="설정 메뉴"
+            accessibilityRole="button"
+            accessibilityState={{ expanded: temporarySettingsOpen }}
+            hitSlop={5}
             onPress={() => setTemporarySettingsOpen((current) => !current)}
             style={styles.settingsButton}
           >
-            <Settings color={colors.primary} size={21} strokeWidth={1.8} />
+            <Settings color={colors.ink} size={18} strokeWidth={1.6} />
           </Pressable>
         </View>
 
         {temporarySettingsOpen ? (
           <View style={styles.temporarySettingsMenu}>
             <View style={styles.temporarySettingsHeading}>
-              <Text style={styles.temporarySettingsEyebrow}>TEMPORARY MENU</Text>
-              <Text style={styles.temporarySettingsCaption}>출시 전 내부 바로가기</Text>
+              <Text style={styles.temporarySettingsEyebrow}>설정</Text>
+              <Text style={styles.temporarySettingsCaption}>화면 테마</Text>
             </View>
-            <Pressable
-              onPress={() => router.push("/league-region?source=my-settings" as never)}
-              style={styles.temporarySettingsItem}
-            >
-              <View>
-                <Text style={styles.temporarySettingsTitle}>대시보드</Text>
-                <Text style={styles.temporarySettingsDescription}>리그·지역 현황 확인</Text>
-              </View>
-              <Text style={styles.temporarySettingsArrow}>→</Text>
-            </Pressable>
+            <Switch
+              accessibilityLabel="다크 모드"
+              value={mode === "dark"}
+              onValueChange={(value) => setMode(value ? "dark" : "light")}
+            />
           </View>
         ) : null}
 
         <View style={styles.identityRow}>
           <Pressable
             accessibilityLabel="프로필 사진 변경"
-            onPress={() => setAvatarMenuOpen((current) => !current)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: avatarMenuOpen }}
+            onPress={() => setAvatarMenuOpen(true)}
             style={styles.avatar}
           >
             {profile?.avatarDataUri ? (
@@ -449,10 +509,16 @@ export default function ProfileScreen() {
               </Text>
             )}
             <View style={styles.avatarEditBadge}>
-              <Text style={styles.avatarEditGlyph}>+</Text>
+              <View style={styles.avatarPlusDisc}>
+                <View style={styles.avatarPlusCross}>
+                  <View style={styles.avatarPlusHorizontal} />
+                  <View style={styles.avatarPlusVertical} />
+                </View>
+              </View>
             </View>
           </Pressable>
           <View style={styles.identityCopy}>
+            <View style={styles.myBadge}><Text style={styles.myBadgeText}>MY</Text></View>
             {editingNickname ? (
               <View style={styles.nicknameEditor}>
                 <TextInput
@@ -480,32 +546,12 @@ export default function ProfileScreen() {
                 <Text style={styles.displayName}>
                   {profile?.displayName ?? session.user.displayName}
                 </Text>
-                <Text style={styles.editHint}>탭해서 닉네임 수정</Text>
               </Pressable>
             )}
+            <Text style={styles.profileMotto}>“언제나 더 나은 하루”</Text>
             <Text style={styles.email}>{session.user.email}</Text>
           </View>
         </View>
-
-        {avatarMenuOpen ? (
-          <View style={styles.avatarMenu}>
-            <Text style={styles.avatarMenuTitle}>PROFILE PHOTO</Text>
-            <View style={styles.avatarMenuActions}>
-              <Pressable
-                onPress={() => void changeAvatar("camera")}
-                style={styles.avatarMenuButton}
-              >
-                <Text style={styles.avatarMenuButtonText}>카메라</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void changeAvatar("library")}
-                style={styles.avatarMenuButton}
-              >
-                <Text style={styles.avatarMenuButtonText}>사진첩</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
 
         <View style={styles.statsRow}>
           <Stat
@@ -534,53 +580,52 @@ export default function ProfileScreen() {
           />
         </View>
 
-        <Pressable
-          onPress={() => router.push("/profile/goals" as never)}
-          style={styles.goalsShortcut}
-        >
-          <View>
-            <Text style={styles.goalsShortcutEyebrow}>MY PRIVATE GOALS</Text>
-            <Text style={styles.goalsShortcutTitle}>존중에서 시작한 목표</Text>
+        <View style={styles.medalCabinet}>
+          <View pointerEvents="none" style={StyleSheet.absoluteFill} accessible={false}>
+            <Image
+                  source={require("../../assets/images/profile/medal-texture-v3.png")}
+              style={[styles.medalBackdrop, { opacity: mode === "dark" ? 0.55 : 0.12 }]}
+              resizeMode="cover"
+              accessible={false}
+            />
           </View>
-          <Text style={styles.goalsShortcutArrow}>→</Text>
-        </Pressable>
-
-        <View style={styles.medalHeader}>
-          <SectionHeader eyebrow="MEDAL CABINET" title="달성 메달" styles={styles} />
-          <Text style={styles.medalCount}>
-            {earnedMedals.length} / {medals.length}
-          </Text>
-        </View>
+          <View style={styles.medalHeader}>
+            <View>
+              <SectionHeader eyebrow="MEDAL CABINET" title="달성 메달" styles={styles} />
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel={showAllMedals ? "메달 접기" : "전체 메달 보기"}
+              accessibilityState={{ expanded: showAllMedals }} onPress={() => setShowAllMedals(value => !value)} style={styles.medalMore}>
+              <Text style={styles.medalCount}>{earnedMedals.length} / {medals.length}</Text>
+              <View style={styles.medalArrow}><ArrowRight color={colors.ink} size={17} style={{ transform: [{ rotate: showAllMedals ? "90deg" : "0deg" }] }} /></View>
+            </Pressable>
+          </View>
         <ScrollView
-          horizontal
+          horizontal={!showAllMedals}
+          scrollEnabled={!showAllMedals}
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.medalRow}
+          contentContainerStyle={[styles.medalRow, showAllMedals && styles.medalRowExpanded]}
         >
-          {medals.slice(0, 12).map((medal) => (
+          {medals.map((medal) => (
             <View key={medal.id} style={styles.medalItem}>
-              <View
-                style={[
-                  styles.medalSphere,
-                  medal.earned ? styles.medalEarned : styles.medalLocked,
-                  medal.physicalRewardEligible && styles.medalSpecial,
-                ]}
-              >
-                <Text style={[styles.medalGlyph, !medal.earned && styles.medalGlyphLocked]}>
-                  {medal.earned ? sportGlyph(medal.sport) : "·"}
-                </Text>
+              <AchievementMedal medal={medal} size={styles.medalSphere.width} />
+              <View style={styles.medalProgressTrack} accessibilityRole="progressbar"
+                accessibilityLabel={`${medal.title} 진행률`}
+                accessibilityValue={{ min: 0, max: 100, now: medalProgressPercent(medal) }}>
+                <View style={[styles.medalProgressFill, {
+                  width: `${medalProgressPercent(medal)}%`,
+                  backgroundColor: medal.earned || medal.physicalRewardEligible ? colors.primary : "#4eaeb9",
+                }]} />
               </View>
               <Text numberOfLines={1} style={styles.medalName}>
                 {medal.title}
               </Text>
-              <Text style={styles.medalProgress}>
+              <Text style={[styles.medalProgress, { color: medal.earned || medal.physicalRewardEligible ? colors.primary : "#6ab7c0" }]}>
                 {medal.progress}/{medal.target}
               </Text>
-              {medal.physicalRewardEligible ? (
-                <Text style={styles.physicalTag}>REAL EDITION</Text>
-              ) : null}
             </View>
           ))}
         </ScrollView>
+        </View>
 
         <View style={styles.tabBar}>
           {(
@@ -589,7 +634,7 @@ export default function ProfileScreen() {
               ["routines", "루틴"],
             ] as const
           ).map(([value, label]) => (
-            <Pressable key={value} onPress={() => setTab(value)} style={styles.tabButton}>
+            <Pressable key={value} hitSlop={{ top: 5, bottom: 5 }} accessibilityRole="tab" accessibilityState={{ selected: tab === value }} onPress={() => setTab(value)} style={styles.tabButton}>
               <Text style={[styles.tabText, tab === value && styles.tabTextActive]}>{label}</Text>
               {tab === value ? <View style={styles.tabUnderline} /> : null}
             </Pressable>
@@ -604,6 +649,7 @@ export default function ProfileScreen() {
         {!loading && tab === "posts" ? (
           <PostList
             onOpen={() => router.push("/profile/content")}
+            onCreate={() => router.push("/compose?direct=1")}
             posts={posts.slice(0, 3)}
             styles={styles}
           />
@@ -666,11 +712,16 @@ export default function ProfileScreen() {
                   <Text style={styles.textAction}>+ 항목 추가</Text>
                 </Pressable>
               </View>
-              <View style={styles.routineDraftList}>
-                {routineItems.map((item, index) => (
-                  <View key={`routine-item-${index}`} style={styles.routineDraftItem}>
+              <ReorderableList scroll={routineScroll} items={routineItems} itemKey={item => item.draftId}
+                itemLabel={(item, index) => item.name || `${index + 1}번 항목`}
+                onReorder={setRoutineItems} onDraggingChange={setDraggingRoutine} disabled={savingRoutine}
+                renderItem={(item, index, handle) => (
+                  <View style={styles.routineDraftItem}>
+                    <View style={styles.routineDragRail}>
                     <View style={styles.routineItemNumber}>
                       <Text style={styles.routineItemNumberText}>{index + 1}</Text>
+                    </View>
+                    {handle}
                     </View>
                     <View style={styles.routineItemFields}>
                       <TextInput
@@ -723,33 +774,11 @@ export default function ProfileScreen() {
                         />
                       )}
                     </View>
-                    <View style={styles.itemActions}>
                       <Pressable
-                        accessibilityLabel={`${index + 1}번 항목 위로`}
-                        disabled={index === 0}
-                        onPress={() => moveRoutineItem(index, -1)}
-                      >
-                        <Text style={[styles.iconAction, index === 0 && styles.actionDisabled]}>
-                          ↑
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        accessibilityLabel={`${index + 1}번 항목 아래로`}
-                        disabled={index === routineItems.length - 1}
-                        onPress={() => moveRoutineItem(index, 1)}
-                      >
-                        <Text
-                          style={[
-                            styles.iconAction,
-                            index === routineItems.length - 1 && styles.actionDisabled,
-                          ]}
-                        >
-                          ↓
-                        </Text>
-                      </Pressable>
-                      <Pressable
+                        accessibilityRole="button"
                         accessibilityLabel={`${index + 1}번 항목 제거`}
-                        disabled={routineItems.length === 1}
+                        style={styles.routineItemRemove}
+                        disabled={routineItems.length === 1 || savingRoutine}
                         onPress={() =>
                           setRoutineItems((current) =>
                             current.filter((_, itemIndex) => itemIndex !== index),
@@ -765,10 +794,9 @@ export default function ProfileScreen() {
                           ×
                         </Text>
                       </Pressable>
-                    </View>
                   </View>
-                ))}
-              </View>
+                )}
+              />
               <Pressable
                 disabled={savingRoutine}
                 onPress={() => void saveRoutine()}
@@ -783,9 +811,13 @@ export default function ProfileScreen() {
               <Text style={styles.savedRoutineTitle}>저장한 루틴</Text>
               <Text style={styles.savedRoutineCount}>{routines.length}개</Text>
             </View>
-            {routines.map((routine, index) => (
-              <View key={routine.id} style={styles.routineCard}>
+            <ReorderableList scroll={routineScroll} items={routines} itemKey={routine => routine.id}
+              itemLabel={routine => routine.title} onReorder={next => void reorderRoutines(next)}
+              onDraggingChange={setDraggingRoutine} disabled={savingRoutine || reorderingRoutine}
+              renderItem={(routine, _index, handle) => (
+              <View style={styles.routineCard}>
                 <View style={styles.routineCardHeader}>
+                  {handle}
                   <View style={styles.routineCardCopy}>
                     <Text style={styles.cardEyebrow}>{sportLabels[routine.sport]}</Text>
                     <Text style={styles.cardTitle}>{routine.title}</Text>
@@ -793,31 +825,11 @@ export default function ProfileScreen() {
                       {routine.items.length}개 항목 · 매일 표시
                     </Text>
                   </View>
-                  <View style={styles.routineOrderActions}>
-                    <Pressable
-                      accessibilityLabel={`${routine.title} 위로 이동`}
-                      disabled={index === 0}
-                      onPress={() => void moveRoutine(index, -1)}
-                    >
-                      <Text style={[styles.orderAction, index === 0 && styles.actionDisabled]}>
-                        ↑
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      accessibilityLabel={`${routine.title} 아래로 이동`}
-                      disabled={index === routines.length - 1}
-                      onPress={() => void moveRoutine(index, 1)}
-                    >
-                      <Text
-                        style={[
-                          styles.orderAction,
-                          index === routines.length - 1 && styles.actionDisabled,
-                        ]}
-                      >
-                        ↓
-                      </Text>
-                    </Pressable>
-                  </View>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`${routine.title} 제거`}
+                    disabled={savingRoutine || reorderingRoutine} style={styles.routineRemove}
+                    onPress={() => setPendingDeleteRoutineId(routine.id)}>
+                    <Text style={styles.deleteAction}>제거</Text>
+                  </Pressable>
                 </View>
                 <View style={styles.routinePreviewList}>
                   {[...routine.items]
@@ -834,33 +846,53 @@ export default function ProfileScreen() {
                   <Pressable onPress={() => editRoutine(routine)}>
                     <Text style={styles.secondaryAction}>수정</Text>
                   </Pressable>
-                  <Pressable onPress={() => setPendingDeleteRoutineId(routine.id)}>
-                    <Text style={styles.deleteAction}>제거</Text>
-                  </Pressable>
                 </View>
               </View>
-            ))}
+            )} />
             {routines.length === 0 ? (
               <Empty copy="저장한 루틴이 없습니다." styles={styles} />
             ) : null}
           </View>
         ) : null}
 
+        <Pressable
+          onPress={() => router.push("/profile/goals" as never)}
+          style={styles.goalsShortcut}
+        >
+          <View style={styles.goalsShortcutCopy}>
+            <Text style={styles.goalsShortcutEyebrow}>MY PRIVATE GOALS</Text>
+            <Text style={styles.goalsShortcutTitle}>존중에서 시작한 목표</Text>
+          </View>
+          <Image
+            source={require("../../assets/images/profile/keep-going-v1.png")}
+            style={styles.keepGoingSticker}
+            resizeMode="contain"
+            accessible={false}
+          />
+          <View style={styles.goalsShortcutArrow}><ArrowRight color="#FFFFFF" size={17} /></View>
+        </Pressable>
         <View style={styles.settings}>
           <View>
             <Text style={styles.settingsTitle}>다크 모드</Text>
             <Text style={styles.settingsCopy}>앱 전체 화면 모드</Text>
           </View>
-          <Switch
-            value={mode === "dark"}
-            onValueChange={(enabled) => setMode(enabled ? "dark" : "light")}
-            trackColor={{ false: colors.border, true: colors.primary }}
-          />
+          <Pressable
+            accessibilityLabel="다크 모드"
+            accessibilityRole="switch"
+            accessibilityState={{ checked: mode === "dark" }}
+            onPress={() => setMode(mode === "dark" ? "light" : "dark")}
+            style={styles.themeToggleTarget}
+          >
+            <View style={[styles.themeToggleTrack, mode === "dark" && styles.themeToggleTrackOn]}>
+              <View style={[styles.themeToggleThumb, mode === "dark" && styles.themeToggleThumbOn]} />
+            </View>
+          </Pressable>
         </View>
-        <Pressable onPress={() => router.push("/profile/account")} style={styles.accountButton}>
+        <Pressable hitSlop={4} onPress={() => router.push("/profile/account")} style={styles.accountButton}>
           <Text style={styles.accountText}>계정 · 보안 · 개인정보</Text>
+          <ChevronRight color={colors.ink} size={16} strokeWidth={1.4} style={styles.accountChevron} />
         </Pressable>
-        <Pressable onPress={() => void logout()} style={styles.logoutButton}>
+        <Pressable hitSlop={5} onPress={() => void logout()} style={styles.logoutButton}>
           <Text style={styles.logoutText}>로그아웃</Text>
         </Pressable>
       </ScrollView>
@@ -897,7 +929,7 @@ function Stat({
   onPress(): void;
 }) {
   return (
-    <Pressable onPress={onPress} style={styles.stat}>
+    <Pressable hitSlop={{ top: 4, bottom: 4 }} onPress={onPress} style={styles.stat}>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </Pressable>
@@ -907,15 +939,21 @@ function Stat({
 function PostList({
   posts,
   onOpen,
+  onCreate,
   styles,
 }: {
   posts: FeedPost[];
   onOpen(): void;
+  onCreate(): void;
   styles: ReturnType<typeof createStyles>;
 }) {
   if (posts.length === 0)
     return (
-      <Empty copy="공유한 게시물이 없습니다. 운동 기록을 스토리로 이어보세요." styles={styles} />
+      <Pressable accessibilityRole="button" accessibilityLabel="첫 게시물 만들기" onPress={onCreate} style={styles.empty}>
+        <Plus color={styles.emptyMark.color} size={30} strokeWidth={1.8} />
+        <Text style={styles.emptyTitle}>공유한 게시물이 없습니다.</Text>
+        <Text style={styles.emptyText}>오늘의 기록을 소소하게 이어보세요.</Text>
+      </Pressable>
     );
   return (
     <View style={styles.postGrid}>
@@ -978,49 +1016,42 @@ function Empty({ copy, styles }: { copy: string; styles: ReturnType<typeof creat
 function shortSportLabel(sport: SportType): string {
   return sport === "strength" ? "근력" : sportLabels[sport];
 }
-function sportGlyph(sport: SportType): string {
-  return sport === "strength"
-    ? "S"
-    : sport === "running"
-      ? "R"
-      : sport === "hiking"
-        ? "H"
-        : sport === "diving"
-          ? "D"
-          : sport === "cycling"
-            ? "C"
-            : "W";
-}
-function createStyles(colors: ThemeColors) {
+function createStyles(colors: ThemeColors, pageWidth = 430) {
+  // Reference is 860px wide at 2x. Keep its five medal columns on phone widths.
+  const medalWidth = (pageWidth - 30 - 28 - 32) / 5;
   return StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: colors.background },
     page: {
       width: "100%",
-      maxWidth: maxContentWidth,
+      maxWidth: 430,
       alignSelf: "center",
-      paddingHorizontal: 20,
-      paddingTop: 20,
-      paddingBottom: 110,
-      gap: 22,
+      paddingHorizontal: 15,
+      paddingTop: 14,
+      paddingBottom: 17,
+      gap: 0,
     },
-    topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    topBar: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", paddingHorizontal: 6, minHeight: 36, marginBottom: 13 },
+    brandWordmarkBox: { height: 23, justifyContent: "center" },
+    myBadge: { alignSelf: "flex-start", borderWidth: 1, borderColor: colors.muted, borderRadius: 6, paddingHorizontal: 5, minHeight: 13, justifyContent: "center", marginBottom: 3 },
+    myBadgeText: { color: colors.ink, fontFamily: fonts.display, fontSize: 8, lineHeight: 10, letterSpacing: 1 },
+    profileMotto: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 9, lineHeight: 13, marginTop: 3 },
     brand: { ...typography.wordmark(18), color: colors.primary },
     settingsButton: {
-      width: 42,
-      height: 42,
-      borderRadius: 21,
+      width: 34,
+      height: 34,
+      borderRadius: 17,
       borderWidth: 1,
       borderColor: colors.border,
-      backgroundColor: colors.surface,
+      backgroundColor: "transparent",
       alignItems: "center",
       justifyContent: "center",
     },
     temporarySettingsMenu: {
-      marginTop: -4,
+      marginTop: 0,
       marginBottom: 4,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.dialogRadius,
       backgroundColor: colors.surface,
       overflow: "hidden",
     },
@@ -1066,36 +1097,40 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.bold,
       fontSize: 18,
     },
-    identityRow: { flexDirection: "row", alignItems: "center", gap: 14 },
+    identityRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 6, minHeight: 72 },
     avatar: {
-      width: 62,
-      height: 62,
+      width: 72,
+      height: 72,
+      flexShrink: 0,
       borderRadius: radius.full,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
       overflow: "visible",
     },
-    avatarImage: { width: 62, height: 62, borderRadius: radius.full },
-    avatarText: { color: "#FFFFFF", fontSize: 24, fontFamily: fonts.bold },
+    avatarImage: { width: 72, height: 72, borderRadius: radius.full },
+    avatarText: { color: "#FFFFFF", fontSize: 28, fontFamily: fonts.bold },
     avatarEditBadge: {
       position: "absolute",
-      right: -2,
-      bottom: -2,
-      width: 21,
-      height: 21,
+      right: 0,
+      bottom: 0,
+      width: 22,
+      height: 22,
       borderRadius: 11,
-      backgroundColor: colors.ink,
+      backgroundColor: colors.primary,
       borderWidth: 2,
       borderColor: colors.background,
       alignItems: "center",
       justifyContent: "center",
     },
-    avatarEditGlyph: { color: colors.background, fontSize: 13, fontWeight: "900" },
-    identityCopy: { flex: 1, gap: 3 },
-    displayName: { color: colors.ink, fontSize: 22, fontFamily: fonts.bold },
+    avatarPlusDisc: { width: 12, height: 12, borderRadius: 6, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
+    avatarPlusCross: { width: 8, height: 8, position: "relative" },
+    avatarPlusHorizontal: { position: "absolute", left: 0, top: 3, width: 8, height: 2, backgroundColor: colors.primary },
+    avatarPlusVertical: { position: "absolute", left: 3, top: 0, width: 2, height: 8, backgroundColor: colors.primary },
+    identityCopy: { flex: 1, minWidth: 0, gap: 0 },
+    displayName: { color: colors.ink, fontSize: 18, lineHeight: 23, fontFamily: fonts.bold, letterSpacing: -0.5 },
     editHint: { color: colors.primary, fontSize: 8, fontFamily: fonts.semibold, marginTop: 2 },
-    email: { color: colors.muted, fontSize: 10, fontFamily: fonts.regular },
+    email: { color: colors.ink, fontSize: 9, lineHeight: 13, fontFamily: fonts.regular, flexShrink: 1, marginTop: 1 },
     nicknameEditor: { flexDirection: "row", alignItems: "center", gap: 9 },
     nicknameInput: {
       flex: 1,
@@ -1107,60 +1142,83 @@ function createStyles(colors: ThemeColors) {
       paddingVertical: 4,
     },
     nicknameSave: { color: colors.primary, fontSize: 10, fontFamily: fonts.bold },
+    avatarMenuBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: "rgba(0,0,0,0.72)" },
+    avatarMenuHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    avatarMenuClose: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
     avatarMenu: {
+      width: "100%",
+      maxWidth: 320,
+      backgroundColor: colors.background,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 8,
-      padding: 12,
-      gap: 9,
+      borderRadius: uiLayout.panelRadius,
+      padding: 16,
+      gap: 16,
     },
-    avatarMenuTitle: { color: colors.muted, fontSize: 7, fontWeight: "900", letterSpacing: 1 },
+    avatarMenuTitle: { color: colors.ink, fontSize: 17, fontFamily: fonts.bold },
     avatarMenuActions: { flexDirection: "row", gap: 8 },
     avatarMenuButton: {
       flex: 1,
-      minHeight: 40,
-      borderRadius: 6,
-      backgroundColor: colors.surfaceMuted,
+      minHeight: 88,
+      gap: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: uiLayout.controlRadius,
+      backgroundColor: colors.surface,
       alignItems: "center",
       justifyContent: "center",
     },
-    avatarMenuButtonText: { color: colors.ink, fontSize: 9, fontWeight: "900" },
+    avatarMenuButtonPressed: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+    avatarMenuButtonText: { color: colors.ink, fontSize: 14, fontFamily: fonts.semibold },
     statsRow: {
       flexDirection: "row",
-      borderTopWidth: 1,
-      borderBottomWidth: 1,
-      borderColor: colors.border,
-      paddingVertical: 15,
+      borderRightWidth: 1,
+      borderRightColor: colors.border,
+      width: "68%",
+      paddingVertical: 0,
+      marginTop: 16,
+      marginBottom: 20,
+      marginLeft: 8,
     },
-    stat: { flex: 1, alignItems: "center", gap: 3 },
-    statValue: { ...typography.numeric(17), color: colors.ink },
-    statLabel: { color: colors.muted, fontSize: 9, fontFamily: fonts.medium },
+    stat: { flex: 1, alignItems: "center", justifyContent: "center", gap: 1, borderLeftWidth: 1, borderLeftColor: colors.border, minHeight: 36 },
+    statValue: { ...typography.numeric(18), lineHeight: 22, color: colors.ink },
+    statLabel: { color: colors.ink, fontSize: 10, lineHeight: 13, fontFamily: fonts.medium },
     goalsShortcut: {
-      minHeight: 62,
-      borderRadius: radius.lg,
+      minHeight: 53,
+      overflow: "hidden",
+      marginTop: 8,
+      marginHorizontal: 2,
+      borderRadius: 0,
       borderWidth: 1,
       borderColor: colors.border,
-      backgroundColor: colors.surfaceMuted,
-      paddingHorizontal: 14,
+      backgroundColor: "transparent",
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+      gap: 12,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
     },
     goalsShortcutEyebrow: {
       color: colors.primary,
-      fontSize: 7,
+      fontSize: 8,
+      lineHeight: 11,
       fontFamily: fonts.bold,
       letterSpacing: 0.8,
     },
-    goalsShortcutTitle: { color: colors.ink, fontSize: 12, fontFamily: fonts.bold, marginTop: 4 },
-    goalsShortcutArrow: { color: colors.primary, fontSize: 20, fontFamily: fonts.regular },
+    goalsShortcutTitle: { color: colors.ink, fontSize: 14, lineHeight: 19, fontFamily: fonts.bold, marginTop: 3 },
+    goalsShortcutArrow: { width: 29, height: 29, borderRadius: 15, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+    goalsShortcutCopy: { flex: 1, paddingRight: 86 },
+    // Oversized lettering deliberately bleeds below the card, as in the reference.
+    keepGoingSticker: { position: "absolute", right: 44, bottom: -15, width: 92, height: 78 },
     sectionEyebrow: {
-      color: colors.primary,
-      fontSize: 8,
+      color: colors.ink,
+      fontSize: 7,
+      lineHeight: 9,
       fontFamily: fonts.bold,
-      letterSpacing: 1,
+      letterSpacing: 1.4,
     },
-    sectionTitle: { color: colors.ink, fontSize: 18, fontFamily: fonts.bold, marginTop: 3 },
+    sectionTitle: { color: colors.ink, fontSize: 20, lineHeight: 23, fontFamily: fonts.bold, marginTop: 1 },
     orbs: { gap: 14, paddingRight: 18 },
     orbItem: { width: 54, alignItems: "center", gap: 7 },
     recordOrb: {
@@ -1191,47 +1249,42 @@ function createStyles(colors: ThemeColors) {
     orbCountActive: { color: "#FFFFFF" },
     orbLabel: { color: colors.muted, fontSize: 8, fontWeight: "800" },
     orbLabelActive: { color: colors.primary },
-    medalHeader: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
-    medalCount: { color: colors.muted, fontSize: 9, fontWeight: "800" },
-    medalRow: { gap: 14, paddingRight: 20 },
-    medalItem: { width: 66, alignItems: "center", gap: 5 },
-    medalSphere: {
-      width: 58,
-      height: 58,
-      borderRadius: radius.full,
-      alignItems: "center",
-      justifyContent: "center",
-      borderWidth: 1,
-    },
-    medalEarned: { backgroundColor: colors.primary, borderColor: colors.primary },
-    medalSpecial: { borderColor: colors.primary, borderWidth: 2 },
-    medalLocked: { backgroundColor: colors.surfaceMuted, borderColor: colors.border },
-    medalGlyph: { color: "#FFFFFF", fontSize: 16, fontFamily: fonts.displayItalic },
-    medalGlyphLocked: { color: colors.muted },
+    medalCabinet: { borderWidth: 1, borderColor: colors.border, paddingHorizontal: 13, paddingTop: 11, paddingBottom: 8, gap: 10, minHeight: 156, overflow: "hidden", backgroundColor: colors.background },
+    medalBackdrop: { position: "absolute", top: 0, left: 0, width: "100%", height: "100%" },
+    medalHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+    medalMore: { flexDirection: "row", gap: 7, alignItems: "center", minHeight: 30 },
+    medalArrow: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+    medalCount: { color: colors.ink, fontSize: 12, lineHeight: 16, fontFamily: fonts.display },
+    medalRow: { flexDirection: "row", gap: 8, paddingBottom: 2 },
+    medalRowExpanded: { flexWrap: "wrap", rowGap: 18 },
+    medalItem: { width: medalWidth, alignItems: "center", gap: 1 },
+    medalSphere: { width: Math.min(56, medalWidth) },
+    medalProgressTrack: { width: "86%", height: 3, borderRadius: 2, backgroundColor: "#293033", overflow: "hidden", marginTop: 2, marginBottom: 4 },
+    medalProgressFill: { height: "100%", borderRadius: 2 },
     medalName: {
       color: colors.ink,
-      width: 66,
+      width: "100%",
+      lineHeight: 11,
       textAlign: "center",
-      fontSize: 7,
+      fontSize: 9,
       fontWeight: "800",
     },
-    medalProgress: { color: colors.muted, fontSize: 7 },
-    physicalTag: { color: colors.primary, fontSize: 5, fontWeight: "900", letterSpacing: 0.4 },
-    tabBar: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.border },
-    tabButton: { flex: 1, alignItems: "center", paddingVertical: 11, position: "relative" },
-    tabText: { color: colors.muted, fontSize: 10, fontFamily: fonts.semibold },
+    medalProgress: { color: colors.ink, fontSize: 9, lineHeight: 12 },
+    tabBar: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.border, marginHorizontal: 2 },
+    tabButton: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 27, paddingVertical: 5, position: "relative" },
+    tabText: { color: colors.muted, fontSize: 12, lineHeight: 16, fontFamily: fonts.semibold },
     tabTextActive: { color: colors.ink },
     tabUnderline: {
       position: "absolute",
       height: 2,
       backgroundColor: colors.primary,
-      left: 8,
-      right: 8,
+      left: 12,
+      right: 12,
       bottom: -1,
     },
     loading: { paddingVertical: 44 },
     error: { color: colors.primary, fontSize: 10, fontWeight: "700", lineHeight: 16 },
-    contentSection: { gap: 9 },
+    contentSection: { gap: 9, marginTop: 17 },
     recordCard: {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
@@ -1254,12 +1307,14 @@ function createStyles(colors: ThemeColors) {
       lineHeight: 13,
     },
     recordNote: { color: colors.muted, fontSize: 9, lineHeight: 15 },
-    postGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    postGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 17 },
     postTile: {
       width: "48.5%",
       minHeight: 154,
       backgroundColor: colors.surface,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.panelRadius,
+      borderWidth: 1,
+      borderColor: colors.border,
       padding: 14,
       justifyContent: "space-between",
       ...shadows.card,
@@ -1273,7 +1328,7 @@ function createStyles(colors: ThemeColors) {
       gap: 12,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.panelRadius,
       padding: 13,
     },
     personRow: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -1289,8 +1344,10 @@ function createStyles(colors: ThemeColors) {
     personName: { color: colors.ink, fontSize: 9, fontWeight: "800", flex: 1 },
     emptySmall: { color: colors.muted, fontSize: 8 },
     routineComposer: {
-      backgroundColor: colors.surfaceMuted,
-      borderRadius: radius.xl,
+      backgroundColor: colors.background,
+      borderRadius: uiLayout.panelRadius,
+      borderWidth: 1,
+      borderColor: colors.border,
       padding: 14,
       gap: 10,
     },
@@ -1321,7 +1378,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.surface,
     },
     routineSportChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
@@ -1335,14 +1392,17 @@ function createStyles(colors: ThemeColors) {
       fontSize: 13,
       fontWeight: "800",
     },
-    routineDraftList: { gap: 8 },
+    routineDragRail: { alignItems: "center", alignSelf: "stretch", justifyContent: "center" },
+    routineItemRemove: { position: "absolute", top: 0, right: 0, width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+    routineRemove: { alignSelf: "flex-start", minWidth: 36, minHeight: 36, alignItems: "flex-end", justifyContent: "center" },
     routineDraftItem: {
       minHeight: 68,
       flexDirection: "row",
       alignItems: "center",
       gap: 9,
       padding: 9,
-      borderRadius: radius.lg,
+      paddingRight: 34,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
@@ -1388,7 +1448,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       paddingHorizontal: 8,
       backgroundColor: colors.surfaceMuted,
     },
@@ -1400,12 +1460,11 @@ function createStyles(colors: ThemeColors) {
       paddingVertical: 6,
     },
     strengthDetailUnit: { color: colors.muted, fontFamily: fonts.medium, fontSize: 8 },
-    itemActions: { alignItems: "center", justifyContent: "center", gap: 2 },
     iconAction: { color: colors.ink, fontFamily: fonts.bold, fontSize: 15, paddingHorizontal: 5 },
     actionDisabled: { color: colors.border },
     primaryButton: {
       minHeight: 43,
-      borderRadius: 6,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
@@ -1415,7 +1474,7 @@ function createStyles(colors: ThemeColors) {
     routineMessage: {
       color: colors.primary,
       backgroundColor: colors.primarySoft,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       padding: 10,
       fontFamily: fonts.semibold,
       fontSize: 9,
@@ -1431,23 +1490,15 @@ function createStyles(colors: ThemeColors) {
     routineCard: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.panelRadius,
       padding: 14,
       gap: 11,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.background,
       ...shadows.card,
     },
     routineCardHeader: { flexDirection: "row", alignItems: "flex-start" },
     routineCardCopy: { flex: 1 },
     routineMeta: { color: colors.muted, fontSize: 8, marginTop: 4 },
-    routineOrderActions: { flexDirection: "row", gap: 4 },
-    orderAction: {
-      color: colors.ink,
-      fontFamily: fonts.bold,
-      fontSize: 15,
-      paddingHorizontal: 7,
-      paddingVertical: 3,
-    },
     routinePreviewList: { gap: 5 },
     routinePreviewItem: { flexDirection: "row", alignItems: "center", gap: 7 },
     routinePreviewNumber: {
@@ -1473,16 +1524,22 @@ function createStyles(colors: ThemeColors) {
     deleteConfirmText: { flex: 1, color: colors.muted, fontFamily: fonts.medium, fontSize: 9 },
     empty: {
       alignItems: "center",
-      paddingVertical: 44,
-      gap: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      justifyContent: "center",
+      minHeight: 125,
+      paddingVertical: 20,
+      paddingHorizontal: 12,
+      gap: 5,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginTop: 17,
+      marginHorizontal: 1,
     },
     emptyMark: { color: colors.primary, fontSize: 24, fontWeight: "300" },
+    emptyTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 14, lineHeight: 19, textAlign: "center", marginTop: 4 },
     emptyText: {
       color: colors.muted,
-      fontSize: 10,
-      lineHeight: 16,
+      fontSize: 12,
+      lineHeight: 17,
       textAlign: "center",
       maxWidth: 280,
     },
@@ -1490,29 +1547,39 @@ function createStyles(colors: ThemeColors) {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-      paddingTop: 18,
-      marginTop: 48,
+      paddingVertical: 0,
+      paddingHorizontal: 12,
+      minHeight: 44,
+      marginTop: 12,
+      marginBottom: 3,
     },
-    settingsTitle: { color: colors.ink, fontSize: 13, fontFamily: fonts.bold },
-    settingsCopy: { color: colors.muted, fontSize: 8, marginTop: 3 },
+    settingsTitle: { color: colors.ink, fontSize: 14, lineHeight: 19, fontFamily: fonts.bold },
+    settingsCopy: { color: colors.ink, fontSize: 9, lineHeight: 13, marginTop: 2 },
+    themeToggleTarget: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+    themeToggleTrack: { width: 36, height: 21, borderRadius: 11, backgroundColor: colors.border, justifyContent: "center", padding: 1 },
+    themeToggleTrackOn: { backgroundColor: colors.primary },
+    themeToggleThumb: { width: 19, height: 19, borderRadius: 10, backgroundColor: "#FFFFFF", alignSelf: "flex-start" },
+    themeToggleThumbOn: { alignSelf: "flex-end" },
     accountButton: {
-      minHeight: 48,
-      borderRadius: radius.md,
+      minHeight: 37,
+      marginHorizontal: 2,
+      borderRadius: 0,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
       justifyContent: "center",
     },
-    accountText: { color: colors.ink, fontSize: 10, fontWeight: "900" },
+    accountText: { color: colors.ink, fontSize: 11, lineHeight: 16, fontFamily: fonts.bold },
+    accountChevron: { position: "absolute", right: 12 },
     logoutButton: {
-      minHeight: 48,
-      borderRadius: radius.md,
+      minHeight: 33,
+      marginTop: 11,
+      marginHorizontal: 2,
+      borderRadius: 0,
       backgroundColor: colors.ink,
       alignItems: "center",
       justifyContent: "center",
     },
-    logoutText: { color: colors.background, fontSize: 10, fontWeight: "900" },
+    logoutText: { color: colors.background, fontSize: 11, lineHeight: 16, fontFamily: fonts.bold },
   });
 }

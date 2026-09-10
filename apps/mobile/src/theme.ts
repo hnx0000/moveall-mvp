@@ -2,46 +2,47 @@ import { Platform, type TextStyle, type ViewStyle } from "react-native";
 
 /**
  * GROOV 디자인 토큰.
- * moveall-design-export의 색상/간격/타이포그래피를 기존 테마 전환 구조에 맞게 통합합니다.
+ * MY 페이지 기준: 중성 차콜, 선명한 오렌지, 얇은 윤곽선.
+ * UI 패널은 uiLayout을 사용하고 기록 아트워크·아이콘의 기존 radius는 유지합니다.
  */
 export const lightColors = {
-  background: "#FDFBF9",
+  background: "#FAFBFA",
   surface: "#FFFFFF",
-  surfaceMuted: "#F6F4F1",
+  surfaceMuted: "#EFF1EF",
   primary: "#FE3917",
   primaryDark: "#D8380F",
-  primarySoft: "#FDEDE6",
-  hero: "#282320",
+  primarySoft: "#FFF0EB",
+  hero: "#1B1D1C",
   accent: "#FE3917",
-  ink: "#2B2723",
-  muted: "#847B72",
-  border: "#E9E6E2",
+  ink: "#151816",
+  muted: "#666D67",
+  border: "#DADFDA",
   danger: "#FE3917",
   warning: "#FE3917",
   map: "#F2F5F0",
   mapLine: "#E8ECE6",
-  tab: "#FDFBF9",
+  tab: "#FAFBFA",
 } as const;
 
 export type ThemeColors = { [Key in keyof typeof lightColors]: string };
 
 export const darkColors: ThemeColors = {
-  background: "#0E0D0C",
-  surface: "#171513",
-  surfaceMuted: "#211E1B",
+  background: "#0B0D0C",
+  surface: "#111312",
+  surfaceMuted: "#1B1D1C",
   primary: "#FF5A32",
   primaryDark: "#FF7655",
-  primarySoft: "#3A1C13",
-  hero: "#211E1B",
+  primarySoft: "#302018",
+  hero: "#1B1D1C",
   accent: "#FF5A32",
   ink: "#FAF8F6",
-  muted: "#AAA097",
-  border: "#302C28",
+  muted: "#A4A8A4",
+  border: "#303330",
   danger: "#FF5A32",
   warning: "#FF5A32",
-  map: "#211F1C",
-  mapLine: "#36322E",
-  tab: "#171513",
+  map: "#191C1A",
+  mapLine: "#343935",
+  tab: "#0B0D0C",
 };
 
 export const colors = lightColors;
@@ -75,7 +76,20 @@ export const radius = {
   full: 999,
 } as const;
 
-export const maxContentWidth = 448;
+export const maxContentWidth = 430;
+
+/** Angular app surfaces; only avatars, medals, pins and authored marks retain their shapes. */
+export const uiLayout = {
+  pageInset: 15,
+  sectionGap: 16,
+  panelRadius: 0,
+  controlRadius: 0,
+  dialogRadius: 0,
+  photoRadius: 0,
+  panelPadding: 14,
+  titleSize: 20,
+  sectionTitleSize: 17,
+} as const;
 
 export const fonts = {
   regular: "NotoSansKR_400Regular",

@@ -46,6 +46,7 @@ import {
   type KnowledgeFeedbackCreateInput,
   type LeagueQuery,
   type LeagueSnapshot,
+  type LeagueWorkoutForScoring,
   type LoginInput,
   type Medal,
   type MediaUploadRequestInput,
@@ -73,6 +74,9 @@ import {
   type WorkoutSessionCreateInput,
   type WorkoutSessionUpdateInput,
 } from "@moveall/contracts";
+
+import { demoLeagueParticipants, demoLeagueWorkouts } from "./demo-league-fixtures.ts";
+import { demoSocialName, demoSocialRegion } from "./demo-social-identity.ts";
 
 const now = Date.now();
 const safetyNotice =
@@ -452,7 +456,7 @@ const demoMemberDirectory: Record<
     characters.map((character) => [
       characterUserId(character.id),
       {
-        displayName: character.name,
+        displayName: character.handle,
         isPrivate: false,
         followersCount: 0,
         followingCount: 0,
@@ -698,7 +702,7 @@ function demoPerson(id: string) {
     displayName:
       id === activeSession.user.id
         ? activeSession.user.displayName
-        : (demoMemberDirectory[id]?.displayName ?? "GROOV 멤버"),
+        : demoSocialName(id, demoMemberDirectory[id]?.displayName ?? "GROOV 멤버"),
   };
 }
 const postShareRecipients = new Map<string, Set<string>>(
@@ -831,13 +835,19 @@ function previewLeagueSnapshot(query: LeagueQuery): LeagueSnapshot {
       )
         .normalize("NFKC")
         .toLocaleLowerCase("ko-KR")
-    : null;
+    : "kr:seoul:dobong";
   const viewerRegionName = viewerNeighborhood
     ? (viewerNeighborhood.district ?? viewerNeighborhood.neighborhood)
-    : null;
+    : "도봉구";
   const members = [
+    ...demoLeagueParticipants(generatedAt, {
+      regionKey: viewerRegionKey, regionName: viewerRegionName,
+      province: viewerNeighborhood?.province ?? "서울",
+    }),
     ...demoLeagueMembers.map((member) => ({
       ...member,
+      ...(member.regionName === viewerRegionName && (!viewerNeighborhood?.province || viewerNeighborhood.province.startsWith(member.province))
+        ? { regionKey: viewerRegionKey } : {}),
       displayName: demoMemberDirectory[member.userId]?.displayName ?? "GROOV 멤버",
       workouts: demoMemberWorkouts[member.userId] ?? [],
     })),
@@ -848,13 +858,13 @@ function previewLeagueSnapshot(query: LeagueQuery): LeagueSnapshot {
             displayName: activeSession.user.displayName,
             regionKey: viewerRegionKey,
             regionName: viewerRegionName,
-            province: viewerNeighborhood?.province ?? null,
-            workouts,
+            province: viewerNeighborhood?.province ?? "서울",
+            workouts: [...demoLeagueWorkouts(7, generatedAt), ...workouts],
           },
         ]
       : []),
   ];
-  const matchesQuery = (workout: WorkoutSession) =>
+  const matchesQuery = (workout: LeagueWorkoutForScoring) =>
     Date.parse(workout.startedAt) >= rangeStart &&
     Date.parse(workout.startedAt) < rangeEnd &&
     (query.mode === "activity" || workout.sport === query.mode);
@@ -959,6 +969,64 @@ function previewLeagueSnapshot(query: LeagueQuery): LeagueSnapshot {
 }
 
 export const demoApi = {
+  savedPlaces: async (_token: string) =>
+    (await import("../features/maps/place-storage")).savedPlaceAction(
+      activeSession.user.id,
+      "place-list",
+      {},
+    ),
+  savePlace: async (_token: string, input: import("@moveall/contracts").SavedPlaceInput) =>
+    (await import("../features/maps/place-storage")).savedPlaceAction(
+      activeSession.user.id,
+      "place-save",
+      input,
+    ),
+  deletePlace: async (_token: string, id: string) =>
+    (await import("../features/maps/place-storage")).savedPlaceAction(
+      activeSession.user.id,
+      "place-remove",
+      { placeId: id },
+    ),
+  plannerEntries: async (_token: string, month: string) =>
+    readStored<import("@moveall/contracts").PlannerEntry[]>("groov-demo-planner-v1", []).filter(
+      (entry) =>
+        entry.date.startsWith(month) &&
+        (entry.userId === activeSession.user.id ||
+          entry.sharedWith.includes(activeSession.user.id)),
+    ),
+  createPlannerEntry: async (
+    _token: string,
+    input: import("@moveall/contracts").PlannerEntryInput,
+  ) => {
+    const entry = {
+      ...input,
+      id: makeId("plan"),
+      userId: activeSession.user.id,
+      displayName: activeSession.user.displayName,
+      sharedWith: sharingCrews
+        .filter((crew) => crew.userId === activeSession.user.id && input.crewIds.includes(crew.id))
+        .flatMap((crew) => crew.memberIds),
+    };
+    const entries = readStored<import("@moveall/contracts").PlannerEntry[]>(
+      "groov-demo-planner-v1",
+      [],
+    );
+    globalThis.localStorage?.setItem("groov-demo-planner-v1", JSON.stringify([...entries, entry]));
+    return entry;
+  },
+  deletePlannerEntry: async (_token: string, id: string) => {
+    const entries = readStored<import("@moveall/contracts").PlannerEntry[]>(
+      "groov-demo-planner-v1",
+      [],
+    );
+    globalThis.localStorage?.setItem(
+      "groov-demo-planner-v1",
+      JSON.stringify(
+        entries.filter((entry) => entry.id !== id || entry.userId !== activeSession.user.id),
+      ),
+    );
+    return { deleted: true };
+  },
   register: async (input: RegisterInput) => {
     activeSession = sessionFor(input.email, input.displayName);
     demoOnboarding = null;
@@ -1425,7 +1493,7 @@ export const demoApi = {
     const isPrivate = !demoVisible(userId);
     const connections = await demoApi.memberConnections(_token, userId);
     return {
-      user: { id: userId, displayName: seed.displayName },
+      user: { id: userId, displayName: demoSocialName(userId, seed.displayName) },
       isPrivate,
       followersCount: connections.followersCount,
       followingCount: connections.followingCount,
@@ -1444,10 +1512,10 @@ export const demoApi = {
     followers: [],
     following: [...followingIds].map((userId) => ({
       id: userId,
-      displayName:
+      displayName: demoSocialName(userId,
         demoMemberDirectory[userId]?.displayName ??
         posts.find((post) => post.userId === userId)?.authorDisplayName ??
-        "GROOV 멤버",
+        "GROOV 멤버"),
     })),
   }),
   memberConnections: async (
@@ -1958,6 +2026,7 @@ function persistDemoFollowing() {
 }
 
 function decorateDemoPost(post: FeedPost): FeedPost {
+  const authorRegionLabel = post.authorRegionLabel ?? demoSocialRegion(post.userId);
   const { authorAvatarDataUri: storedAuthorAvatar, comments, ...postWithoutAvatar } = post;
   const resolvedAuthorAvatar =
     post.userId === activeSession.user.id ? avatarDataUri : storedAuthorAvatar;
@@ -1977,6 +2046,8 @@ function decorateDemoPost(post: FeedPost): FeedPost {
   return presentPostAccess(
     {
       ...postWithoutAvatar,
+      authorDisplayName: demoSocialName(post.userId, post.authorDisplayName),
+      ...(authorRegionLabel ? { authorRegionLabel } : {}),
       ...(workoutSessionId ? { workoutSessionId } : {}),
       ...(workout
         ? {
@@ -2004,6 +2075,7 @@ function decorateDemoPost(post: FeedPost): FeedPost {
             comment.userId === activeSession.user.id ? avatarDataUri : storedCommentAvatar;
           return {
             ...commentWithoutAvatar,
+            authorDisplayName: demoSocialName(comment.userId, comment.authorDisplayName),
             likeCount: comment.likeCount ?? 0,
             likedByMe: comment.likedByMe ?? false,
             ...(resolvedCommentAvatar ? { authorAvatarDataUri: resolvedCommentAvatar } : {}),

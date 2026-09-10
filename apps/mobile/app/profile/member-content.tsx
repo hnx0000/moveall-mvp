@@ -1,4 +1,4 @@
-import { sportLabels, type PublicMemberProfile, type MemberConnections } from "@moveall/contracts";
+import { sportLabels, type PublicMemberProfile, type MemberConnections } from "@moveall/contracts"; import { uiLayout } from "../../src/theme";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
@@ -67,7 +67,7 @@ export default function MemberContent() {
     (mode === "followers" ? social?.followersHidden : social?.followingHidden);
   const people = (mode === "followers" ? social?.followers : social?.following) ?? [];
   const records = profile?.workouts.filter((item) => !recordId || item.id === recordId) ?? [];
-  const card = { padding: 18, borderRadius: 16, backgroundColor: colors.surface, gap: 10 } as const;
+  const card = { padding: 18, borderRadius: uiLayout.panelRadius, backgroundColor: colors.surface, gap: 10 } as const;
   return (
     <Screen title={title}>
       <Pressable accessibilityRole="button" onPress={() => router.back()}>

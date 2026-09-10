@@ -1,4 +1,15 @@
 /* Both maps use the course map's + / current zoom / − capsule. */
+button#tilt-toggle::after,button#detail-tilt::after {display:none!important;}
+.course-pin::after,.course-pin::before {display:none!important;}
+@media(max-width:760px),(max-width:1000px) and (max-height:540px){
+  .game-shell .map-controls,.detail-shell .map-actions {width:34px;right:8px;gap:4px;}
+  .game-shell .map-controls>button,.detail-shell .map-actions>button {width:34px!important;min-width:34px!important;height:34px!important;min-height:34px!important;flex-basis:34px!important;border-radius:10px;}
+  .game-shell .map-controls>button svg,.detail-shell .map-actions>button svg {width:18px;height:20px;}
+  .game-shell .map-controls>.zoom-control,.detail-shell .map-actions>.zoom-control {width:34px!important;}
+  .game-shell .map-controls .zoom-control>button,.detail-shell .map-actions .zoom-control>button {width:32px!important;height:32px!important;min-height:32px!important;}
+  .game-shell #region-toggle,.detail-shell .national-link {font-size:11px;min-height:30px;padding:5px 8px;}
+  .game-shell .ranking-panel.is-open,.detail-shell #area-ranking[data-mobile-open=true] {left:8px!important;right:8px!important;width:auto!important;max-width:none!important;bottom:8px;}
+}
 .game-shell .map-controls>.zoom-control,.detail-shell .map-actions>.zoom-control {
   display:grid!important;flex:0 0 auto;grid-template-columns:1fr;width:44px;
   border:1px solid #ffffff1f;border-radius:12px;background:#151618e6;
@@ -15,3 +26,11 @@
 }
 .game-shell .map-controls .zoom-control>button:hover,.detail-shell .map-actions .zoom-control>button:hover {background:#282627;}
 .game-shell .map-controls .zoom-control>button:focus-visible,.detail-shell .map-actions .zoom-control>button:focus-visible {outline:2px solid #ffad8d;outline-offset:-3px;}
+/* Scale original controls uniformly; do not redraw or stretch their artwork. */
+.game-shell .map-controls,.detail-shell .map-actions {width:34px;}
+.game-shell .map-controls>button,.detail-shell .map-actions>button {width:34px!important;min-width:34px!important;height:34px!important;min-height:34px!important;flex-basis:34px!important;}
+.game-shell .map-controls>button svg,.detail-shell .map-actions>button svg {width:18px;height:18px;}
+.game-shell .map-controls>.zoom-control,.detail-shell .map-actions>.zoom-control {width:34px!important;}
+.game-shell .map-controls .zoom-control>button,.detail-shell .map-actions .zoom-control>button {width:32px!important;height:32px!important;min-height:32px!important;}
+.map-controls>button[data-saved-places] svg,.map-actions>button[data-saved-places] svg {width:18px;height:27px;}
+.map-controls>button[data-saved-places][aria-expanded="true"],.map-actions>button[data-saved-places][aria-expanded="true"],.map-controls>button[data-saved-places][aria-pressed="true"],.map-actions>button[data-saved-places][aria-pressed="true"] {--saved-place-star:#ff613b;}

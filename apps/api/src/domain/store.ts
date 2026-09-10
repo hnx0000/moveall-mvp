@@ -141,6 +141,18 @@ export interface AppStore {
     operation?: OperationContext,
   ): Promise<FeedPost | null>;
   listSharingCrews(userId: string): Promise<import("@moveall/contracts").SharingCrew[]>;
+  listPlannerEntries(
+    userId: string,
+    month: string,
+  ): Promise<import("@moveall/contracts").PlannerEntry[]>;
+  createPlannerEntry(
+    userId: string,
+    input: import("@moveall/contracts").PlannerEntryInput,
+  ): Promise<import("@moveall/contracts").PlannerEntry>;
+  deletePlannerEntry(userId: string, id: string): Promise<void>;
+  listSavedPlaces(userId: string): Promise<import("@moveall/contracts").SavedPlace[]>;
+  savePlace(userId: string, input: import("@moveall/contracts").SavedPlaceInput): Promise<void>;
+  deletePlace(userId: string, id: string): Promise<void>;
   createSharingCrew(
     userId: string,
     input: import("@moveall/contracts").SharingCrewCreateInput,

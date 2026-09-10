@@ -1,4 +1,5 @@
 import * as Google from "expo-auth-session/providers/google";
+import { Wordmark } from "../src/components/ui";
 import * as AuthSession from "expo-auth-session";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as WebBrowser from "expo-web-browser";
@@ -18,7 +19,7 @@ import {
 import { isDemoMode } from "../src/config/runtime";
 import { ApiError, api } from "../src/api/client";
 import { useAuth } from "../src/auth/auth-context";
-import { type ThemeColors } from "../src/theme";
+import { uiLayout, fonts, maxContentWidth, type ThemeColors } from "../src/theme";
 import { useAppTheme } from "../src/theme-context";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -241,7 +242,7 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.page}>
         <View style={styles.topBar}>
-          <Text style={styles.brand}>GROOV</Text>
+          <Wordmark size={36} />
           <Text style={styles.edition}>GROOV 2.0</Text>
         </View>
 
@@ -469,9 +470,9 @@ function createStyles(colors: ThemeColors) {
     page: {
       flexGrow: 1,
       width: "100%",
-      maxWidth: 448,
+      maxWidth: maxContentWidth,
       alignSelf: "center",
-      paddingHorizontal: 24,
+      paddingHorizontal: uiLayout.pageInset,
       paddingTop: 22,
       paddingBottom: 34,
       gap: 24,
@@ -489,16 +490,16 @@ function createStyles(colors: ThemeColors) {
     kicker: { color: colors.primary, fontSize: 9, fontWeight: "900", letterSpacing: 1.8 },
     title: {
       color: colors.ink,
-      fontSize: 40,
-      lineHeight: 48,
-      fontWeight: "900",
-      letterSpacing: -2.2,
+      fontSize: 28,
+      lineHeight: 38,
+      fontFamily: fonts.bold,
+      letterSpacing: -0.7,
     },
     description: { color: colors.muted, fontSize: 13, lineHeight: 20 },
     groovLoop: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 18,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       paddingHorizontal: 18,
       paddingVertical: 16,
@@ -526,7 +527,7 @@ function createStyles(colors: ThemeColors) {
       gap: 12,
       borderTopWidth: 2,
       borderTopColor: colors.primary,
-      borderRadius: 18,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       padding: 18,
     },
@@ -538,7 +539,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 54,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 12,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: "#FFFFFF",
       flexDirection: "row",
       alignItems: "center",
@@ -565,13 +566,13 @@ function createStyles(colors: ThemeColors) {
     modeRow: {
       flexDirection: "row",
       padding: 3,
-      borderRadius: 10,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.background,
     },
     modeButton: {
       flex: 1,
       minHeight: 38,
-      borderRadius: 8,
+      borderRadius: uiLayout.controlRadius,
       alignItems: "center",
       justifyContent: "center",
     },
@@ -582,7 +583,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 50,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 12,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.background,
       color: colors.ink,
       fontSize: 12,
@@ -590,7 +591,7 @@ function createStyles(colors: ThemeColors) {
     },
     emailButton: {
       minHeight: 52,
-      borderRadius: 12,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
@@ -600,7 +601,7 @@ function createStyles(colors: ThemeColors) {
     demoEntry: {
       gap: 12,
       padding: 18,
-      borderRadius: 16,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       borderColor: colors.border,
       borderWidth: 1,

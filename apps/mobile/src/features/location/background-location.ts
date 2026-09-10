@@ -29,8 +29,8 @@ if (Platform.OS !== "web" && !TaskManager.isTaskDefined(taskName)) {
   });
 }
 
-export const clearBackgroundTrack = async () => {
-  if (Platform.OS !== "web") await buffer.clear();
+export const clearBackgroundTrack = async (checkpointId?: string, isCurrent?: () => boolean) => {
+  if (Platform.OS !== "web") await buffer.clear(checkpointId, isCurrent);
 };
 export const consumeBackgroundTrack = async (isCurrent?: () => boolean) =>
   Platform.OS === "web" ? [] : buffer.consume(isCurrent);
@@ -42,12 +42,21 @@ export async function startBackgroundTrack(
   isCurrent: () => boolean,
   startedAt: number,
   checkpointId?: string,
+  requestPermission = true,
 ) {
   if (Platform.OS === "web" || !isCurrent()) return false;
+  if (
+    !(await TaskManager.isAvailableAsync()) ||
+    !(await Location.hasServicesEnabledAsync()) ||
+    !isCurrent()
+  )
+    return false;
   const foreground = await Location.getForegroundPermissionsAsync();
   if (!isCurrent() || !foreground.granted) return false;
   // Permission prompts must not hold the native stop queue.
-  const background = await Location.requestBackgroundPermissionsAsync();
+  const background = requestPermission
+    ? await Location.requestBackgroundPermissionsAsync()
+    : await Location.getBackgroundPermissionsAsync();
   if (!isCurrent() || !background.granted) return false;
   return nativeQueue(async () => {
     if (!isCurrent()) return false;
@@ -62,11 +71,14 @@ export async function startBackgroundTrack(
         distanceInterval: 2,
         timeInterval: 1_000,
         pausesUpdatesAutomatically: false,
+        deferredUpdatesInterval: 1_000,
+        deferredUpdatesDistance: 0,
         showsBackgroundLocationIndicator: true,
         foregroundService: {
           notificationTitle: "GROOV 운동 기록 중",
           notificationBody: "백그라운드에서도 이동 거리와 경로를 기록하고 있습니다.",
           notificationColor: "#FF5A36",
+          killServiceOnDestroy: false,
         },
       });
     if (!isCurrent()) {

@@ -5,7 +5,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-na
 import { api } from "../api/client";
 import { Card, Screen, StatePanel } from "../components/ui";
 import { useAsyncData } from "../hooks/use-async-data";
-import { fonts, radius, space, type ThemeColors } from "../theme";
+import { fonts, radius, space, uiLayout, type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 
 type KnowledgeFilter = "all" | SportType;
@@ -21,7 +21,7 @@ const filters: Array<{ id: KnowledgeFilter; label: string }> = [
 ];
 
 // Kept separate so the Bible can move between tabs without coupling it to League.
-export function ExerciseBibleScreen() {
+export function ExerciseBibleScreen({ embedded = false }: { embedded?: boolean }) {
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
   const [knowledgeFilter, setKnowledgeFilter] = useState<KnowledgeFilter>("all");
@@ -45,8 +45,9 @@ export function ExerciseBibleScreen() {
     );
   }
 
+  const Wrapper = embedded ? View : Screen;
   return (
-    <Screen title="">
+    <Wrapper title="">
       <View style={styles.labHeader}>
         <View>
           <Text style={styles.sectionEyebrow}>GROOV LAB</Text>
@@ -140,7 +141,7 @@ export function ExerciseBibleScreen() {
           </Card>
         );
       })}
-    </Screen>
+    </Wrapper>
   );
 }
 
@@ -153,13 +154,13 @@ function createStyles(colors: ThemeColors) {
       letterSpacing: 1.4,
     },
     labHeader: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
-    labTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 23, marginTop: 3 },
+    labTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: uiLayout.titleSize, lineHeight: 28, marginTop: 3 },
     labCopy: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9, marginBottom: 3 },
     filters: { flexDirection: "row", gap: space[2], paddingRight: 20 },
     filter: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       paddingHorizontal: 12,
       paddingVertical: 7,
       backgroundColor: colors.surface,
@@ -167,13 +168,13 @@ function createStyles(colors: ThemeColors) {
     filterActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     filterText: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 9 },
     filterTextActive: { color: "#FFFFFF" },
-    articleCard: { padding: 17, gap: 11 },
+    articleCard: { padding: uiLayout.panelPadding, gap: 11 },
     articleMeta: { flexDirection: "row", alignItems: "center", gap: 7 },
     articleCategory: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9 },
     articleReview: {
       color: colors.warning,
       backgroundColor: colors.surfaceMuted,
-      borderRadius: radius.sm,
+      borderRadius: uiLayout.panelRadius,
       paddingHorizontal: 7,
       paddingVertical: 3,
       fontFamily: fonts.semibold,
@@ -215,7 +216,7 @@ function createStyles(colors: ThemeColors) {
       flexDirection: "row",
       alignItems: "center",
       backgroundColor: colors.primarySoft,
-      borderRadius: radius.sm,
+      borderRadius: uiLayout.panelRadius,
       padding: 9,
       marginTop: 3,
     },

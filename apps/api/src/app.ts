@@ -21,6 +21,8 @@ import {
   PasswordChangeInputSchema,
   PostCreateInputSchema,
   SharingCrewCreateInputSchema,
+  PlannerEntryInputSchema,
+  SavedPlaceInputSchema,
   PostShareInputSchema,
   PostUpdateInputSchema,
   PushDeviceRegistrationInputSchema,
@@ -904,6 +906,47 @@ export async function createApp(dependencies: AppDependencies) {
     return success((await presentFeedPosts([post]))[0]!);
   });
 
+  app.get("/v1/saved-places", async (request) => {
+    const user = await currentUser(request);
+    return success(await dependencies.store.listSavedPlaces(user.id));
+  });
+  app.post("/v1/saved-places", async (request) => {
+    const user = await currentUser(request);
+    await dependencies.store.savePlace(user.id, SavedPlaceInputSchema.parse(request.body));
+    return success(await dependencies.store.listSavedPlaces(user.id));
+  });
+  app.delete("/v1/saved-places/:id", async (request) => {
+    const user = await currentUser(request);
+    const { id } = z.object({ id: z.uuid() }).parse(request.params);
+    await dependencies.store.deletePlace(user.id, id);
+    return success(await dependencies.store.listSavedPlaces(user.id));
+  });
+  app.get("/v1/planner", async (request) => {
+    const user = await currentUser(request);
+    const { month } = z
+      .object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) })
+      .parse(request.query);
+    return success(await dependencies.store.listPlannerEntries(user.id, month));
+  });
+  app.post("/v1/planner", async (request, reply) => {
+    const user = await currentUser(request);
+    return reply
+      .status(201)
+      .send(
+        success(
+          await dependencies.store.createPlannerEntry(
+            user.id,
+            PlannerEntryInputSchema.parse(request.body),
+          ),
+        ),
+      );
+  });
+  app.delete("/v1/planner/:id", async (request) => {
+    const user = await currentUser(request);
+    const { id } = z.object({ id: z.uuid() }).parse(request.params);
+    await dependencies.store.deletePlannerEntry(user.id, id);
+    return success({ deleted: true });
+  });
   app.get("/v1/sharing-crews", async (request) => {
     const user = await currentUser(request);
     return success(await dependencies.store.listSharingCrews(user.id));

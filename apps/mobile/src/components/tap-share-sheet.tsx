@@ -25,7 +25,7 @@ import {
 import { api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import { demoAvatarSources } from "../demo-avatars";
-import { fonts, radius, type ThemeColors } from "../theme";
+import { uiLayout, fonts, radius, type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 import { TapTalkIcon } from "./tap-icons";
 
@@ -350,7 +350,7 @@ function createStyles(colors: ThemeColors) {
       maxWidth: 448,
       maxHeight: "95%",
       padding: 20,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
@@ -361,7 +361,7 @@ function createStyles(colors: ThemeColors) {
     title: { color: colors.ink, fontFamily: fonts.bold, fontSize: 20 },
     eyebrow: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9, letterSpacing: 1.4 },
     close: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-    preview: { backgroundColor: colors.surfaceMuted, borderRadius: radius.md, padding: 12, gap: 4 },
+    preview: { backgroundColor: colors.surfaceMuted, borderRadius: uiLayout.panelRadius, padding: 12, gap: 4 },
     previewName: { color: colors.ink, fontFamily: fonts.bold, fontSize: 12 },
     previewText: { color: colors.muted, fontSize: 12, lineHeight: 18 },
     hint: { color: colors.muted, fontSize: 11, lineHeight: 17 },
@@ -370,7 +370,7 @@ function createStyles(colors: ThemeColors) {
       gap: 8,
       alignItems: "center",
       paddingHorizontal: 12,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.panelRadius,
       borderWidth: 1,
       borderColor: colors.border,
     },
@@ -399,7 +399,7 @@ function createStyles(colors: ThemeColors) {
       bottom: -1,
       width: 21,
       height: 21,
-      borderRadius: 11,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 2,
       borderColor: colors.surface,
       backgroundColor: colors.primary,
@@ -421,7 +421,7 @@ function createStyles(colors: ThemeColors) {
     retry: { color: colors.ink, fontSize: 11, fontFamily: fonts.bold },
     send: {
       height: 48,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",

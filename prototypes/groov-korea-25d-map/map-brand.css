@@ -1,17 +1,20 @@
+@font-face {font-family:"GROOV Archivo";src:url("assets/Archivo_800ExtraBold_Italic.ttf") format("truetype");font-style:italic;font-weight:800;font-display:swap;}
 /* Shared reference lockup: orange wordmark / hairline / grey atlas / orange 2.5D. */
 .map-header .map-brand {display:flex;align-items:center;gap:clamp(10px,2vw,20px);flex:0 1 auto;min-width:0;white-space:nowrap;}
-.map-header .map-brand-name {display:block;color:#ff5733;font:italic 950 clamp(30px,3.1vw,44px)/1 Arial,sans-serif;letter-spacing:-1.8px;text-decoration:none;flex:none;}
+.map-header .map-brand-name {display:block;color:#ff5733;font:italic 800 clamp(30px,3.1vw,44px)/1 "GROOV Archivo",Arial,sans-serif;letter-spacing:-.03em;text-decoration:none;flex:none;}
 .map-header .map-brand-divider {display:block;flex:none;width:1px;height:22px;background:#777b7c66;}
 .map-header .map-brand-meta {display:flex;align-items:center;gap:8px;color:#989b9d;font:750 11px/1.2 Arial,sans-serif;letter-spacing:.12em;}
 .map-header .map-brand-meta span {display:inline!important;color:#ff5733;font:inherit;letter-spacing:inherit;}
 .game-shell .top-hud.map-header {display:flex;justify-content:space-between;}
 .game-shell .map-header .brand-lockup {align-items:center;justify-content:flex-start;gap:24px;}
 .detail-shell .detail-header.map-header {z-index:57;}
+.map-header .header-search-toggle {display:grid;place-items:center;flex:0 0 40px;width:40px;height:40px;margin-left:0;padding:0;border:1px solid #ffffff2b;border-radius:12px;background:#101212e8;color:#ff7656;box-shadow:0 7px 20px #0005;}
+.map-header .header-search-toggle svg {width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;}
+.map-header .header-search-toggle[aria-expanded=true] {border-color:#ff8060;background:#ff5733;color:#16110f;}
 @media(max-width:760px){
   .map-header .map-brand {gap:9px;}
   .map-header .map-brand-name {font-size:30px;}
-  .map-header .map-brand-divider {height:18px;}
-  .map-header .map-brand-meta {font-size:9px;letter-spacing:.09em;gap:6px;}
+  .map-header .map-brand-divider,.map-header .map-brand-meta {display:none;}
   .map-header .street-atlas-link,.map-header .national-link {display:none;}
   .game-shell .map-header .brand-lockup {gap:0;}
 }
@@ -22,3 +25,4 @@
 /* The host hides map chrome only for the small, tappable activity preview. */
 html[data-embedded][data-compact=true] .map-header {display:none!important;}
 .detail-shell[data-mobile-keyboard=true] .map-header {display:none!important;}
+.map-header .map-brand-name {font-size:20px;color:#ff613b;letter-spacing:-.03em;}

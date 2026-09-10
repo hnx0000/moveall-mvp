@@ -1,6 +1,7 @@
 import type { PublicUser, SocialSummary } from "@moveall/contracts";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
+import { Wordmark } from "../components/ui";
 import {
   ActivityIndicator,
   Image,
@@ -16,7 +17,7 @@ import { useAuth } from "../auth/auth-context";
 import { demoAvatarSources } from "../demo-avatars";
 import { TapTalkIcon } from "../components/tap-icons";
 import { UnfollowDialog } from "../components/unfollow-dialog";
-import { type ThemeColors } from "../theme";
+import { fonts, maxContentWidth, uiLayout, type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 
 const emptySocial: SocialSummary = {
@@ -105,7 +106,7 @@ export function ConnectionsScreen({ mode }: { mode: "followers" | "following" })
           <Pressable onPress={() => router.back()}>
             <Text style={styles.back}>← BACK</Text>
           </Pressable>
-          <Text style={styles.brand}>GROOV</Text>
+          <Wordmark />
         </View>
         <Text style={styles.eyebrow}>SOCIAL CONTROL</Text>
         <Text style={styles.title}>{mode === "followers" ? "팔로워" : "팔로잉"}</Text>
@@ -195,9 +196,9 @@ function createStyles(colors: ThemeColors) {
     safeArea: { flex: 1, backgroundColor: colors.background },
     page: {
       width: "100%",
-      maxWidth: 448,
+      maxWidth: maxContentWidth,
       alignSelf: "center",
-      padding: 22,
+      padding: uiLayout.pageInset,
       paddingBottom: 90,
       gap: 17,
     },
@@ -205,7 +206,7 @@ function createStyles(colors: ThemeColors) {
     back: { color: colors.muted, fontSize: 9, fontWeight: "900" },
     brand: { color: colors.primary, fontSize: 16, fontWeight: "900", fontStyle: "italic" },
     eyebrow: { color: colors.primary, fontSize: 7, fontWeight: "900", letterSpacing: 1 },
-    title: { color: colors.ink, fontSize: 28, fontWeight: "900" },
+    title: { color: colors.ink, fontSize: uiLayout.titleSize, lineHeight: 28, fontFamily: fonts.bold },
     lead: { color: colors.muted, fontSize: 10, lineHeight: 17 },
     countLine: {
       flexDirection: "row",
@@ -249,7 +250,7 @@ function createStyles(colors: ThemeColors) {
     actionPrimary: {
       flex: 1,
       minHeight: 36,
-      borderRadius: 5,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
@@ -258,7 +259,7 @@ function createStyles(colors: ThemeColors) {
     action: {
       flex: 1,
       minHeight: 36,
-      borderRadius: 5,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.surfaceMuted,
       flexDirection: "row",
       alignItems: "center",

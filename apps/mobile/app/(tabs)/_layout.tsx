@@ -2,7 +2,8 @@ import { Tabs, useRouter } from "expo-router";
 import { useRef, type ComponentProps } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { fonts, maxContentWidth } from "../../src/theme";
+import { uiLayout, fonts, maxContentWidth } from "../../src/theme";
+import { useAppTheme } from "../../src/theme-context";
 import { bottomNavItems, bottomNavPalette as palette } from "../../src/components/bottom-nav-model";
 
 type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>["tabBar"]>>[0];
@@ -11,7 +12,7 @@ export default function TabsLayout() {
   return (
     <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <MoveallTabBar {...props} />}>
       <Tabs.Screen name="index" options={{ title: "홈" }} />
-      <Tabs.Screen name="community" options={{ title: "TODAY" }} />
+      <Tabs.Screen name="community" options={{ title: "플랜" }} />
       <Tabs.Screen name="routines" options={{ title: "기록" }} />
       <Tabs.Screen name="knowledge" options={{ title: "리그" }} />
       <Tabs.Screen name="profile" options={{ title: "MY" }} />
@@ -20,17 +21,18 @@ export default function TabsLayout() {
 }
 
 function MoveallTabBar({ state, navigation, insets }: TabBarProps) {
+  const { colors } = useAppTheme();
   const router = useRouter();
   const longPressed = useRef(false);
   return (
-    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+    <View style={[styles.wrap, { backgroundColor: colors.tab, borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 10) }]}>
       <View style={styles.inner}>
         {state.routes.map((route, index) => {
           const item = bottomNavItems[route.name as keyof typeof bottomNavItems];
           if (!item) return null;
           const isPrimary = route.name === "routines";
           const focused = state.index === index && !isPrimary;
-          const color = focused ? palette.active : palette.inactive;
+          const color = focused ? colors.primary : colors.muted;
           return (
             <Pressable
               key={route.key}
@@ -66,7 +68,7 @@ function MoveallTabBar({ state, navigation, insets }: TabBarProps) {
               delayLongPress={420}
               style={({ pressed }) => [styles.tab, pressed && styles.pressed]}
             >
-              <View style={isPrimary ? styles.primaryButton : styles.icon}>
+              <View style={isPrimary ? [styles.primaryButton, { backgroundColor: colors.primary }] : styles.icon}>
                 <Svg
                   width={isPrimary ? 29 : 24}
                   height={isPrimary ? 29 : 24}
@@ -121,7 +123,7 @@ const styles = StyleSheet.create({
   primaryButton: {
     width: 54,
     height: 44,
-    borderRadius: 15,
+    borderRadius: uiLayout.controlRadius,
     backgroundColor: palette.active,
     alignItems: "center",
     justifyContent: "center",

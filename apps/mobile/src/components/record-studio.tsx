@@ -29,7 +29,7 @@ import { isNotificationIdentity } from "../features/notifications/push-lifecycle
 import { useAuth } from "../auth/auth-context";
 import { uploadMediaAsset } from "../media/upload";
 import { exportStudioImage, prepareStudioExport } from "../media/studio-export";
-import { fonts } from "../theme";
+import { uiLayout, fonts } from "../theme";
 import { useAppTheme } from "../theme-context";
 import { CenterDialog } from "./ui";
 import { SportLogo } from "./sport-logo";
@@ -566,7 +566,7 @@ export function RecordStudio({
                       width: 360 * displayScale,
                       height: 640 * displayScale,
                       alignSelf: "center",
-                      borderRadius: 22,
+                      borderRadius: uiLayout.panelRadius,
                       overflow: "hidden",
                       backgroundColor: colors.surface,
                     }}
@@ -863,7 +863,7 @@ export function RecordStudio({
                                 style={{
                                   width: 30,
                                   height: 30,
-                                  borderRadius: 15,
+                                  borderRadius: uiLayout.panelRadius,
                                   backgroundColor: color,
                                   borderWidth: selected.color === color ? 3 : 1,
                                   borderColor:
@@ -938,7 +938,7 @@ export function RecordStudio({
                     accessibilityLabel="GROOV 로고가 포함된 외부 공유 이미지"
                     source={{ uri: preparedExport }}
                     resizeMode="contain"
-                    style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: 16 }}
+                    style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: uiLayout.panelRadius }}
                   />
                   <Pressable
                     accessibilityRole="button"
@@ -1261,7 +1261,7 @@ function EditableLayer({
           pointerEvents="none"
           style={[
             StyleSheet.absoluteFill,
-            { borderWidth: 1, borderStyle: "dashed", borderColor: ROUTE_ORANGE, borderRadius: 5 },
+            { borderWidth: 1, borderStyle: "dashed", borderColor: ROUTE_ORANGE, borderRadius: uiLayout.panelRadius },
           ]}
         />
       ) : null}
@@ -1270,7 +1270,7 @@ function EditableLayer({
 }
 
 const s = StyleSheet.create({
-  composer: { borderWidth: 1, borderRadius: 24, overflow: "hidden" },
+  composer: { borderWidth: 1, borderRadius: uiLayout.panelRadius, overflow: "hidden" },
   prompt: { flexDirection: "row", alignItems: "center", gap: 14, padding: 18 },
   avatar: { width: 38, height: 38, borderRadius: 19 },
   center: { alignItems: "center", justifyContent: "center" },
@@ -1296,8 +1296,8 @@ const s = StyleSheet.create({
   },
   small: { fontSize: 11, lineHeight: 18, fontFamily: fonts.medium },
   row: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
-  chip: { paddingHorizontal: 13, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
-  panel: { borderWidth: 1, borderRadius: 20, padding: 16, gap: 13 },
+  chip: { paddingHorizontal: 13, paddingVertical: 10, borderRadius: uiLayout.controlRadius, borderWidth: 1 },
+  panel: { borderWidth: 1, borderRadius: uiLayout.panelRadius, padding: 16, gap: 13 },
   switchRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1328,14 +1328,14 @@ const s = StyleSheet.create({
   whiteHint: { color: "#FFFFFF", padding: 26, textAlign: "center", lineHeight: 24 },
   input: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: uiLayout.controlRadius,
     padding: 14,
     fontSize: 15,
     fontFamily: fonts.regular,
     minWidth: 0,
   },
   primary: {
-    borderRadius: 20,
+    borderRadius: uiLayout.panelRadius,
     minHeight: 54,
     alignItems: "center",
     justifyContent: "center",
@@ -1344,7 +1344,7 @@ const s = StyleSheet.create({
   primaryText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 16 },
   exportButton: {
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: uiLayout.controlRadius,
     padding: 16,
     alignItems: "center",
     justifyContent: "center",
@@ -1362,13 +1362,13 @@ const s = StyleSheet.create({
     width: "100%",
     maxWidth: 540,
     maxHeight: "85%",
-    borderRadius: 24,
+    borderRadius: uiLayout.dialogRadius,
     overflow: "hidden",
     gap: 12,
   },
   record: {
     padding: 14,
-    borderRadius: 16,
+    borderRadius: uiLayout.panelRadius,
     borderWidth: 1,
     gap: 12,
     flexDirection: "row",

@@ -1,13 +1,13 @@
 :root {
   color-scheme: dark;
-  --groov-orange: #ff5733;
+  --groov-orange: #ff5a32;
   --groov-orange-bright: #ff794f;
   --groov-orange-deep: #8f2918;
-  --groov-black: #070708;
-  --groov-panel: rgba(12, 12, 13, 0.88);
-  --groov-line: rgba(255, 255, 255, 0.12);
-  --groov-copy: #f7f5f2;
-  --groov-muted: #9d9a97;
+  --groov-black: #0b0d0c;
+  --groov-panel: rgba(17, 19, 18, 0.94);
+  --groov-line: #303330;
+  --groov-copy: #faf8f6;
+  --groov-muted: #a4a8a4;
   font-family: Inter, Pretendard, "Noto Sans KR", system-ui, -apple-system, sans-serif;
 }
 

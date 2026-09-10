@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react"; import { uiLayout } from "../theme";
 import { AppState, Modal, Pressable, Text, View } from "react-native";
 import { PostCreateInputSchema, WorkoutSessionCreateInputSchema } from "@moveall/contracts";
 import { api, ApiError } from "../api/client";
@@ -136,7 +136,7 @@ export function PendingSaveRecovery() {
           style={{
             backgroundColor: colors.background,
             padding: 24,
-            borderRadius: 24,
+            borderRadius: uiLayout.panelRadius,
             gap: 18,
             maxWidth: 480,
             width: "100%",
@@ -155,7 +155,7 @@ export function PendingSaveRecovery() {
               disabled={busy}
               onPress={() => void recover()}
               accessibilityRole="button"
-              style={{ backgroundColor: colors.primary, padding: 16, borderRadius: 14 }}
+              style={{ backgroundColor: colors.primary, padding: 16, borderRadius: uiLayout.panelRadius }}
             >
               <Text style={{ color: "#fff", textAlign: "center", fontWeight: "700" }}>
                 {busy ? "확인 중…" : "저장 결과 확인"}

@@ -1,4 +1,5 @@
 import * as Clipboard from "expo-clipboard";
+import { Wordmark } from "../src/components/ui";
 import { useRouter } from "expo-router";
 import {
   ArrowDown,
@@ -65,7 +66,7 @@ import {
   zoomViewport,
   type LeagueViewport,
 } from "../src/components/league-map-model";
-import { fonts } from "../src/theme";
+import { uiLayout, fonts } from "../src/theme";
 import { useAppTheme } from "../src/theme-context";
 
 const ORANGE = "#FF5832";
@@ -190,7 +191,9 @@ export default function LeagueCityHeatLab() {
           if (touches.length >= 2) {
             const nextDistance = distanceBetweenTouches(touches);
             if (gesture.current.distance > 0 && nextDistance > 0) {
-              setViewport(zoomViewport(gesture.current.viewport, gesture.current.distance / nextDistance));
+              setViewport(
+                zoomViewport(gesture.current.viewport, gesture.current.distance / nextDistance),
+              );
             }
             return;
           }
@@ -239,7 +242,8 @@ export default function LeagueCityHeatLab() {
   function handleAreaPress(area: CityHeatStanding) {
     if (interaction === "pinching" || interaction === "panning") return;
     const now = Date.now();
-    const isDoubleTap = tapCandidate.current.code === area.code && now - tapCandidate.current.at < 320;
+    const isDoubleTap =
+      tapCandidate.current.code === area.code && now - tapCandidate.current.at < 320;
 
     if (isDoubleTap) {
       if (tapTimer.current) clearTimeout(tapTimer.current);
@@ -313,7 +317,10 @@ export default function LeagueCityHeatLab() {
       ? `${selected.name} ${formatCityHeatRank(selected.rank)} · ${mainRival.name}까지 ${formatCityHeatScore(Math.abs(mainRival.score - selected.score))} HEAT. 우리 동네 기록으로 따라잡기: https://groov.app/league/region/${selected.code}`
       : `${selected.name}의 GROOV CITY HEAT에 참여하세요.`;
     await Clipboard.setStringAsync(copy);
-    Alert.alert("응원 링크 복사 완료", "우리 지역 경쟁 화면으로 바로 연결되는 문구를 복사했습니다.");
+    Alert.alert(
+      "응원 링크 복사 완료",
+      "우리 지역 경쟁 화면으로 바로 연결되는 문구를 복사했습니다.",
+    );
   }
 
   if (!mapAudit.valid || !selected) {
@@ -337,14 +344,18 @@ export default function LeagueCityHeatLab() {
   const provinceRank = rankedProvinces.findIndex((item) => item.province === selectedProvince) + 1;
 
   return (
-    <View style={[styles.page, { backgroundColor: colors.background }]}> 
+    <View style={[styles.page, { backgroundColor: colors.background }]}>
       <View style={styles.shell}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="이전 단계" onPress={goBackLevel} style={styles.headerButton}>
+          <Pressable
+            accessibilityLabel="이전 단계"
+            onPress={goBackLevel}
+            style={styles.headerButton}
+          >
             <ArrowLeft color="#F7F3F0" size={22} />
           </Pressable>
           <View style={styles.headerCopy}>
-            <Text style={styles.wordmark}>GROOV</Text>
+            <Wordmark />
             <Text style={styles.headerTitle}>CITY HEAT</Text>
           </View>
           <View style={styles.labBadge}>
@@ -473,7 +484,11 @@ export default function LeagueCityHeatLab() {
                         onPress={() => handleAreaPress(area)}
                         stroke={isSelected ? "#FFB29E" : "rgba(255,220,208,.36)"}
                         strokeLinejoin="round"
-                        strokeWidth={isSelected ? Math.max(0.1, viewport.width / 130) : Math.max(0.04, viewport.width / 420)}
+                        strokeWidth={
+                          isSelected
+                            ? Math.max(0.1, viewport.width / 130)
+                            : Math.max(0.04, viewport.width / 420)
+                        }
                       />
                     );
                   })}
@@ -489,7 +504,10 @@ export default function LeagueCityHeatLab() {
                   ))}
                   {level === "seoul"
                     ? standings.map((area) => {
-                        const highlighted = area.code === selected.code || area.rank <= 3 || area.code === CITY_HEAT_MY_REGION;
+                        const highlighted =
+                          area.code === selected.code ||
+                          area.rank <= 3 ||
+                          area.code === CITY_HEAT_MY_REGION;
                         if (!highlighted) return null;
                         return (
                           <G key={`label-${area.code}`} pointerEvents="none">
@@ -504,7 +522,9 @@ export default function LeagueCityHeatLab() {
                               {area.name.replace("구", "")}
                             </SvgText>
                             <SvgText
-                              fill={area.code === selected.code ? "#FFFFFF" : "rgba(255,255,255,.72)"}
+                              fill={
+                                area.code === selected.code ? "#FFFFFF" : "rgba(255,255,255,.72)"
+                              }
                               fontSize={Math.max(0.19, viewport.width / 47)}
                               fontWeight="700"
                               textAnchor="middle"
@@ -600,7 +620,9 @@ export default function LeagueCityHeatLab() {
                         : `+${lastContribution.current} HEAT 반영 완료`}
                   </Text>
                   <Text style={styles.contributionCopy}>
-                    {contribution === "accepted" ? "서버 확정 점수로 교체되었습니다." : "검증된 운동 기록만 반영됩니다."}
+                    {contribution === "accepted"
+                      ? "서버 확정 점수로 교체되었습니다."
+                      : "검증된 운동 기록만 반영됩니다."}
                   </Text>
                 </View>
               </View>
@@ -619,14 +641,21 @@ export default function LeagueCityHeatLab() {
               <View style={styles.countryCardTop}>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.eyebrow}>NATIONAL HEAT</Text>
-                  <Text numberOfLines={1} style={styles.regionTitle}>{selectedProvince}</Text>
+                  <Text numberOfLines={1} style={styles.regionTitle}>
+                    {selectedProvince}
+                  </Text>
                 </View>
                 <View style={styles.rankPill}>
                   <Text style={styles.rankPillText}>{formatCityHeatRank(provinceRank)}</Text>
                 </View>
               </View>
               <View style={styles.bigScoreRow}>
-                <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={styles.bigScore}>
+                <Text
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                  numberOfLines={1}
+                  style={styles.bigScore}
+                >
                   {formatCityHeatScore(selectedProvinceData?.score ?? 0)}
                 </Text>
                 <Text style={styles.scoreUnit}>HEAT</Text>
@@ -678,12 +707,19 @@ export default function LeagueCityHeatLab() {
                     <MiniLandmark tier={area.landmark} />
                   </View>
                   <View style={styles.rankCopy}>
-                    <Text numberOfLines={1} style={styles.rankName}>{area.name}</Text>
+                    <Text numberOfLines={1} style={styles.rankName}>
+                      {area.name}
+                    </Text>
                     <Text numberOfLines={1} style={styles.rankMeta}>
                       {area.dominantSport} · 참여율 {area.participationRate.toFixed(1)}%
                     </Text>
                   </View>
-                  <Text adjustsFontSizeToFit minimumFontScale={0.72} numberOfLines={1} style={styles.rankScore}>
+                  <Text
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.72}
+                    numberOfLines={1}
+                    style={styles.rankScore}
+                  >
                     {formatCityHeatScore(area.score)}pt
                   </Text>
                 </Pressable>
@@ -698,7 +734,8 @@ export default function LeagueCityHeatLab() {
             <View style={{ flex: 1 }}>
               <Text style={styles.noteTitle}>독립 실험 화면</Text>
               <Text style={styles.noteCopy}>
-                현재 리그에는 적용되지 않습니다. 실제 행정 경계 데이터와 샘플 점수를 분리해 검증 중입니다.
+                현재 리그에는 적용되지 않습니다. 실제 행정 경계 데이터와 샘플 점수를 분리해 검증
+                중입니다.
               </Text>
             </View>
           </View>
@@ -728,13 +765,19 @@ function RegionSheet({
   const gap = mainRival ? Math.abs(mainRival.score - selected.score) : 0;
   return (
     <View style={stylesStatic.regionSheet}>
-      <Pressable accessibilityLabel="지역 상세 펼치기" onPress={onDetails} style={stylesStatic.sheetHandleArea}>
+      <Pressable
+        accessibilityLabel="지역 상세 펼치기"
+        onPress={onDetails}
+        style={stylesStatic.sheetHandleArea}
+      >
         <View style={stylesStatic.sheetHandle} />
       </Pressable>
       <View style={stylesStatic.regionHeading}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={stylesStatic.eyebrow}>MY VERIFIED REGION</Text>
-          <Text numberOfLines={1} style={stylesStatic.regionTitle}>{selected.name}</Text>
+          <Text numberOfLines={1} style={stylesStatic.regionTitle}>
+            {selected.name}
+          </Text>
         </View>
         <View style={stylesStatic.rankPill}>
           <Text style={stylesStatic.rankPillText}>{formatCityHeatRank(selected.rank)}</Text>
@@ -750,34 +793,68 @@ function RegionSheet({
           : "현재 가장 가까운 경쟁 지역을 계산하고 있습니다."}
       </Text>
       <View style={stylesStatic.progressTrack}>
-        <View style={[stylesStatic.progressFill, { width: `${Math.max(16, Math.min(94, 100 - gap / 50))}%` }]} />
+        <View
+          style={[
+            stylesStatic.progressFill,
+            { width: `${Math.max(16, Math.min(94, 100 - gap / 50))}%` },
+          ]}
+        />
       </View>
       <View style={stylesStatic.actionRow}>
         <Pressable
           disabled={contribution !== "idle"}
           onPress={onContribute}
-          style={[stylesStatic.primaryAction, contribution !== "idle" && stylesStatic.actionDisabled]}
+          style={[
+            stylesStatic.primaryAction,
+            contribution !== "idle" && stylesStatic.actionDisabled,
+          ]}
         >
           <Flame color="#0A0908" fill="#0A0908" size={17} />
           <Text style={stylesStatic.primaryActionText}>
             {contribution === "idle" ? "내 기록 반영 체험" : "기록 반영 중"}
           </Text>
         </Pressable>
-        <Pressable accessibilityLabel="지역 경쟁 공유" onPress={onShare} style={stylesStatic.secondaryAction}>
+        <Pressable
+          accessibilityLabel="지역 경쟁 공유"
+          onPress={onShare}
+          style={stylesStatic.secondaryAction}
+        >
           <Share2 color="#FFFFFF" size={18} />
         </Pressable>
       </View>
       {showDetails ? (
         <View style={stylesStatic.detailGrid}>
-          <DetailStat icon={<Users color={ORANGE} size={15} />} label="리그 참여" value={`${formatCityHeatScore(selected.participantCount)}명`} />
-          <DetailStat icon={<Flame color={ORANGE} size={15} />} label="참여율" value={`${selected.participationRate.toFixed(1)}%`} />
-          <DetailStat icon={<ShieldCheck color={ORANGE} size={15} />} label="인증 기록" value={`${selected.verifiedActivityCount}개`} />
-          <DetailStat icon={<Trophy color={ORANGE} size={15} />} label="강세 종목" value={selected.dominantSport} />
+          <DetailStat
+            icon={<Users color={ORANGE} size={15} />}
+            label="리그 참여"
+            value={`${formatCityHeatScore(selected.participantCount)}명`}
+          />
+          <DetailStat
+            icon={<Flame color={ORANGE} size={15} />}
+            label="참여율"
+            value={`${selected.participationRate.toFixed(1)}%`}
+          />
+          <DetailStat
+            icon={<ShieldCheck color={ORANGE} size={15} />}
+            label="인증 기록"
+            value={`${selected.verifiedActivityCount}개`}
+          />
+          <DetailStat
+            icon={<Trophy color={ORANGE} size={15} />}
+            label="강세 종목"
+            value={selected.dominantSport}
+          />
         </View>
       ) : null}
       <Pressable onPress={onDetails} style={stylesStatic.detailToggle}>
-        <Text style={stylesStatic.detailToggleText}>{showDetails ? "현황 접기" : "지역 현황 자세히"}</Text>
-        <ArrowDown color="#9C918A" size={16} style={showDetails ? { transform: [{ rotate: "180deg" }] } : undefined} />
+        <Text style={stylesStatic.detailToggleText}>
+          {showDetails ? "현황 접기" : "지역 현황 자세히"}
+        </Text>
+        <ArrowDown
+          color="#9C918A"
+          size={16}
+          style={showDetails ? { transform: [{ rotate: "180deg" }] } : undefined}
+        />
       </Pressable>
     </View>
   );
@@ -806,7 +883,12 @@ function ScoreTicker({ value }: { value: number }) {
   }, [value]);
 
   return (
-    <Text adjustsFontSizeToFit minimumFontScale={0.68} numberOfLines={1} style={stylesStatic.bigScore}>
+    <Text
+      adjustsFontSizeToFit
+      minimumFontScale={0.68}
+      numberOfLines={1}
+      style={stylesStatic.bigScore}
+    >
       {formatCityHeatScore(display)}
     </Text>
   );
@@ -817,14 +899,33 @@ function DetailStat({ icon, label, value }: { icon: ReactNode; label: string; va
     <View style={stylesStatic.detailStat}>
       <View style={stylesStatic.detailIcon}>{icon}</View>
       <Text style={stylesStatic.detailLabel}>{label}</Text>
-      <Text adjustsFontSizeToFit minimumFontScale={0.72} numberOfLines={1} style={stylesStatic.detailValue}>{value}</Text>
+      <Text
+        adjustsFontSizeToFit
+        minimumFontScale={0.72}
+        numberOfLines={1}
+        style={stylesStatic.detailValue}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
 
-function MapControl({ icon, label, onPress }: { icon: ReactNode; label: string; onPress: () => void }) {
+function MapControl({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: ReactNode;
+  label: string;
+  onPress: () => void;
+}) {
   return (
-    <Pressable accessibilityLabel={`지도 ${label}`} onPress={onPress} style={({ pressed }) => [stylesStatic.mapButton, pressed && stylesStatic.pressed]}>
+    <Pressable
+      accessibilityLabel={`지도 ${label}`}
+      onPress={onPress}
+      style={({ pressed }) => [stylesStatic.mapButton, pressed && stylesStatic.pressed]}
+    >
       {icon}
     </Pressable>
   );
@@ -852,9 +953,24 @@ function Landmark({
     return (
       <G>
         <Ellipse cx={x} cy={y + 1.2 * s} fill="rgba(0,0,0,.48)" rx={3 * s} ry={1.05 * s} />
-        <Polygon fill="#171310" points={`${x - 2.2 * s},${y + 0.8 * s} ${x + 2.2 * s},${y + 0.8 * s} ${x + 1.45 * s},${y - 4.2 * s} ${x - 1.45 * s},${y - 4.2 * s}`} stroke="#FF8A6D" strokeWidth={0.24 * s} />
-        <Polygon fill={ORANGE} points={`${x},${y - 6.2 * s} ${x + 1.4 * s},${y - 3.7 * s} ${x},${y - 2.8 * s} ${x - 1.4 * s},${y - 3.7 * s}`} />
-        <Line stroke="#FFB09A" strokeWidth={0.3 * s} x1={x} x2={x} y1={y - 3.4 * s} y2={y + 0.4 * s} />
+        <Polygon
+          fill="#171310"
+          points={`${x - 2.2 * s},${y + 0.8 * s} ${x + 2.2 * s},${y + 0.8 * s} ${x + 1.45 * s},${y - 4.2 * s} ${x - 1.45 * s},${y - 4.2 * s}`}
+          stroke="#FF8A6D"
+          strokeWidth={0.24 * s}
+        />
+        <Polygon
+          fill={ORANGE}
+          points={`${x},${y - 6.2 * s} ${x + 1.4 * s},${y - 3.7 * s} ${x},${y - 2.8 * s} ${x - 1.4 * s},${y - 3.7 * s}`}
+        />
+        <Line
+          stroke="#FFB09A"
+          strokeWidth={0.3 * s}
+          x1={x}
+          x2={x}
+          y1={y - 3.4 * s}
+          y2={y + 0.4 * s}
+        />
         <RankBadge rank={rank} x={x} y={y - 7.6 * s} scale={s} />
       </G>
     );
@@ -863,9 +979,30 @@ function Landmark({
     return (
       <G>
         <Circle cx={x} cy={y + 0.85 * s} fill="rgba(0,0,0,.45)" r={3.1 * s} />
-        <Circle cx={x} cy={y - 1.2 * s} fill="#171310" r={2.9 * s} stroke="#FF896C" strokeWidth={0.34 * s} />
-        <Circle cx={x} cy={y - 1.2 * s} fill="none" r={1.7 * s} stroke={ORANGE} strokeWidth={0.55 * s} />
-        <Rect fill="#29211E" height={1.8 * s} rx={0.35 * s} width={1.1 * s} x={x - 0.55 * s} y={y - 2.1 * s} />
+        <Circle
+          cx={x}
+          cy={y - 1.2 * s}
+          fill="#171310"
+          r={2.9 * s}
+          stroke="#FF896C"
+          strokeWidth={0.34 * s}
+        />
+        <Circle
+          cx={x}
+          cy={y - 1.2 * s}
+          fill="none"
+          r={1.7 * s}
+          stroke={ORANGE}
+          strokeWidth={0.55 * s}
+        />
+        <Rect
+          fill="#29211E"
+          height={1.8 * s}
+          rx={0.35 * s}
+          width={1.1 * s}
+          x={x - 0.55 * s}
+          y={y - 2.1 * s}
+        />
         <RankBadge rank={rank} x={x} y={y - 5.4 * s} scale={s} />
       </G>
     );
@@ -874,9 +1011,29 @@ function Landmark({
     return (
       <G>
         <Circle cx={x} cy={y + 0.8 * s} fill="rgba(0,0,0,.45)" r={2.5 * s} />
-        <Polygon fill="#211A17" points={`${x - 1.4 * s},${y + 0.5 * s} ${x + 1.4 * s},${y + 0.5 * s} ${x + 0.55 * s},${y - 3.5 * s} ${x - 0.55 * s},${y - 3.5 * s}`} stroke="#FF8C70" strokeWidth={0.28 * s} />
-        <Circle cx={x} cy={y - 4.1 * s} fill={ORANGE} r={0.9 * s} stroke="#FFD1C5" strokeWidth={0.22 * s} />
-        <Circle cx={x} cy={y - 4.1 * s} fill="none" opacity=".38" r={2.2 * s} stroke={ORANGE} strokeWidth={0.2 * s} />
+        <Polygon
+          fill="#211A17"
+          points={`${x - 1.4 * s},${y + 0.5 * s} ${x + 1.4 * s},${y + 0.5 * s} ${x + 0.55 * s},${y - 3.5 * s} ${x - 0.55 * s},${y - 3.5 * s}`}
+          stroke="#FF8C70"
+          strokeWidth={0.28 * s}
+        />
+        <Circle
+          cx={x}
+          cy={y - 4.1 * s}
+          fill={ORANGE}
+          r={0.9 * s}
+          stroke="#FFD1C5"
+          strokeWidth={0.22 * s}
+        />
+        <Circle
+          cx={x}
+          cy={y - 4.1 * s}
+          fill="none"
+          opacity=".38"
+          r={2.2 * s}
+          stroke={ORANGE}
+          strokeWidth={0.2 * s}
+        />
         <RankBadge rank={rank} x={x} y={y - 7.2 * s} scale={s} />
       </G>
     );
@@ -884,7 +1041,16 @@ function Landmark({
   return (
     <G>
       <Circle cx={x} cy={y} fill="#171310" r={1.9 * s} stroke={ORANGE} strokeWidth={0.28 * s} />
-      <SvgText fill={ORANGE} fontSize={2 * s} fontWeight="900" textAnchor="middle" x={x} y={y + 0.7 * s}>V</SvgText>
+      <SvgText
+        fill={ORANGE}
+        fontSize={2 * s}
+        fontWeight="900"
+        textAnchor="middle"
+        x={x}
+        y={y + 0.7 * s}
+      >
+        V
+      </SvgText>
     </G>
   );
 }
@@ -892,8 +1058,22 @@ function Landmark({
 function RankBadge({ rank, x, y, scale }: { rank: number; x: number; y: number; scale: number }) {
   return (
     <G>
-      <Circle cx={x} cy={y} fill="#080706" r={1.35 * scale} stroke={ORANGE} strokeWidth={0.25 * scale} />
-      <SvgText fill="#FFFFFF" fontSize={1.15 * scale} fontWeight="900" textAnchor="middle" x={x} y={y + 0.4 * scale}>
+      <Circle
+        cx={x}
+        cy={y}
+        fill="#080706"
+        r={1.35 * scale}
+        stroke={ORANGE}
+        strokeWidth={0.25 * scale}
+      />
+      <SvgText
+        fill="#FFFFFF"
+        fontSize={1.15 * scale}
+        fontWeight="900"
+        textAnchor="middle"
+        x={x}
+        y={y + 0.4 * scale}
+      >
         {rank}
       </SvgText>
     </G>
@@ -902,32 +1082,110 @@ function RankBadge({ rank, x, y, scale }: { rank: number; x: number; y: number; 
 
 const stylesStatic = StyleSheet.create({
   eyebrow: { color: ORANGE, fontFamily: fonts.displayExtra, fontSize: 10, letterSpacing: 1.25 },
-  regionSheet: { backgroundColor: "#171311", borderColor: "#3A2B26", borderRadius: 24, borderWidth: 1, padding: 18, gap: 11 },
+  regionSheet: {
+    backgroundColor: "#171311",
+    borderColor: "#3A2B26",
+    borderRadius: uiLayout.panelRadius,
+    borderWidth: 1,
+    padding: 18,
+    gap: 11,
+  },
   sheetHandleArea: { alignItems: "center", marginBottom: -3, paddingBottom: 5 },
   sheetHandle: { backgroundColor: "#5A4D47", borderRadius: 3, height: 4, width: 42 },
   regionHeading: { alignItems: "flex-start", flexDirection: "row", gap: 12 },
-  regionTitle: { color: "#FFF9F6", fontFamily: fonts.bold, fontSize: 28, letterSpacing: -1, lineHeight: 36, marginTop: 3 },
-  rankPill: { alignItems: "center", backgroundColor: "#251B18", borderColor: "#6F392B", borderRadius: 14, borderWidth: 1, justifyContent: "center", minHeight: 42, minWidth: 58, paddingHorizontal: 10 },
+  regionTitle: {
+    color: "#FFF9F6",
+    fontFamily: fonts.bold,
+    fontSize: 28,
+    letterSpacing: -1,
+    lineHeight: 36,
+    marginTop: 3,
+  },
+  rankPill: {
+    alignItems: "center",
+    backgroundColor: "#251B18",
+    borderColor: "#6F392B",
+    borderRadius: uiLayout.panelRadius,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+    minWidth: 58,
+    paddingHorizontal: 10,
+  },
   rankPillText: { color: ORANGE, fontFamily: fonts.displayExtra, fontSize: 18 },
   bigScoreRow: { alignItems: "baseline", flexDirection: "row", gap: 7, minWidth: 0 },
-  bigScore: { color: "#FFF8F5", flexShrink: 1, fontFamily: fonts.displayExtra, fontSize: 48, letterSpacing: -2.4, lineHeight: 55, minWidth: 0 },
+  bigScore: {
+    color: "#FFF8F5",
+    flexShrink: 1,
+    fontFamily: fonts.displayExtra,
+    fontSize: 48,
+    letterSpacing: -2.4,
+    lineHeight: 55,
+    minWidth: 0,
+  },
   scoreUnit: { color: ORANGE, fontFamily: fonts.displayExtra, fontSize: 11, letterSpacing: 1 },
   battleCopy: { color: "#C6BAB4", fontFamily: fonts.medium, fontSize: 13, lineHeight: 21 },
   progressTrack: { backgroundColor: "#2A211E", borderRadius: 6, height: 7, overflow: "hidden" },
   progressFill: { backgroundColor: ORANGE, borderRadius: 6, height: "100%" },
   actionRow: { flexDirection: "row", gap: 9 },
-  primaryAction: { alignItems: "center", backgroundColor: ORANGE, borderRadius: 15, flex: 1, flexDirection: "row", gap: 7, justifyContent: "center", minHeight: 52, paddingHorizontal: 14 },
+  primaryAction: {
+    alignItems: "center",
+    backgroundColor: ORANGE,
+    borderRadius: uiLayout.controlRadius,
+    flex: 1,
+    flexDirection: "row",
+    gap: 7,
+    justifyContent: "center",
+    minHeight: 52,
+    paddingHorizontal: 14,
+  },
   primaryActionText: { color: "#0A0908", fontFamily: fonts.bold, fontSize: 14 },
-  secondaryAction: { alignItems: "center", backgroundColor: "#26201D", borderColor: "#443630", borderRadius: 15, borderWidth: 1, justifyContent: "center", minHeight: 52, width: 54 },
+  secondaryAction: {
+    alignItems: "center",
+    backgroundColor: "#26201D",
+    borderColor: "#443630",
+    borderRadius: uiLayout.controlRadius,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 52,
+    width: 54,
+  },
   actionDisabled: { opacity: 0.55 },
   detailGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 3 },
-  detailStat: { backgroundColor: "#201A17", borderRadius: 14, flexBasis: "47%", flexGrow: 1, minWidth: 0, padding: 12 },
+  detailStat: {
+    backgroundColor: "#201A17",
+    borderRadius: uiLayout.panelRadius,
+    flexBasis: "47%",
+    flexGrow: 1,
+    minWidth: 0,
+    padding: 12,
+  },
   detailIcon: { marginBottom: 8 },
   detailLabel: { color: "#91847D", fontFamily: fonts.medium, fontSize: 11 },
-  detailValue: { color: "#FFF8F5", fontFamily: fonts.bold, fontSize: 17, marginTop: 2, minWidth: 0 },
-  detailToggle: { alignItems: "center", flexDirection: "row", justifyContent: "center", minHeight: 40 },
+  detailValue: {
+    color: "#FFF8F5",
+    fontFamily: fonts.bold,
+    fontSize: 17,
+    marginTop: 2,
+    minWidth: 0,
+  },
+  detailToggle: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    minHeight: 40,
+  },
   detailToggleText: { color: "#9C918A", fontFamily: fonts.semibold, fontSize: 12, marginRight: 5 },
-  mapButton: { alignItems: "center", backgroundColor: "rgba(14,12,11,.84)", borderColor: "rgba(255,255,255,.15)", borderRadius: 21, borderWidth: 1, height: 42, justifyContent: "center", width: 42 },
+  mapButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(14,12,11,.84)",
+    borderColor: "rgba(255,255,255,.15)",
+    borderRadius: 21,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
   pressed: { opacity: 0.72, transform: [{ scale: 0.96 }] },
   miniLandmarkText: { color: ORANGE, fontFamily: fonts.displayExtra, fontSize: 13 },
 });
@@ -935,35 +1193,178 @@ const stylesStatic = StyleSheet.create({
 function createStyles() {
   return StyleSheet.create({
     page: { flex: 1 },
-    shell: { alignSelf: "center", backgroundColor: "#0D0B0A", flex: 1, maxWidth: 520, width: "100%" },
-    header: { alignItems: "center", borderBottomColor: "#27211E", borderBottomWidth: 1, flexDirection: "row", minHeight: 66, paddingHorizontal: 14 },
+    shell: {
+      alignSelf: "center",
+      backgroundColor: "#0D0B0A",
+      flex: 1,
+      maxWidth: 520,
+      width: "100%",
+    },
+    header: {
+      alignItems: "center",
+      borderBottomColor: "#27211E",
+      borderBottomWidth: 1,
+      flexDirection: "row",
+      minHeight: 66,
+      paddingHorizontal: 14,
+    },
     headerButton: { alignItems: "center", height: 44, justifyContent: "center", width: 44 },
-    headerCopy: { alignItems: "baseline", flex: 1, flexDirection: "row", gap: 7, justifyContent: "center" },
-    wordmark: { color: ORANGE, fontFamily: fonts.displayItalic, fontSize: 21, fontStyle: "italic", letterSpacing: -0.8 },
-    headerTitle: { color: "#E8DFDB", fontFamily: fonts.displayExtra, fontSize: 12, letterSpacing: 1.8 },
-    labBadge: { alignItems: "center", backgroundColor: "#2D1A15", borderColor: "#663020", borderRadius: 10, borderWidth: 1, height: 30, justifyContent: "center", width: 44 },
+    headerCopy: {
+      alignItems: "baseline",
+      flex: 1,
+      flexDirection: "row",
+      gap: 7,
+      justifyContent: "center",
+    },
+    wordmark: {
+      color: ORANGE,
+      fontFamily: fonts.displayItalic,
+      fontSize: 21,
+      fontStyle: "italic",
+      letterSpacing: -0.8,
+    },
+    headerTitle: {
+      color: "#E8DFDB",
+      fontFamily: fonts.displayExtra,
+      fontSize: 12,
+      letterSpacing: 1.8,
+    },
+    labBadge: {
+      alignItems: "center",
+      backgroundColor: "#2D1A15",
+      borderColor: "#663020",
+      borderRadius: uiLayout.controlRadius,
+      borderWidth: 1,
+      height: 30,
+      justifyContent: "center",
+      width: 44,
+    },
     labBadgeText: { color: ORANGE, fontFamily: fonts.displayExtra, fontSize: 10, letterSpacing: 1 },
     content: { gap: 14, paddingBottom: 44, paddingHorizontal: 14, paddingTop: 16 },
-    statusRow: { alignItems: "flex-end", flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 4 },
+    statusRow: {
+      alignItems: "flex-end",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      paddingHorizontal: 4,
+    },
     eyebrow: stylesStatic.eyebrow,
-    statusTitle: { color: "#FFF8F5", fontFamily: fonts.bold, fontSize: 20, letterSpacing: -0.7, lineHeight: 29, marginTop: 4 },
-    liveBadge: { alignItems: "center", backgroundColor: "#1F1714", borderRadius: 10, flexDirection: "row", gap: 5, paddingHorizontal: 8, paddingVertical: 6 },
+    statusTitle: {
+      color: "#FFF8F5",
+      fontFamily: fonts.bold,
+      fontSize: 20,
+      letterSpacing: -0.7,
+      lineHeight: 29,
+      marginTop: 4,
+    },
+    liveBadge: {
+      alignItems: "center",
+      backgroundColor: "#1F1714",
+      borderRadius: uiLayout.controlRadius,
+      flexDirection: "row",
+      gap: 5,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+    },
     liveDot: { backgroundColor: ORANGE, borderRadius: 4, height: 7, width: 7 },
     liveText: { color: "#F5EDEA", fontFamily: fonts.displayExtra, fontSize: 9, letterSpacing: 1 },
-    mapFrame: { backgroundColor: MAP_INK, borderColor: "#372721", borderRadius: 26, borderWidth: 1, overflow: "hidden", position: "relative" },
-    mapAtmosphere: { backgroundColor: "rgba(255,88,50,.035)", borderColor: "rgba(255,88,50,.12)", borderRadius: 260, borderWidth: 48, height: 520, left: -190, position: "absolute", top: -250, width: 520 },
-    mapTopbar: { alignItems: "flex-start", flexDirection: "row", justifyContent: "space-between", left: 15, position: "absolute", right: 15, top: 14, zIndex: 8 },
+    mapFrame: {
+      backgroundColor: MAP_INK,
+      borderColor: "#372721",
+      borderRadius: uiLayout.panelRadius,
+      borderWidth: 1,
+      overflow: "hidden",
+      position: "relative",
+    },
+    mapAtmosphere: {
+      backgroundColor: "rgba(255,88,50,.035)",
+      borderColor: "rgba(255,88,50,.12)",
+      borderRadius: 260,
+      borderWidth: 48,
+      height: 520,
+      left: -190,
+      position: "absolute",
+      top: -250,
+      width: 520,
+    },
+    mapTopbar: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      left: 15,
+      position: "absolute",
+      right: 15,
+      top: 14,
+      zIndex: 8,
+    },
     mapMode: { color: "#FFFFFF", fontFamily: fonts.displayExtra, fontSize: 13, letterSpacing: 1.4 },
     mapHint: { color: "#9E918A", fontFamily: fonts.medium, fontSize: 10, marginTop: 2 },
-    verifiedBadge: { alignItems: "center", backgroundColor: "rgba(13,11,10,.82)", borderColor: "rgba(255,88,50,.25)", borderRadius: 12, borderWidth: 1, flexDirection: "row", gap: 5, paddingHorizontal: 8, paddingVertical: 6 },
-    verifiedText: { color: "#D3C8C3", fontFamily: fonts.displayExtra, fontSize: 8, letterSpacing: 0.7 },
+    verifiedBadge: {
+      alignItems: "center",
+      backgroundColor: "rgba(13,11,10,.82)",
+      borderColor: "rgba(255,88,50,.25)",
+      borderRadius: uiLayout.controlRadius,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 5,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+    },
+    verifiedText: {
+      color: "#D3C8C3",
+      fontFamily: fonts.displayExtra,
+      fontSize: 8,
+      letterSpacing: 0.7,
+    },
     controls: { gap: 7, position: "absolute", right: 12, top: 58, zIndex: 9 },
-    contributionToast: { alignItems: "center", backgroundColor: "rgba(255,88,50,.94)", borderRadius: 16, flexDirection: "row", gap: 10, left: 15, paddingHorizontal: 13, paddingVertical: 11, position: "absolute", right: 64, top: 66, zIndex: 12 },
+    contributionToast: {
+      alignItems: "center",
+      backgroundColor: "rgba(255,88,50,.94)",
+      borderRadius: uiLayout.panelRadius,
+      flexDirection: "row",
+      gap: 10,
+      left: 15,
+      paddingHorizontal: 13,
+      paddingVertical: 11,
+      position: "absolute",
+      right: 64,
+      top: 66,
+      zIndex: 12,
+    },
     contributionTitle: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 13 },
-    contributionCopy: { color: "rgba(255,255,255,.78)", fontFamily: fonts.medium, fontSize: 9, marginTop: 1 },
-    depthLegend: { alignItems: "center", backgroundColor: "rgba(13,11,10,.82)", borderColor: "rgba(255,255,255,.11)", borderRadius: 13, borderWidth: 1, bottom: 13, flexDirection: "row", gap: 6, left: 13, paddingHorizontal: 9, paddingVertical: 7, position: "absolute" },
-    depthLegendText: { color: "#B9ADA7", fontFamily: fonts.displayExtra, fontSize: 8, letterSpacing: 0.7 },
-    countryCard: { backgroundColor: "#171311", borderColor: "#3A2B26", borderRadius: 24, borderWidth: 1, gap: 10, padding: 18 },
+    contributionCopy: {
+      color: "rgba(255,255,255,.78)",
+      fontFamily: fonts.medium,
+      fontSize: 9,
+      marginTop: 1,
+    },
+    depthLegend: {
+      alignItems: "center",
+      backgroundColor: "rgba(13,11,10,.82)",
+      borderColor: "rgba(255,255,255,.11)",
+      borderRadius: uiLayout.panelRadius,
+      borderWidth: 1,
+      bottom: 13,
+      flexDirection: "row",
+      gap: 6,
+      left: 13,
+      paddingHorizontal: 9,
+      paddingVertical: 7,
+      position: "absolute",
+    },
+    depthLegendText: {
+      color: "#B9ADA7",
+      fontFamily: fonts.displayExtra,
+      fontSize: 8,
+      letterSpacing: 0.7,
+    },
+    countryCard: {
+      backgroundColor: "#171311",
+      borderColor: "#3A2B26",
+      borderRadius: uiLayout.panelRadius,
+      borderWidth: 1,
+      gap: 10,
+      padding: 18,
+    },
     countryCardTop: { alignItems: "flex-start", flexDirection: "row", gap: 12 },
     regionTitle: stylesStatic.regionTitle,
     rankPill: stylesStatic.rankPill,
@@ -974,26 +1375,126 @@ function createStyles() {
     cardCopy: { color: "#A99D97", fontFamily: fonts.regular, fontSize: 13, lineHeight: 21 },
     primaryAction: stylesStatic.primaryAction,
     primaryActionText: stylesStatic.primaryActionText,
-    leaderboard: { backgroundColor: "#13100E", borderColor: "#30241F", borderRadius: 22, borderWidth: 1, overflow: "hidden", padding: 16 },
-    sectionHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", marginBottom: 10 },
+    leaderboard: {
+      backgroundColor: "#13100E",
+      borderColor: "#30241F",
+      borderRadius: uiLayout.panelRadius,
+      borderWidth: 1,
+      overflow: "hidden",
+      padding: 16,
+    },
+    sectionHeader: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: 10,
+    },
     sectionTitle: { color: "#FFF8F5", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
-    rankRow: { alignItems: "center", borderTopColor: "#29211E", borderTopWidth: 1, flexDirection: "row", gap: 10, minHeight: 66, paddingHorizontal: 7 },
-    rankRowActive: { backgroundColor: "rgba(255,88,50,.09)", borderRadius: 12 },
-    rankNumber: { color: "#887A74", fontFamily: fonts.displayExtra, fontSize: 17, textAlign: "center", width: 24 },
-    rankIcon: { alignItems: "center", backgroundColor: "#251B18", borderColor: "#5B3025", borderRadius: 18, borderWidth: 1, height: 36, justifyContent: "center", width: 36 },
+    rankRow: {
+      alignItems: "center",
+      borderTopColor: "#29211E",
+      borderTopWidth: 1,
+      flexDirection: "row",
+      gap: 10,
+      minHeight: 66,
+      paddingHorizontal: 7,
+    },
+    rankRowActive: { backgroundColor: "rgba(255,88,50,.09)", borderRadius: uiLayout.panelRadius },
+    rankNumber: {
+      color: "#887A74",
+      fontFamily: fonts.displayExtra,
+      fontSize: 17,
+      textAlign: "center",
+      width: 24,
+    },
+    rankIcon: {
+      alignItems: "center",
+      backgroundColor: "#251B18",
+      borderColor: "#5B3025",
+      borderRadius: 18,
+      borderWidth: 1,
+      height: 36,
+      justifyContent: "center",
+      width: 36,
+    },
     rankCopy: { flex: 1, minWidth: 0 },
     rankName: { color: "#FFF8F5", fontFamily: fonts.bold, fontSize: 14 },
     rankMeta: { color: "#8F837D", fontFamily: fonts.regular, fontSize: 10, marginTop: 3 },
-    rankScore: { color: ORANGE, flexShrink: 1, fontFamily: fonts.displayExtra, fontSize: 15, maxWidth: 105, minWidth: 64, textAlign: "right" },
-    prototypeNote: { alignItems: "flex-start", backgroundColor: "#171311", borderColor: "#30251F", borderRadius: 18, borderWidth: 1, flexDirection: "row", gap: 11, padding: 14 },
-    noteIcon: { alignItems: "center", backgroundColor: "#291914", borderRadius: 16, height: 32, justifyContent: "center", width: 32 },
+    rankScore: {
+      color: ORANGE,
+      flexShrink: 1,
+      fontFamily: fonts.displayExtra,
+      fontSize: 15,
+      maxWidth: 105,
+      minWidth: 64,
+      textAlign: "right",
+    },
+    prototypeNote: {
+      alignItems: "flex-start",
+      backgroundColor: "#171311",
+      borderColor: "#30251F",
+      borderRadius: uiLayout.panelRadius,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 11,
+      padding: 14,
+    },
+    noteIcon: {
+      alignItems: "center",
+      backgroundColor: "#291914",
+      borderRadius: 16,
+      height: 32,
+      justifyContent: "center",
+      width: 32,
+    },
     noteTitle: { color: "#EDE5E1", fontFamily: fonts.bold, fontSize: 13 },
-    noteCopy: { color: "#8F837D", fontFamily: fonts.regular, fontSize: 11, lineHeight: 18, marginTop: 2 },
-    fallbackPage: { alignItems: "center", backgroundColor: "#0D0B0A", flex: 1, justifyContent: "center", padding: 28 },
-    fallbackEyebrow: { color: ORANGE, fontFamily: fonts.displayExtra, fontSize: 10, letterSpacing: 1.2 },
-    fallbackTitle: { color: "#FFF8F5", fontFamily: fonts.bold, fontSize: 22, marginTop: 10, textAlign: "center" },
-    fallbackCopy: { color: "#A99D97", fontFamily: fonts.regular, fontSize: 13, marginTop: 8, textAlign: "center" },
-    fallbackButton: { backgroundColor: ORANGE, borderRadius: 14, marginTop: 20, minWidth: 140, paddingHorizontal: 18, paddingVertical: 14 },
-    fallbackButtonText: { color: "#0A0908", fontFamily: fonts.bold, fontSize: 14, textAlign: "center" },
+    noteCopy: {
+      color: "#8F837D",
+      fontFamily: fonts.regular,
+      fontSize: 11,
+      lineHeight: 18,
+      marginTop: 2,
+    },
+    fallbackPage: {
+      alignItems: "center",
+      backgroundColor: "#0D0B0A",
+      flex: 1,
+      justifyContent: "center",
+      padding: 28,
+    },
+    fallbackEyebrow: {
+      color: ORANGE,
+      fontFamily: fonts.displayExtra,
+      fontSize: 10,
+      letterSpacing: 1.2,
+    },
+    fallbackTitle: {
+      color: "#FFF8F5",
+      fontFamily: fonts.bold,
+      fontSize: 22,
+      marginTop: 10,
+      textAlign: "center",
+    },
+    fallbackCopy: {
+      color: "#A99D97",
+      fontFamily: fonts.regular,
+      fontSize: 13,
+      marginTop: 8,
+      textAlign: "center",
+    },
+    fallbackButton: {
+      backgroundColor: ORANGE,
+      borderRadius: uiLayout.controlRadius,
+      marginTop: 20,
+      minWidth: 140,
+      paddingHorizontal: 18,
+      paddingVertical: 14,
+    },
+    fallbackButtonText: {
+      color: "#0A0908",
+      fontFamily: fonts.bold,
+      fontSize: 14,
+      textAlign: "center",
+    },
   });
 }

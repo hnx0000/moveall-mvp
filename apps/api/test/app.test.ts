@@ -58,6 +58,69 @@ describe("GROOV API", () => {
     return { app, owner, reader, post, url: `/v1/posts/${post.id}/comments` };
   }
 
+  it("keeps saved locations isolated between accounts", async () => {
+    const { app, owner, reader } = await commentFixture();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/saved-places",
+      headers: owner.headers,
+      payload: { name: "수영 포인트", coordinate: [127, 37.5] },
+    });
+    expect(created.statusCode).toBe(200);
+    const id = created.json().data[0].id;
+    expect(
+      (await app.inject({ method: "GET", url: "/v1/saved-places", headers: reader.headers })).json()
+        .data,
+    ).toEqual([]);
+    await app.inject({ method: "DELETE", url: `/v1/saved-places/${id}`, headers: reader.headers });
+    expect(
+      (await app.inject({ method: "GET", url: "/v1/saved-places", headers: owner.headers })).json()
+        .data,
+    ).toHaveLength(1);
+    await app.inject({ method: "DELETE", url: `/v1/saved-places/${id}`, headers: owner.headers });
+    expect(
+      (await app.inject({ method: "GET", url: "/v1/saved-places", headers: owner.headers })).json()
+        .data,
+    ).toEqual([]);
+    await app.close();
+  });
+
+  it("keeps planner entries private unless explicitly shared and only lets the owner remove them", async () => {
+    const { app, owner, reader } = await commentFixture();
+    const create = (payload: Record<string, unknown>) =>
+      app.inject({ method: "POST", url: "/v1/planner", headers: owner.headers, payload });
+    const input = { date: "2026-09-10", kind: "workout", title: "저녁 러닝", crewIds: [] };
+    expect((await create({ ...input, date: "2026-02-30" })).statusCode).toBe(400);
+    expect((await create({ ...input, crewIds: [reader.user.id] })).statusCode).toBe(400);
+    expect((await create(input)).statusCode).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/v1/planner?month=2026-09",
+          headers: reader.headers,
+        })
+      ).json().data,
+    ).toHaveLength(0);
+    const crew = await store.createSharingCrew(owner.user.id, {
+      name: "러닝 크루",
+      memberIds: [reader.user.id],
+    });
+    const shared = (await create({ ...input, crewIds: [crew!.id] })).json().data;
+    const list = () =>
+      app.inject({ method: "GET", url: "/v1/planner?month=2026-09", headers: reader.headers });
+    expect((await list()).json().data).toHaveLength(1);
+    await app.inject({
+      method: "DELETE",
+      url: `/v1/planner/${shared.id}`,
+      headers: reader.headers,
+    });
+    expect((await list()).json().data).toHaveLength(1);
+    await app.inject({ method: "DELETE", url: `/v1/planner/${shared.id}`, headers: owner.headers });
+    expect((await list()).json().data).toHaveLength(0);
+    await app.close();
+  });
+
   it("ranks real shares and delivers persisted likes, comments, mentions and Tap Talk notifications", async () => {
     const { app, owner, reader, post } = await commentFixture();
     await store.followUser(reader.user.id, owner.user.id);

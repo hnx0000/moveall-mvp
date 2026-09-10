@@ -8,6 +8,8 @@ export type ActiveWorkoutCheckpoint = {
   startedAt: number;
   savedAt: number;
   elapsedMs: number;
+  /** Null means explicitly paused. Missing means a legacy checkpoint. */
+  recordingSince?: number | null;
   points: RecordedTrackPoint[];
   pauseBoundaries: number[];
   fields: Record<string, string | string[]>;

@@ -64,6 +64,32 @@ const request = <T>(path: string, options?: RequestInit & { token?: string }) =>
   );
 
 const liveApi = {
+  savedPlaces: (token: string) =>
+    request<import("@moveall/contracts").SavedPlace[]>("/v1/saved-places", { token }),
+  savePlace: (token: string, input: import("@moveall/contracts").SavedPlaceInput) =>
+    request<import("@moveall/contracts").SavedPlace[]>("/v1/saved-places", {
+      token,
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deletePlace: (token: string, id: string) =>
+    request<import("@moveall/contracts").SavedPlace[]>(`/v1/saved-places/${id}`, {
+      token,
+      method: "DELETE",
+    }),
+  plannerEntries: (token: string, month: string) =>
+    request<import("@moveall/contracts").PlannerEntry[]>(
+      `/v1/planner?month=${encodeURIComponent(month)}`,
+      { token },
+    ),
+  createPlannerEntry: (token: string, input: import("@moveall/contracts").PlannerEntryInput) =>
+    request<import("@moveall/contracts").PlannerEntry>("/v1/planner", {
+      token,
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deletePlannerEntry: (token: string, id: string) =>
+    request<{ deleted: boolean }>(`/v1/planner/${id}`, { token, method: "DELETE" }),
   register: (input: RegisterInput) =>
     request<AuthSession>("/v1/auth/register", {
       method: "POST",

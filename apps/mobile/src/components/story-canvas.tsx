@@ -1,6 +1,7 @@
 import { Image, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
-import { type ThemeColors } from "../theme";
+import { uiLayout, type ThemeColors } from "../theme";
 import { RouteTrace } from "./route-trace";
+import { Wordmark } from "./ui";
 import { WorkoutMap } from "./workout-map";
 import { type MapPoint } from "./workout-map.types";
 
@@ -118,7 +119,7 @@ export function StoryCanvas({
         </View>
       ) : null}
       <View style={styles.topLine}>
-        <Text style={styles.brand}>GROOV</Text>
+        <Wordmark />
         <Text style={styles.sport}>{sportLabel}</Text>
       </View>
       {layers.includes("text") && customText.trim() ? (
@@ -184,7 +185,7 @@ export function StoryCanvas({
 const styles = StyleSheet.create({
   canvas: {
     height: 356,
-    borderRadius: 14,
+    borderRadius: uiLayout.photoRadius,
     overflow: "hidden",
     position: "relative",
     backgroundColor: "#171719",
@@ -268,7 +269,7 @@ const styles = StyleSheet.create({
   scoreBadge: {
     position: "absolute",
     top: 56,
-    borderRadius: 10,
+    borderRadius: uiLayout.controlRadius,
     backgroundColor: "rgba(255,90,36,0.92)",
     paddingHorizontal: 10,
     paddingVertical: 8,

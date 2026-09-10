@@ -12,6 +12,7 @@ const files = execFileSync(
   .filter((file) => !file.endsWith(".example") && file !== "scripts/check-secrets.mjs");
 
 const secretPatterns = [
+  { label: "Supabase 비공개 서버 키", pattern: /\bsb_secret_[A-Za-z0-9_-]{20,}\b/g },
   { label: "JWT 형태의 비밀키", pattern: /\beyJ[A-Za-z0-9_-]{80,}\b/g },
   {
     label: "Supabase service-role 키",

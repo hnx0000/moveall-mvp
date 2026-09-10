@@ -16,7 +16,7 @@ import {
 import { api } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { CenterDialog } from "../../src/components/ui";
-import { fonts, maxContentWidth, type ThemeColors } from "../../src/theme";
+import { uiLayout, fonts, maxContentWidth, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 import { postWorkoutSettings } from "../../src/post-workout-settings";
 
@@ -347,7 +347,7 @@ function createStyles(colors: ThemeColors) {
       width: "100%",
       maxWidth: maxContentWidth,
       alignSelf: "center",
-      paddingHorizontal: 24,
+      paddingHorizontal: uiLayout.pageInset,
       paddingTop: 18,
       paddingBottom: 64,
       gap: 12,
@@ -360,7 +360,7 @@ function createStyles(colors: ThemeColors) {
       fontSize: 10,
       letterSpacing: 1.4,
     },
-    title: { color: colors.ink, fontFamily: fonts.bold, fontSize: 30 },
+    title: { color: colors.ink, fontFamily: fonts.bold, fontSize: uiLayout.titleSize, lineHeight: 28 },
     copy: { color: colors.muted, fontFamily: fonts.regular, fontSize: 12, lineHeight: 19 },
     sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 16 },
     sectionTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 16 },
@@ -368,7 +368,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 68,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 13,
+      borderRadius: uiLayout.panelRadius,
       padding: 14,
       flexDirection: "row",
       alignItems: "center",
@@ -388,7 +388,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 52,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 12,
+      borderRadius: uiLayout.controlRadius,
       color: colors.ink,
       fontFamily: fonts.medium,
       fontSize: 12,
@@ -397,7 +397,7 @@ function createStyles(colors: ThemeColors) {
     },
     primaryButton: {
       minHeight: 52,
-      borderRadius: 12,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
@@ -407,7 +407,7 @@ function createStyles(colors: ThemeColors) {
     linkGroup: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 13,
+      borderRadius: uiLayout.panelRadius,
       overflow: "hidden",
       marginTop: 16,
     },
@@ -425,7 +425,7 @@ function createStyles(colors: ThemeColors) {
     warning: { color: colors.muted, fontFamily: fonts.regular, fontSize: 11, lineHeight: 18 },
     deleteButton: {
       minHeight: 52,
-      borderRadius: 12,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.primary,
       alignItems: "center",

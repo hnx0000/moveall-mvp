@@ -1,6 +1,7 @@
 import type { FeedPost } from "@moveall/contracts";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
+import { Wordmark } from "../components/ui";
 import {
   ActivityIndicator,
   Pressable,
@@ -14,7 +15,7 @@ import {
 import { ApiError, api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import { CenterDialog } from "../components/ui";
-import { type ThemeColors } from "../theme";
+import { fonts, maxContentWidth, uiLayout, type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 
 type Filter = "all" | "post" | "story";
@@ -142,7 +143,7 @@ export function ContentScreen({ archived = false }: { archived?: boolean }) {
               <Text style={styles.archiveLink}>ARCHIVE ↗</Text>
             </Pressable>
           ) : (
-            <Text style={styles.brand}>GROOV</Text>
+            <Wordmark />
           )}
         </View>
         <Text style={styles.eyebrow}>{archived ? "PRIVATE ARCHIVE" : "CONTENT CONTROL"}</Text>
@@ -279,9 +280,9 @@ function createStyles(colors: ThemeColors) {
     safeArea: { flex: 1, backgroundColor: colors.background },
     page: {
       width: "100%",
-      maxWidth: 448,
+      maxWidth: maxContentWidth,
       alignSelf: "center",
-      padding: 22,
+      padding: uiLayout.pageInset,
       paddingBottom: 90,
       gap: 17,
     },
@@ -290,7 +291,7 @@ function createStyles(colors: ThemeColors) {
     archiveLink: { color: colors.primary, fontSize: 9, fontWeight: "900" },
     brand: { color: colors.primary, fontSize: 15, fontWeight: "900", fontStyle: "italic" },
     eyebrow: { color: colors.primary, fontSize: 7, fontWeight: "900", letterSpacing: 1 },
-    title: { color: colors.ink, fontSize: 28, fontWeight: "900" },
+    title: { color: colors.ink, fontSize: uiLayout.titleSize, lineHeight: 28, fontFamily: fonts.bold },
     lead: { color: colors.muted, fontSize: 10, lineHeight: 17 },
     summaryRow: {
       flexDirection: "row",
@@ -306,14 +307,14 @@ function createStyles(colors: ThemeColors) {
     filter: {
       paddingHorizontal: 15,
       paddingVertical: 9,
-      borderRadius: 20,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.surfaceMuted,
     },
     filterActive: { backgroundColor: colors.primary },
     filterText: { color: colors.muted, fontSize: 8, fontWeight: "900" },
     filterTextActive: { color: "#FFFFFF" },
     list: { gap: 10 },
-    card: { borderWidth: 1, borderColor: colors.border, borderRadius: 9, padding: 15, gap: 12 },
+    card: { borderWidth: 1, borderColor: colors.border, borderRadius: uiLayout.panelRadius, padding: uiLayout.panelPadding, gap: 12 },
     cardTop: { flexDirection: "row", justifyContent: "space-between" },
     kind: { color: colors.primary, fontSize: 7, fontWeight: "900" },
     date: { color: colors.muted, fontSize: 7 },
@@ -327,7 +328,7 @@ function createStyles(colors: ThemeColors) {
       paddingTop: 10,
     },
     reaction: { color: colors.muted, fontSize: 8, fontWeight: "800" },
-    comments: { gap: 6, backgroundColor: colors.surfaceMuted, padding: 10, borderRadius: 6 },
+    comments: { gap: 6, backgroundColor: colors.surfaceMuted, padding: 10, borderRadius: uiLayout.panelRadius },
     comment: { color: colors.muted, fontSize: 8, lineHeight: 13 },
     commentName: { color: colors.ink, fontWeight: "900" },
     actions: { flexDirection: "row", gap: 7 },
@@ -335,7 +336,7 @@ function createStyles(colors: ThemeColors) {
       flex: 1,
       minHeight: 38,
       backgroundColor: colors.surfaceMuted,
-      borderRadius: 5,
+      borderRadius: uiLayout.controlRadius,
       alignItems: "center",
       justifyContent: "center",
     },
@@ -344,7 +345,7 @@ function createStyles(colors: ThemeColors) {
       flex: 1,
       minHeight: 38,
       backgroundColor: colors.primary,
-      borderRadius: 5,
+      borderRadius: uiLayout.controlRadius,
       alignItems: "center",
       justifyContent: "center",
     },

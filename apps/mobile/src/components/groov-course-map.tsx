@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState } from "react"; import { uiLayout } from "../theme";
 import { Pressable, Text, View } from "react-native";
 import { Maximize2 } from "lucide-react-native";
 import { GroovMapFrame, MapModal } from "./groov-map-frame";
@@ -13,9 +13,10 @@ export function GroovCourseMap({
   onFullScreenPress,
   badgeLabel,
   controlsBottom = 0,
+  recording = false,
 }: WorkoutMapProps) {
   const [expanded, setExpanded] = useState(false);
-  const state = { points, currentPoint, badgeLabel, controlsBottom };
+  const state = { points, currentPoint, badgeLabel, controlsBottom, recording };
   return (
     <View style={{ height, width: "100%", overflow: "hidden", backgroundColor: "#101113" }}>
       <GroovMapFrame kind="course" compact={compact} state={state} />
@@ -25,7 +26,8 @@ export function GroovCourseMap({
           onPress={() => (onFullScreenPress ? onFullScreenPress() : setExpanded(true))}
           style={{
             position: "absolute",
-            inset: 0,
+            bottom: 0,
+            right: 0,
             justifyContent: "flex-end",
             alignItems: "flex-end",
             padding: 12,
@@ -39,7 +41,7 @@ export function GroovCourseMap({
               alignItems: "center",
               backgroundColor: "#111e",
               padding: 9,
-              borderRadius: 10,
+              borderRadius: uiLayout.panelRadius,
             }}
           >
             <Maximize2 size={15} color="#ff5733" />

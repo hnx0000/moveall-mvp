@@ -11,7 +11,7 @@ import {
 } from "../../src/features/wearables/health-sync";
 import { CenterDialog } from "../../src/components/ui";
 import { POLICY_VERSION } from "../../src/legal/policies";
-import { fonts, maxContentWidth, type ThemeColors } from "../../src/theme";
+import { fonts, maxContentWidth, uiLayout, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
 type OptionalConsent =
@@ -223,7 +223,7 @@ function createStyles(colors: ThemeColors) {
       width: "100%",
       maxWidth: maxContentWidth,
       alignSelf: "center",
-      paddingHorizontal: 24,
+      paddingHorizontal: uiLayout.pageInset,
       paddingVertical: 18,
       gap: 12,
     },
@@ -235,13 +235,13 @@ function createStyles(colors: ThemeColors) {
       fontSize: 10,
       letterSpacing: 1.4,
     },
-    title: { color: colors.ink, fontFamily: fonts.bold, fontSize: 28 },
+    title: { color: colors.ink, fontFamily: fonts.bold, fontSize: uiLayout.titleSize, lineHeight: 28 },
     copy: { color: colors.muted, fontFamily: fonts.regular, fontSize: 12, lineHeight: 19 },
     row: {
       minHeight: 76,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 14,
+      borderRadius: uiLayout.panelRadius,
       paddingHorizontal: 16,
       flexDirection: "row",
       alignItems: "center",
@@ -254,7 +254,7 @@ function createStyles(colors: ThemeColors) {
     check: {
       width: 24,
       height: 24,
-      borderRadius: 12,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -263,7 +263,7 @@ function createStyles(colors: ThemeColors) {
     checkActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     saveButton: {
       minHeight: 54,
-      borderRadius: 14,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",

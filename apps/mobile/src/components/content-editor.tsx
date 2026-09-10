@@ -55,7 +55,7 @@ import { isNotificationIdentity } from "../features/notifications/push-lifecycle
 import { useAuth } from "../auth/auth-context";
 import { uploadMediaAsset } from "../media/upload";
 import { exportStudioImage, prepareStudioExport } from "../media/studio-export";
-import { fonts } from "../theme";
+import { uiLayout, fonts } from "../theme";
 import { useAppTheme } from "../theme-context";
 import { CenterDialog } from "./ui";
 import { SportLogo } from "./sport-logo";
@@ -724,7 +724,7 @@ export function ContentEditor({
         width: 360 * displayScale,
         height: 640 * displayScale,
         overflow: "hidden",
-        borderRadius: 16,
+        borderRadius: uiLayout.panelRadius,
         alignSelf: "center",
       }}
     >
@@ -1787,7 +1787,7 @@ export function ContentEditor({
           style={{
             color: "#FFFFFF",
             backgroundColor: "#252525EE",
-            borderRadius: 8,
+            borderRadius: uiLayout.panelRadius,
             paddingHorizontal: 12,
             paddingVertical: 6,
             marginTop: 6,
@@ -1806,7 +1806,7 @@ const s = StyleSheet.create({
   baseTool: {
     width: 52,
     height: 44,
-    borderRadius: 8,
+    borderRadius: uiLayout.controlRadius,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -1836,7 +1836,7 @@ const s = StyleSheet.create({
   },
   basePreview: {
     minHeight: 280,
-    borderRadius: 20,
+    borderRadius: uiLayout.panelRadius,
     alignItems: "center",
     justifyContent: "center",
     gap: 20,
@@ -1846,13 +1846,13 @@ const s = StyleSheet.create({
   chip: {
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: uiLayout.controlRadius,
     borderWidth: 1,
     alignItems: "center",
   },
   primary: {
     minHeight: 54,
-    borderRadius: 16,
+    borderRadius: uiLayout.controlRadius,
     padding: 16,
     alignItems: "center",
     justifyContent: "center",
@@ -1863,7 +1863,7 @@ const s = StyleSheet.create({
     width: "47%",
     flexGrow: 1,
     minHeight: 116,
-    borderRadius: 18,
+    borderRadius: uiLayout.panelRadius,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -1873,7 +1873,7 @@ const s = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     padding: 16,
-    borderRadius: 16,
+    borderRadius: uiLayout.panelRadius,
     borderWidth: 1,
     alignItems: "center",
   },
@@ -1904,7 +1904,7 @@ const s = StyleSheet.create({
     left: 20,
     backgroundColor: "#171513DD",
     padding: 7,
-    borderRadius: 8,
+    borderRadius: uiLayout.controlRadius,
     color: "#FFFFFF",
     fontSize: 10,
     fontFamily: fonts.medium,
@@ -1926,7 +1926,7 @@ const s = StyleSheet.create({
   },
   tool: { minWidth: 64, minHeight: 50, gap: 5, alignItems: "center", justifyContent: "center" },
   captionRow: { flexDirection: "row", gap: 16, minHeight: 156 },
-  thumbnail: { width: 84, height: 140, borderRadius: 10 },
+  thumbnail: { width: 84, height: 140, borderRadius: uiLayout.photoRadius },
   caption: {
     flex: 1,
     fontSize: 16,
@@ -1945,8 +1945,8 @@ const s = StyleSheet.create({
     width: "100%",
     maxWidth: 540,
     maxHeight: "75%",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: uiLayout.dialogRadius,
+    borderTopRightRadius: uiLayout.dialogRadius,
     overflow: "hidden",
   },
   sheetHeader: {
@@ -1959,7 +1959,7 @@ const s = StyleSheet.create({
     minWidth: 88,
     flexGrow: 1,
     height: 64,
-    borderRadius: 12,
+    borderRadius: uiLayout.controlRadius,
     borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
@@ -1982,7 +1982,7 @@ const s = StyleSheet.create({
   input: {
     minWidth: 0,
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: uiLayout.controlRadius,
     padding: 14,
     fontFamily: fonts.regular,
     fontSize: 16,

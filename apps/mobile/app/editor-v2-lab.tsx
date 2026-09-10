@@ -40,7 +40,7 @@ import {
   pushHistory,
   touchGeometry,
 } from "../src/editor-v2/editor-model";
-import { fonts } from "../src/theme";
+import { uiLayout, fonts } from "../src/theme";
 import { useAppTheme } from "../src/theme-context";
 import { RouteTrace } from "../src/components/route-trace";
 
@@ -964,7 +964,7 @@ const s = StyleSheet.create({
   stepNumberOn: { color: BLACK },
   stepLabel: { color: "#734333", fontFamily: fonts.medium, fontSize: 8 },
   stepLabelOn: { color: ORANGE },
-  canvas: { backgroundColor: BLACK, borderRadius: 4, overflow: "hidden", position: "relative" },
+  canvas: { backgroundColor: BLACK, borderRadius: uiLayout.photoRadius, overflow: "hidden", position: "relative" },
   photo: { width: "100%", height: "100%" },
   layer: {
     position: "absolute",
@@ -985,7 +985,7 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(8,8,7,.84)",
     borderLeftWidth: 5,
     borderLeftColor: ORANGE,
-    borderRadius: 8,
+    borderRadius: uiLayout.panelRadius,
     padding: 12,
     width: 190,
   },
@@ -1042,7 +1042,7 @@ const s = StyleSheet.create({
   chips: { flexDirection: "row", gap: 8, alignItems: "center" },
   chip: {
     height: 37,
-    borderRadius: 19,
+    borderRadius: uiLayout.controlRadius,
     borderWidth: 1,
     borderColor: "#4A291F",
     paddingHorizontal: 14,
@@ -1056,7 +1056,7 @@ const s = StyleSheet.create({
   chipTextOn: { color: BLACK, fontFamily: fonts.bold },
   actionChip: {
     height: 37,
-    borderRadius: 19,
+    borderRadius: uiLayout.controlRadius,
     backgroundColor: ORANGE,
     paddingHorizontal: 16,
     alignItems: "center",
@@ -1073,7 +1073,7 @@ const s = StyleSheet.create({
   adjustButton: {
     width: 28,
     height: 28,
-    borderRadius: 14,
+    borderRadius: uiLayout.controlRadius,
     borderWidth: 1,
     borderColor: "#4A291F",
     alignItems: "center",
@@ -1102,7 +1102,7 @@ const s = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: "#4A291F",
-    borderRadius: 10,
+    borderRadius: uiLayout.controlRadius,
     padding: 10,
     alignItems: "center",
   },
@@ -1111,7 +1111,7 @@ const s = StyleSheet.create({
   textInput: {
     borderWidth: 1,
     borderColor: "#4A291F",
-    borderRadius: 12,
+    borderRadius: uiLayout.controlRadius,
     paddingHorizontal: 13,
     paddingVertical: 11,
     color: ORANGE,
@@ -1123,7 +1123,7 @@ const s = StyleSheet.create({
     width: "100%",
     maxWidth: 430,
     backgroundColor: BLACK,
-    borderRadius: 18,
+    borderRadius: uiLayout.panelRadius,
     padding: 20,
     gap: 14,
   },
@@ -1139,7 +1139,7 @@ const s = StyleSheet.create({
   },
   publishLabel: { color: ORANGE, fontFamily: fonts.medium, fontSize: 10 },
   publishValue: { color: ORANGE, fontFamily: fonts.bold, fontSize: 10 },
-  labNotice: { backgroundColor: ORANGE, borderRadius: 10, padding: 12 },
+  labNotice: { backgroundColor: ORANGE, borderRadius: uiLayout.panelRadius, padding: 12 },
   labNoticeText: { color: BLACK, fontFamily: fonts.bold, fontSize: 9, textAlign: "center" },
   sourceContent: {
     width: "100%",
@@ -1157,13 +1157,13 @@ const s = StyleSheet.create({
     backgroundColor: BLACK,
     borderWidth: 1,
     borderColor: "#321A13",
-    borderRadius: 18,
+    borderRadius: uiLayout.panelRadius,
     padding: 18,
     justifyContent: "flex-end",
   },
   sourceTitle: { color: ORANGE, fontFamily: fonts.bold, fontSize: 16, marginTop: 15 },
   sourceNote: { color: ORANGE, opacity: 0.5, fontFamily: fonts.medium, fontSize: 8, marginTop: 4 },
-  recordChooser: { marginTop: 18, backgroundColor: BLACK, borderRadius: 18, padding: 16 },
+  recordChooser: { marginTop: 18, backgroundColor: BLACK, borderRadius: uiLayout.panelRadius, padding: 16 },
   recordChooserTitle: { color: ORANGE, fontFamily: fonts.bold, fontSize: 15 },
   recordChoices: { flexDirection: "row", gap: 9, marginTop: 14 },
   recordChoice: {
@@ -1171,7 +1171,7 @@ const s = StyleSheet.create({
     minHeight: 140,
     borderWidth: 1,
     borderColor: "#4A291F",
-    borderRadius: 13,
+    borderRadius: uiLayout.panelRadius,
     padding: 13,
     justifyContent: "center",
   },
@@ -1193,7 +1193,7 @@ const s = StyleSheet.create({
     right: 10,
     bottom: 10,
     backgroundColor: "rgba(8,8,7,.72)",
-    borderRadius: 17,
+    borderRadius: uiLayout.panelRadius,
     padding: 5,
     flexDirection: "row",
     zIndex: 30,
@@ -1204,7 +1204,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 3,
-    borderRadius: 12,
+    borderRadius: uiLayout.controlRadius,
   },
   dockItemOn: { backgroundColor: "rgba(255,90,54,.17)" },
   dockLabel: { color: ORANGE, fontFamily: fonts.medium, fontSize: 6 },

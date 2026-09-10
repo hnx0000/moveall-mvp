@@ -6,6 +6,26 @@ export function detailHudPadding({width,height,top=190,cardHeight=180,sheetHeigh
   return {top:safeTop,bottom,left:16,right:Math.min(68,width*.21)};
 }
 
+export function mountExploreDisclosure(root,{isExplore=()=>true}={}){
+  const toggle=root.querySelector('#explore-search-toggle');
+  const popover=root.querySelector('#explore-popover');
+  let expanded=toggle.getAttribute('aria-expanded')==='true';
+  const render=()=>{
+    const open=isExplore()&&expanded;
+    popover.hidden=!open;
+    toggle.setAttribute('aria-expanded',String(open));
+    toggle.setAttribute('aria-label',open?'전국 탐색 닫기':'전국 탐색 열기');
+    return open;
+  };
+  render();
+  return {
+    isOpen:()=>isExplore()&&expanded,
+    setOpen(open){expanded=Boolean(open);return render();},
+    toggle(){expanded=!expanded;return render();},
+    sync:render,
+  };
+}
+
 export function mountDetailHud(root){
   const top=root.querySelector('.detail-top-controls'),tabs=root.querySelector('.view-tabs');
   const card=root.querySelector('.map-bottom');

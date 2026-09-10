@@ -10,7 +10,7 @@ import {
   removeRecordGoal,
   type RecordGoal,
 } from "../../src/goals";
-import { fonts, radius, space, type ThemeColors } from "../../src/theme";
+import { uiLayout, fonts, space, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
 export default function GoalsScreen() {
@@ -150,11 +150,11 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     privateBadge: { color: colors.primary, fontSize: 9, fontFamily: fonts.bold },
     back: { color: colors.muted, fontSize: 11, fontFamily: fonts.semibold },
-    heading: { color: colors.ink, fontSize: 24, fontFamily: fonts.displayExtra },
+    heading: { color: colors.ink, fontSize: uiLayout.titleSize, fontFamily: fonts.bold, lineHeight: 28 },
     intro: { color: colors.muted, fontSize: 11, lineHeight: 18, marginBottom: space[2] },
     card: {
       padding: space[4],
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.panelRadius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
@@ -171,7 +171,7 @@ function createStyles(colors: ThemeColors) {
     primary: {
       flex: 1,
       minHeight: 40,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
@@ -181,7 +181,7 @@ function createStyles(colors: ThemeColors) {
     remove: {
       minWidth: 62,
       minHeight: 40,
-      borderRadius: radius.md,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.danger,
       alignItems: "center",
@@ -190,7 +190,7 @@ function createStyles(colors: ThemeColors) {
     removeText: { color: colors.danger, fontSize: 10, fontFamily: fonts.bold },
     empty: {
       minHeight: 180,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surfaceMuted,
       alignItems: "center",
       justifyContent: "center",

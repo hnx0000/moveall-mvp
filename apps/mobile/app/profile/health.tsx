@@ -27,7 +27,7 @@ import {
   syncHealthData,
   type HealthSyncStatus,
 } from "../../src/features/wearables/health-sync";
-import { fonts, maxContentWidth, type ThemeColors } from "../../src/theme";
+import { uiLayout, fonts, maxContentWidth, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
 const providerLabels = {
@@ -320,7 +320,7 @@ function createStyles(colors: ThemeColors) {
       width: "100%",
       maxWidth: maxContentWidth,
       alignSelf: "center",
-      paddingHorizontal: 24,
+      paddingHorizontal: uiLayout.pageInset,
       paddingTop: 18,
       paddingBottom: 64,
       gap: 14,
@@ -333,13 +333,13 @@ function createStyles(colors: ThemeColors) {
       fontSize: 10,
       letterSpacing: 1.4,
     },
-    title: { color: colors.ink, fontFamily: fonts.bold, fontSize: 29 },
+    title: { color: colors.ink, fontFamily: fonts.bold, fontSize: uiLayout.titleSize, lineHeight: 28 },
     copy: { color: colors.muted, fontFamily: fonts.regular, fontSize: 12, lineHeight: 20 },
     statusCard: {
       minHeight: 96,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 16,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       padding: 16,
       flexDirection: "row",
@@ -361,7 +361,7 @@ function createStyles(colors: ThemeColors) {
     statusDotReady: { backgroundColor: colors.primary },
     statusDotOff: { backgroundColor: colors.border },
     noticeCard: {
-      borderRadius: 14,
+      borderRadius: uiLayout.panelRadius,
       padding: 15,
       backgroundColor: colors.primarySoft,
       flexDirection: "row",
@@ -378,7 +378,7 @@ function createStyles(colors: ThemeColors) {
     syncCard: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 14,
+      borderRadius: uiLayout.panelRadius,
       backgroundColor: colors.surface,
       padding: 15,
       gap: 11,
@@ -406,7 +406,7 @@ function createStyles(colors: ThemeColors) {
     },
     primaryButton: {
       minHeight: 54,
-      borderRadius: 13,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
@@ -415,7 +415,7 @@ function createStyles(colors: ThemeColors) {
     primaryText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 13 },
     secondaryButton: {
       minHeight: 54,
-      borderRadius: 13,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",

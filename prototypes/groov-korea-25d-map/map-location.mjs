@@ -15,6 +15,8 @@ export function createLocateAction({geolocation, onPosition, notify=()=>{}, onBu
         if(!finish())return;
         const {longitude,latitude,accuracy}=position.coords||{};
         if(!Number.isFinite(longitude)||!Number.isFinite(latitude)||Math.abs(longitude)>180||Math.abs(latitude)>90){notify('유효한 위치를 받지 못했습니다.');return;}
+        if (!Number.isFinite(position.timestamp) || Date.now()-position.timestamp>15000 || position.timestamp>Date.now()+30000) {notify('오래된 위치입니다. GPS를 다시 확인해 주세요.');return;}
+        if (!Number.isFinite(accuracy) || accuracy<0 || accuracy>100) {notify('위치 오차가 큽니다. 탁 트인 곳에서 다시 확인해 주세요.');return;}
         onPosition([longitude,latitude],accuracy);
         notify(Number.isFinite(accuracy)&&accuracy>100?`내 위치로 이동했습니다. 현재 오차 약 ${Math.round(accuracy)}m`:'내 위치로 이동했습니다.');
       },fail,{enableHighAccuracy:true,timeout:14000,maximumAge:0});}catch(error){fail(error);}
@@ -23,17 +25,24 @@ export function createLocateAction({geolocation, onPosition, notify=()=>{}, onBu
   };
 }
 
-export function mountLocateButton(map,button,{notify,padding=()=>0,camera=()=>({}),beforeMove=()=>{}}={}) {
+export function mountLocateButton(map,button,{notify,padding=()=>0,camera=()=>({}),beforeMove=()=>{},locateRecorded=()=>false}={}) {
   let marker;
   button.setAttribute('aria-label','내 위치로 이동');button.title='내 위치로 이동';
   const action=createLocateAction({geolocation:navigator.geolocation,notify,
     onBusy:busy=>{button.setAttribute('aria-busy',String(busy));},
     onPosition:(coordinate,accuracy)=>{
+      if (locateRecorded()) { marker?.remove(); marker=undefined; return; }
       if(!marker){const dot=document.createElement('div');dot.className='my-location-dot';dot.setAttribute('role','img');dot.setAttribute('aria-label','현재 GPS 위치');marker=new maplibregl.Marker({element:dot}).setLngLat(coordinate).addTo(map);}
       marker.setLngLat(coordinate);beforeMove();
       map.easeTo({...camera(),center:coordinate,zoom:Number.isFinite(accuracy)&&accuracy>1000?13:16,padding:padding(),duration:700});
     }});
-  button.addEventListener('click',action.locate);
-  map.on('remove',()=>{action.destroy();button.removeEventListener('click',action.locate);marker?.remove();});
+  const locate = () => {
+    if (locateRecorded()) { action.destroy(); marker?.remove(); marker=undefined; return; }
+    action.locate();
+  };
+  const onRecording = event => { if (event.recording) { action.destroy(); marker?.remove(); marker=undefined; } };
+  map.on('groov-recording-change',onRecording);
+  button.addEventListener('click',locate);
+  map.on('remove',()=>{action.destroy();button.removeEventListener('click',locate);marker?.remove();map.off?.('groov-recording-change',onRecording);});
   return action;
 }

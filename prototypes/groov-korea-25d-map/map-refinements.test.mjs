@@ -15,8 +15,8 @@ test('locate recentres on every completed click without starting or stopping GPS
   const action=createLocateAction({geolocation:{getCurrentPosition(...args){calls.push(args);}},onPosition:p=>positions.push(p),onBusy:x=>busy.push(x)});
   action.locate();action.locate();assert.equal(calls.length,1);
   assert.equal(calls[0][2].maximumAge,0);
-  calls[0][0]({coords:{longitude:127,latitude:37,accuracy:12}});
-  action.locate();calls[1][0]({coords:{longitude:127.01,latitude:37.01,accuracy:15}});
+  calls[0][0]({timestamp:Date.now(),coords:{longitude:127,latitude:37,accuracy:12}});
+  action.locate();calls[1][0]({timestamp:Date.now(),coords:{longitude:127.01,latitude:37.01,accuracy:15}});
   assert.deepEqual(positions,[[127,37],[127.01,37.01]]);
   assert.deepEqual(busy,[true,false,true,false]);action.destroy();
 });

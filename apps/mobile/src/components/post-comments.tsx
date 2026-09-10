@@ -1,7 +1,8 @@
 import type { FeedComment, FeedPost, CommentMention, SocialSuggestions } from "@moveall/contracts";
-import { Heart, X } from "lucide-react-native";
+import { ArrowUp, Heart, X } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   StyleSheet,
@@ -11,7 +12,7 @@ import {
   type ImageSourcePropType,
 } from "react-native";
 import { api } from "../api/client";
-import { fonts, type ThemeColors } from "../theme";
+import { uiLayout, fonts, type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 import { commentThreads } from "./comment-threads";
 import { mentionQuery, insertMention, updateMentionRanges, mentionParts } from "./comment-mentions";
@@ -39,6 +40,7 @@ export function PostComments({
   const styles = createStyles(colors);
   const canComment = post.canComment !== false;
   const [draft, setDraft] = useState("");
+  const [inputFocused, setInputFocused] = useState(false);
   const [mentions, setMentions] = useState<CommentMention[]>([]);
   const [cursor, setCursor] = useState(0);
   const [suggestions, setSuggestions] = useState<SocialSuggestions>({
@@ -238,6 +240,7 @@ export function PostComments({
       ) : (
         <Text style={styles.empty}>아직 댓글이 없습니다.</Text>
       )}
+      <View style={[styles.composerPanel, inputFocused && styles.composerFocused]}>
       {replyTo && canComment ? (
         <View style={styles.replyTarget}>
           <Text style={styles.replyTargetText} numberOfLines={1}>
@@ -260,6 +263,8 @@ export function PostComments({
           accessibilityLabel={replyTo ? "답글 입력" : "댓글 입력"}
           editable={canComment && Boolean(token) && !posting}
           maxLength={500}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
           onSelectionChange={(event) => setCursor(event.nativeEvent.selection.end)}
           onChangeText={(next) => {
             setMentions((current) => updateMentionRanges(draft, next, current));
@@ -274,9 +279,11 @@ export function PostComments({
                 ? "로그인 후 댓글을 남겨주세요"
                 : replyTo
                   ? "답글을 남겨보세요"
-                  : "응원과 정보를 나눠보세요"
+                  : "댓글을 남겨보세요"
           }
           placeholderTextColor={colors.muted}
+          selectionColor={colors.primary}
+          underlineColorAndroid="transparent"
           returnKeyType="send"
           style={styles.input}
           value={draft}
@@ -284,6 +291,7 @@ export function PostComments({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={replyTo ? "답글 등록" : "댓글 등록"}
+          accessibilityState={{ disabled: !canComment || !token || !draft.trim() || posting, busy: posting }}
           disabled={!canComment || !token || !draft.trim() || posting}
           onPress={() => void submit()}
           style={[
@@ -291,8 +299,13 @@ export function PostComments({
             (!canComment || !token || !draft.trim() || posting) && styles.disabled,
           ]}
         >
-          <Text style={styles.submitText}>{posting ? "…" : "등록"}</Text>
+          {posting ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <ArrowUp size={19} strokeWidth={1.8} color={draft.trim() && canComment && token ? colors.primary : colors.muted} />
+          )}
         </Pressable>
+      </View>
       </View>
       {activeMention && canComment && !posting ? (
         <View style={styles.suggestions}>
@@ -349,10 +362,12 @@ function createStyles(colors: ThemeColors) {
       marginTop: -6,
       paddingHorizontal: 10,
       paddingVertical: 4,
-      borderRadius: 10,
-      backgroundColor: colors.surfaceMuted,
+      borderRadius: uiLayout.panelRadius,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
     },
-    suggestionRow: { minHeight: 36, justifyContent: "center", borderRadius: 6 },
+    suggestionRow: { minHeight: 36, justifyContent: "center", borderRadius: uiLayout.panelRadius },
     suggestionPressed: { backgroundColor: colors.surface },
     suggestionText: {
       color: colors.muted,
@@ -387,34 +402,47 @@ function createStyles(colors: ThemeColors) {
       flexDirection: "row",
       alignItems: "center",
       gap: 8,
-      padding: 10,
-      borderRadius: 8,
-      backgroundColor: colors.surfaceMuted,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: uiLayout.panelRadius,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      backgroundColor: colors.background,
     },
     replyTargetText: { flex: 1, fontSize: 11, color: colors.primary },
-    composer: { flexDirection: "row", gap: 8 },
+    composerPanel: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: uiLayout.controlRadius,
+      backgroundColor: colors.background,
+      overflow: "hidden",
+    },
+    composerFocused: { borderColor: colors.primary },
+    composer: { flexDirection: "row", alignItems: "center" },
     input: {
       flex: 1,
       minWidth: 0,
-      minHeight: 42,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 10,
+      minHeight: 46,
+      borderWidth: 0,
+      borderRadius: uiLayout.controlRadius,
       paddingHorizontal: 12,
-      fontSize: 12,
+      paddingVertical: 10,
+      fontSize: 14,
+      fontFamily: fonts.regular,
       color: colors.ink,
-      backgroundColor: colors.surfaceMuted,
+      backgroundColor: "transparent",
     },
     submit: {
-      minWidth: 48,
-      minHeight: 42,
+      width: 46,
+      minHeight: 44,
       justifyContent: "center",
       alignItems: "center",
       paddingHorizontal: 12,
-      borderRadius: 10,
-      backgroundColor: colors.primary,
+      borderRadius: uiLayout.controlRadius,
+      borderLeftWidth: 1,
+      borderLeftColor: colors.border,
+      backgroundColor: "transparent",
     },
-    submitText: { color: "#FFFFFF", fontFamily: fonts.bold, fontSize: 11 },
     disabled: { opacity: 0.45 },
   });
 }

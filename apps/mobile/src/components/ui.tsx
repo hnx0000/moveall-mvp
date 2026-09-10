@@ -1,5 +1,4 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { LinearGradient } from "expo-linear-gradient";
 import { Bell } from "lucide-react-native";
 import {
   ActivityIndicator,
@@ -16,10 +15,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   fonts,
-  gradients,
   maxContentWidth,
   radius,
-  shadows,
+  uiLayout,
   space,
   typography,
   type ThemeColors,
@@ -48,7 +46,7 @@ export function Screen({
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <View style={styles.frame}>
         <View style={styles.appHeader}>
-          <Wordmark />
+          <Wordmark size={24} />
           {action ? <View style={styles.headerAction}>{action}</View> : null}
         </View>
         <RefreshableScrollView
@@ -178,21 +176,15 @@ export function PrimaryButton({
       disabled={disabled}
       style={(state) => [
         styles.buttonShell,
-        shadows.pop,
         state.pressed && styles.buttonPressed,
         disabled && styles.buttonDisabled,
         typeof style === "function" ? style(state) : style,
       ]}
       {...props}
     >
-      <LinearGradient
-        colors={gradients.primary.colors}
-        start={gradients.primary.start}
-        end={gradients.primary.end}
-        style={styles.button}
-      >
+      <View style={styles.button}>
         <Text style={styles.buttonText}>{label}</Text>
-      </LinearGradient>
+      </View>
     </Pressable>
   );
 }
@@ -312,14 +304,14 @@ function createStyles(colors: ThemeColors) {
     scroll: { flex: 1 },
     content: {
       width: "100%",
-      paddingHorizontal: space[5],
+      paddingHorizontal: uiLayout.pageInset,
       paddingTop: space[3],
       paddingBottom: 108,
       gap: space[4],
     },
     appHeader: {
-      minHeight: 60,
-      paddingHorizontal: space[5],
+      minHeight: 56,
+      paddingHorizontal: uiLayout.pageInset,
       paddingVertical: space[3],
       flexDirection: "row",
       alignItems: "center",
@@ -333,8 +325,8 @@ function createStyles(colors: ThemeColors) {
     title: {
       color: colors.ink,
       fontFamily: fonts.bold,
-      fontSize: 24,
-      lineHeight: 32,
+      fontSize: uiLayout.titleSize,
+      lineHeight: 28,
       letterSpacing: -0.5,
     },
     subtitle: {
@@ -347,9 +339,8 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.surface,
       borderColor: colors.border,
       borderWidth: 1,
-      borderRadius: radius.xl,
-      padding: space[4],
-      ...shadows.card,
+      borderRadius: uiLayout.panelRadius,
+      padding: uiLayout.panelPadding,
     },
     sectionTitle: {
       color: colors.ink,
@@ -362,7 +353,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 36,
       paddingHorizontal: space[4],
       paddingVertical: space[2],
-      borderRadius: radius.full,
+      borderRadius: uiLayout.controlRadius,
       backgroundColor: colors.surfaceMuted,
       borderWidth: 1,
       borderColor: colors.border,
@@ -372,8 +363,9 @@ function createStyles(colors: ThemeColors) {
     chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     chipText: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 13 },
     chipTextActive: { color: "#FFFFFF" },
-    buttonShell: { borderRadius: radius.md, overflow: "hidden" },
+    buttonShell: { borderRadius: uiLayout.controlRadius, overflow: "hidden" },
     button: {
+      backgroundColor: colors.primary,
       minHeight: 50,
       paddingHorizontal: space[5],
       paddingVertical: 14,
@@ -410,13 +402,12 @@ function createStyles(colors: ThemeColors) {
     dialogCard: {
       width: "100%",
       maxWidth: 400,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.dialogRadius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
       padding: 20,
       gap: 11,
-      ...shadows.card,
     },
     dialogEyebrow: {
       color: colors.primary,
@@ -443,7 +434,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 44,
       alignItems: "center",
       justifyContent: "center",
-      borderRadius: radius.md,
+      borderRadius: uiLayout.dialogRadius,
       borderWidth: 1,
       borderColor: colors.border,
     },
@@ -453,7 +444,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 44,
       alignItems: "center",
       justifyContent: "center",
-      borderRadius: radius.md,
+      borderRadius: uiLayout.dialogRadius,
       backgroundColor: colors.primary,
     },
     dialogPrimaryDanger: { backgroundColor: colors.danger },

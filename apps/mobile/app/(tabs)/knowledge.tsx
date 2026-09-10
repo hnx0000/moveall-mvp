@@ -4,10 +4,10 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { ChevronRight, MapPin, ShieldCheck, Trophy } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
 import { AppState, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { api } from "../../src/api/client";
+import { api, usePreviewApi } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { Screen, StatePanel } from "../../src/components/ui";
-import { fonts, radius, type ThemeColors } from "../../src/theme";
+import { uiLayout, fonts, radius, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
 
 const modes: { id: LeagueMode; label: string }[] = [
@@ -68,7 +68,7 @@ export default function LeagueScreen() {
       : players.slice(0, 5);
   const region = snapshot?.region;
   const verificationCopy =
-    snapshot?.viewer.verification === "verified"
+    usePreviewApi ? "샘플 리그 · 가상 기록으로 계산한 순위" : snapshot?.viewer.verification === "verified"
       ? "인증된 동네 · 운동 저장 즉시 반영"
       : snapshot?.viewer.verification === "expired"
         ? "동네 인증이 만료되어 새 기록은 집계되지 않아요"
@@ -99,13 +99,13 @@ export default function LeagueScreen() {
       {snapshot ? (
         <>
           <LinearGradient
-            colors={["#37231C", "#1E1B18", "#121211"]}
+            colors={[colors.surfaceMuted, colors.surface, colors.background]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.hero}
           >
             <View style={styles.heroOrb} />
-            <Text style={styles.eyebrow}>REGIONAL LEAGUE / LIVE</Text>
+            <Text style={styles.eyebrow}>{usePreviewApi ? "REGIONAL LEAGUE / DEMO" : "REGIONAL LEAGUE / LIVE"}</Text>
             <Text style={styles.heroTitle}>
               {neighborhood}의 순위가{"\n"}
               <Text style={styles.heroTitleStrong}>지금 움직인다.</Text>
@@ -135,7 +135,7 @@ export default function LeagueScreen() {
                 >
                   {snapshot.viewer.points.toLocaleString("ko-KR")}pt
                 </Text>
-                <Text style={styles.syncText}>서버 집계 · 3초 간격 갱신</Text>
+                <Text style={styles.syncText}>{usePreviewApi ? "샘플 기록 집계 · 실제 순위 아님" : "서버 집계 · 3초 간격 갱신"}</Text>
               </View>
             </View>
             <View style={styles.titleBand}>
@@ -189,7 +189,7 @@ export default function LeagueScreen() {
               <Text style={styles.eyebrow}>REGION RANKING</Text>
               <Text style={styles.regionButtonTitle}>지역 점수와 순위 보기</Text>
               <Text style={styles.regionButtonCopy}>
-                실제 참여 인원 · 참여율 · 지역별 누적 점수
+                {usePreviewApi ? "샘플 참여 인원 · 참여율 · 지역별 누적 점수" : "실제 참여 인원 · 참여율 · 지역별 누적 점수"}
               </Text>
             </View>
             <View style={styles.regionArrow}>
@@ -352,7 +352,7 @@ function createStyles(colors: ThemeColors) {
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
-      borderRadius: radius.lg,
+      borderRadius: uiLayout.panelRadius,
       padding: 11,
     },
     locationIcon: {
@@ -373,12 +373,12 @@ function createStyles(colors: ThemeColors) {
       textDecorationLine: "underline",
     },
     hero: {
-      borderRadius: radius["2xl"],
+      borderRadius: uiLayout.panelRadius,
       overflow: "hidden",
       padding: 20,
       paddingBottom: 0,
       borderWidth: 1,
-      borderColor: "#583225",
+      borderColor: colors.border,
     },
     heroOrb: {
       position: "absolute",
@@ -398,7 +398,7 @@ function createStyles(colors: ThemeColors) {
       letterSpacing: 1.25,
     },
     heroTitle: {
-      color: "#F7F3EF",
+      color: colors.ink,
       fontFamily: fonts.bold,
       fontSize: 22,
       lineHeight: 32,
@@ -415,7 +415,7 @@ function createStyles(colors: ThemeColors) {
     },
     rankStat: { flex: 1.15, minWidth: 0 },
     scoreStat: { flex: 0.85, minWidth: 0, paddingBottom: 8 },
-    statLabel: { color: "#A9A39D", fontFamily: fonts.displayExtra, fontSize: 8, letterSpacing: 1 },
+    statLabel: { color: colors.muted, fontFamily: fonts.displayExtra, fontSize: 8, letterSpacing: 1 },
     rankLine: { flexDirection: "row", alignItems: "flex-end" },
     rankValue: {
       color: colors.primary,
@@ -425,27 +425,27 @@ function createStyles(colors: ThemeColors) {
       letterSpacing: -4,
     },
     rankTotal: {
-      color: "#B7B0AA",
+      color: colors.muted,
       fontFamily: fonts.display,
       fontSize: 15,
       marginBottom: 12,
       marginLeft: 4,
     },
-    scoreValue: { color: "#FFFFFF", fontFamily: fonts.displayExtra, fontSize: 23, marginTop: 6 },
-    syncText: { color: "#8D8781", fontFamily: fonts.regular, fontSize: 8, marginTop: 3 },
+    scoreValue: { color: colors.ink, fontFamily: fonts.displayExtra, fontSize: 23, marginTop: 6 },
+    syncText: { color: colors.muted, fontFamily: fonts.regular, fontSize: 8, marginTop: 3 },
     titleBand: {
       flexDirection: "row",
       alignItems: "center",
       gap: 9,
-      backgroundColor: "rgba(255,255,255,.04)",
+      backgroundColor: colors.surfaceMuted,
       marginHorizontal: -20,
       paddingHorizontal: 20,
       paddingVertical: 13,
       borderTopWidth: 1,
-      borderTopColor: "rgba(255,255,255,.06)",
+      borderTopColor: colors.border,
     },
-    titleBandLabel: { color: "#89837E", fontFamily: fonts.medium, fontSize: 9 },
-    titleBandValue: { color: "#F7F3EF", fontFamily: fonts.bold, fontSize: 11, flex: 1 },
+    titleBandLabel: { color: colors.muted, fontFamily: fonts.medium, fontSize: 9 },
+    titleBandValue: { color: colors.ink, fontFamily: fonts.bold, fontSize: 11, flex: 1 },
     neighborhoodStats: { flexDirection: "row", alignItems: "center", paddingHorizontal: 2 },
     neighborhoodStat: { flex: 1, minWidth: 0, alignItems: "center", paddingHorizontal: 4 },
     neighborhoodStatLabel: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9 },
@@ -460,7 +460,7 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.panelRadius,
       padding: 15,
     },
     sectionHeader: {
@@ -486,7 +486,7 @@ function createStyles(colors: ThemeColors) {
     },
     rankRowMine: {
       backgroundColor: colors.primarySoft,
-      borderRadius: radius.sm,
+      borderRadius: uiLayout.panelRadius,
       paddingHorizontal: 8,
       marginHorizontal: -4,
     },
@@ -527,7 +527,7 @@ function createStyles(colors: ThemeColors) {
     },
     regionButton: {
       minHeight: 88,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.panelRadius,
       borderWidth: 1,
       borderColor: colors.primary,
       backgroundColor: colors.surface,
@@ -577,7 +577,7 @@ function createStyles(colors: ThemeColors) {
     dialog: {
       width: "100%",
       maxWidth: 400,
-      borderRadius: radius.xl,
+      borderRadius: uiLayout.dialogRadius,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,

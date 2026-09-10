@@ -10,6 +10,9 @@ import {
 } from "../features/maps/course-storage";
 import { type MapCourse } from "../features/maps/map-state";
 import { GroovMapSurface } from "./groov-map-surface";
+import { api } from "../api/client";
+import { SavedPlaceInputSchema } from "@moveall/contracts";
+import { darkColors, fonts, uiLayout } from "../theme";
 
 type Props = {
   kind: "course" | "ranking";
@@ -60,6 +63,15 @@ export function GroovMapFrame({ kind, compact = false, state = {}, onRegionSelec
   const mapState = { ...state, course, neighborhood, compact };
   const onMessage = useCallback(
     async (type: string, payload: Record<string, unknown>) => {
+      if (["place-list", "place-save", "place-remove"].includes(type)) {
+        if (!userId) throw new Error("위치를 저장하려면 로그인해 주세요.");
+        if (!session) throw new Error("로그인이 필요합니다.");
+        if (type === "place-list") return api.savedPlaces(session.accessToken);
+        if (type === "place-save")
+          return api.savePlace(session.accessToken, SavedPlaceInputSchema.parse(payload));
+        if (typeof payload.placeId !== "string") throw new Error("저장한 위치를 선택해 주세요.");
+        return api.deletePlace(session.accessToken, payload.placeId);
+      }
       if (
         type === "region-select" &&
         typeof payload.code === "string" &&
@@ -81,7 +93,7 @@ export function GroovMapFrame({ kind, compact = false, state = {}, onRegionSelec
       }
       return null;
     },
-    [userId, onRegionSelect],
+    [userId, session, onRegionSelect],
   );
   return (
     <View style={{ flex: 1 }}>
@@ -109,7 +121,7 @@ export function MapModal({
 }) {
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#101113" }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: darkColors.background }}>
         <View style={styles.header}>
           <Pressable
             accessibilityLabel="지도를 닫고 돌아가기"
@@ -120,7 +132,7 @@ export function MapModal({
           </Pressable>
           <Text style={styles.title}>{kind === "course" ? "코스지도" : "랭킹지도"}</Text>
         </View>
-        <GroovMapFrame kind={kind} state={state} />
+        <GroovMapFrame kind={kind} state={{ ...state, fullScreen: true }} />
       </SafeAreaView>
     </Modal>
   );
@@ -134,7 +146,7 @@ export function GroovRankingMap({
 }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <View style={{ height: 520, overflow: "hidden", borderRadius: 22, backgroundColor: "#101113" }}>
+    <View style={{ height: 520, overflow: "hidden", borderRadius: uiLayout.panelRadius, borderWidth: 1, borderColor: darkColors.border, backgroundColor: darkColors.background }}>
       <GroovMapFrame kind="ranking" state={state} onRegionSelect={onRegionSelect} />
       <Pressable
         accessibilityLabel="랭킹지도 전체화면"
@@ -145,7 +157,7 @@ export function GroovRankingMap({
       </Pressable>
       {expanded ? (
         <Modal visible animationType="slide" onRequestClose={() => setExpanded(false)}>
-          <SafeAreaView style={{ flex: 1, backgroundColor: "#101113" }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: darkColors.background }}>
             <View style={styles.header}>
               <Pressable
                 accessibilityLabel="랭킹지도 닫기"
@@ -156,7 +168,11 @@ export function GroovRankingMap({
               </Pressable>
               <Text style={styles.title}>랭킹지도</Text>
             </View>
-            <GroovMapFrame kind="ranking" state={state} onRegionSelect={onRegionSelect} />
+            <GroovMapFrame
+              kind="ranking"
+              state={{ ...state, fullScreen: true }}
+              onRegionSelect={onRegionSelect}
+            />
           </SafeAreaView>
         </Modal>
       ) : null}
@@ -169,18 +185,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     borderBottomWidth: 1,
-    borderColor: "#282828",
+    borderColor: darkColors.border,
   },
   back: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
-  title: { color: "#f4f4f4", fontWeight: "700", fontSize: 16 },
+  title: { color: darkColors.ink, fontFamily: fonts.bold, fontSize: 16 },
   expand: {
     position: "absolute",
     bottom: 24,
     right: 12,
     width: 40,
     height: 40,
-    borderRadius: 12,
-    backgroundColor: "#111",
+    borderRadius: uiLayout.panelRadius,
+    backgroundColor: darkColors.surface,
     alignItems: "center",
     justifyContent: "center",
   },

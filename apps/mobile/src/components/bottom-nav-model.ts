@@ -4,8 +4,8 @@ export const bottomNavItems = {
     path: "M3 10 12 3l9 7v11h-6v-7H9v7H3Z",
   },
   community: {
-    label: "TODAY",
-    path: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1",
+    label: "플랜",
+    path: "M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2ZM7 2v4M17 2v4M3 9h18M7 13h2m3 0h2m3 0h1M7 17h2m3 0h2",
   },
   routines: {
     label: "기록·콘텐츠 추가",

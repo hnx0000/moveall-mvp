@@ -10,7 +10,7 @@ import { mountMapViewport } from './map-viewport.mjs';
 import { mountMobileMapUI } from './mobile-map-ui.mjs';
 import { mountZoomReadout } from './map-toolbar.mjs';
 import { mountRankingHeat } from './ranking-heat.mjs';
-import { mountDetailHud } from './detail-hud.mjs';
+import { mountDetailHud, mountExploreDisclosure } from './detail-hud.mjs';
 import { createDetailStyle } from "./detail-style.mjs";
 import { routeLengthMeters, sampleRoute, filterGpsFix } from "./route-model.mjs";
 
@@ -46,6 +46,7 @@ const VIEWS = {
   },
 };
 let map,
+  appTrack,
   regions,
   route,
   routeCoords,
@@ -105,7 +106,9 @@ function setupMobileUI(){
 }
 
 installMapToolIcons();
-const detailHud=mountDetailHud(document.querySelector('.detail-shell'));
+const detailShell=document.querySelector('.detail-shell');
+const detailHud=mountDetailHud(detailShell);
+const exploreDisclosure=mountExploreDisclosure(detailShell);
 bindControls();
 boot().catch((error) => {
   console.error("Detail map boot failed", error);
@@ -182,7 +185,7 @@ async function boot() {
     orientation = mountOrientation(map, $("detail-tilt"), $("detail-compass"), 48);
     mountZoomReadout(map, $('zoom-value'));
     outlinePulse = mountBoundaryPulse(map, "detail-impact");
-    mountLocateButton(map,$('detail-locate'),{notify:toast,padding:cameraPadding,camera:()=>orientation.camera(),
+    mountLocateButton(map,$('detail-locate'),{notify:toast,padding:cameraPadding,camera:()=>orientation.camera(),locateRecorded:()=>appTrack?.locate() ?? false,
       beforeMove:()=>{follow=false;$('route-follow').setAttribute('aria-pressed','false');}});
     planner = mountCoursePlanner(map, {
       button: $("course-pin-toggle"),
@@ -263,7 +266,7 @@ async function boot() {
     requestAnimationFrame(animate);
     if (!embedded) setInterval(updateLeague, 5000);
     else {
-      const updateTrack = mountAppTrack(map);
+      const updateTrack = appTrack = mountAppTrack(map);
       connectApp(state => {
         updateTrack(state);
         if (state.neighborhood) {
@@ -517,7 +520,10 @@ function setView(nextView, immediate = false) {
     setRegionalData(dobongRegions.features, SSANGMUN);
     rankAreaLabel = "도봉구";
   }
+  const previousView=view;
   view = nextView;
+  if(view==='run'||previousView==='run')exploreDisclosure.setOpen(false);
+  else exploreDisclosure.sync();
   if(view==='explore')areaPicked=false;
   if(view==='dobong')areaPicked=true;
   const config = VIEWS[view];
@@ -695,6 +701,9 @@ function bindMap() {
 
 function bindControls() {
   $("area-ranking").addEventListener("click",()=>$("detail-rank-toggle").click());
+  $("explore-search-toggle").addEventListener("click",()=>{
+    exploreDisclosure.toggle();
+  });
   document
     .querySelectorAll(".view-tabs button[data-view]")
     .forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));

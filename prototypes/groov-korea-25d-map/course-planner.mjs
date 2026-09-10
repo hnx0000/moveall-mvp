@@ -1,4 +1,5 @@
 import { embedded, requestApp } from './app-host.mjs';
+import { pinIcon } from './pin-icons.mjs';
 import { validCoordinate, MAX_COURSE_PINS } from "./course-model.mjs";
 import { createMapClient } from './map-client.mjs';
 import { mountPlaceSearch } from './place-search.mjs';
@@ -108,7 +109,8 @@ export function mountCoursePlanner(
       const element = document.createElement("button");
       element.type='button';
       element.className = "course-pin";
-      element.textContent = i === 0 ? "출발" : i === turnaroundIndex ? `${i} 반환` : `${i}`;
+      element.innerHTML = pinIcon(i === 0 ? (turnaroundIndex !== null ? 'loop' : 'start') : i === turnaroundIndex ? 'turn' : 'waypoint', i);
+      element.setAttribute('style', 'width:32px;height:48px;padding:0;border:0;background:none;box-shadow:none;border-radius:0;');
       element.setAttribute("aria-label", `${i===0?'출발':i+'번'} 핀 편집`);
       let dragged=false;
       element.addEventListener('click',event=>{event.stopPropagation();if(dragged){dragged=false;return;}selectedPin=i;renderPinEditor();panel.showPin();});
@@ -230,6 +232,7 @@ export function mountCoursePlanner(
   button.addEventListener("click", () => toggle());
   $("course-close").addEventListener("click", () => toggle(false));
   map.on("click", (event) => {
+    if (map.getContainer?.().dataset.savedPlacePicking === 'true') return;
     if (!active || event.originalEvent?.target?.closest?.(".maplibregl-marker")) return;
     const p = [event.lngLat.lng, event.lngLat.lat];
     if (!validCoordinate(p)) {

@@ -169,7 +169,8 @@ test("embedded bridge rejects another window/origin/channel; ready/state and cou
     crypto: { randomUUID: () => "request-1" },
     document: {
       documentElement: { dataset: {} },
-      createElement: () => ({}),
+      createElement: () => ({dataset:{},setAttribute(){},append(){}}),
+      body: {append(){}},
       head: { append() {} },
       addEventListener() {},
     },

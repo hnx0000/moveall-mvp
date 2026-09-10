@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { fonts } from "../theme";
+import { uiLayout, fonts } from "../theme";
 import { useAppTheme } from "../theme-context";
 
 export const audienceLabels: Record<PostAudience["scope"], string> = {
@@ -319,7 +319,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
     padding: 16,
   },
-  sheet: { width: "100%", maxWidth: 520, maxHeight: "90%", borderRadius: 24, overflow: "hidden" },
+  sheet: { width: "100%", maxWidth: 520, maxHeight: "90%", borderRadius: uiLayout.dialogRadius, overflow: "hidden" },
   row: {
     minHeight: 56,
     paddingVertical: 13,
@@ -331,11 +331,11 @@ const s = StyleSheet.create({
   check: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: uiLayout.controlRadius,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  input: { fontFamily: fonts.regular, fontSize: 15, padding: 14, borderWidth: 1, borderRadius: 12 },
-  done: { margin: 18, borderRadius: 16, padding: 16, alignItems: "center" },
+  input: { fontFamily: fonts.regular, fontSize: 15, padding: 14, borderWidth: 1, borderRadius: uiLayout.controlRadius },
+  done: { margin: 18, borderRadius: uiLayout.panelRadius, padding: 16, alignItems: "center" },
 });

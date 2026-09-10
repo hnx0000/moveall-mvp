@@ -30,4 +30,5 @@ export type WorkoutMapProps = {
   showFitButton?: boolean;
   onFullScreenPress?: () => void;
   controlsBottom?: number;
+  recording?: boolean;
 };

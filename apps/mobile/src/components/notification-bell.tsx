@@ -16,7 +16,7 @@ import {
 import { api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import { useAppTheme } from "../theme-context";
-import { fonts } from "../theme";
+import { uiLayout, fonts } from "../theme";
 
 export function NotificationBell() {
   const { session } = useAuth();
@@ -154,7 +154,7 @@ export function NotificationBell() {
               maxWidth: 448,
               maxHeight: "85%",
               backgroundColor: colors.surface,
-              borderRadius: 22,
+              borderRadius: uiLayout.panelRadius,
               padding: 20,
               gap: 16,
             }}
@@ -194,7 +194,7 @@ export function NotificationBell() {
                   onPress={() => void openItem(item)}
                   style={{
                     padding: 14,
-                    borderRadius: 12,
+                    borderRadius: uiLayout.panelRadius,
                     backgroundColor: item.readAt ? colors.surface : colors.surfaceMuted,
                     gap: 6,
                   }}

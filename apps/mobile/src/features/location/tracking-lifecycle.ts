@@ -79,14 +79,26 @@ export function createBackgroundTrackStore<P extends Point>(
         const raw = await storage.getItem(windowKey);
         return raw && (JSON.parse(raw) as TrackWindow).checkpointId === checkpointId ? read() : [];
       }),
-    clear: () =>
-      enqueue(() =>
-        storage.multiRemove([pointKey, windowKey, "groov-background-workout-sport-v1"]),
-      ),
+    clear: (checkpointId?: string, isCurrent: () => boolean = () => true) =>
+      enqueue(async () => {
+        if (!isCurrent()) return;
+        if (checkpointId) {
+          const raw = await storage.getItem(windowKey);
+          if (raw && (JSON.parse(raw) as TrackWindow).checkpointId !== checkpointId) return;
+        }
+        if (isCurrent())
+          await storage.multiRemove([pointKey, windowKey, "groov-background-workout-sport-v1"]);
+      }),
     begin: (sport: string, from: number, checkpointId?: string) =>
-      enqueue(() =>
-        storage.setItem(windowKey, JSON.stringify({ sport, from, until: null, checkpointId })),
-      ),
+      enqueue(async () => {
+        const raw = await storage.getItem(windowKey);
+        if (raw && (JSON.parse(raw) as TrackWindow).checkpointId !== checkpointId)
+          await storage.removeItem(pointKey);
+        await storage.setItem(
+          windowKey,
+          JSON.stringify({ sport, from, until: null, checkpointId }),
+        );
+      }),
     seal: (until: number) =>
       enqueue(async () => {
         const raw = await storage.getItem(windowKey);

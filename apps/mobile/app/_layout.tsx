@@ -1,3 +1,4 @@
+import "../src/features/location/background-location";
 import { Archivo_700Bold } from "@expo-google-fonts/archivo/700Bold";
 import { Archivo_800ExtraBold } from "@expo-google-fonts/archivo/800ExtraBold";
 import { Archivo_800ExtraBold_Italic } from "@expo-google-fonts/archivo/800ExtraBold_Italic";
@@ -14,6 +15,7 @@ import { AuthProvider, useAuth } from "../src/auth/auth-context";
 import { PushRegistration } from "../src/features/notifications/push-registration";
 import { HealthAutoSync } from "../src/features/wearables/health-auto-sync";
 import { PendingSaveRecovery } from "../src/components/pending-save-recovery";
+import { Wordmark } from "../src/components/ui";
 import { ThemeProvider, useAppTheme } from "../src/theme-context";
 import { isDemoMode } from "../src/config/runtime";
 
@@ -95,7 +97,7 @@ function SessionGate() {
   if (!bypassSessionGate && (restoring || (session && onboardingLoading))) {
     return (
       <View style={[styles.splash, { backgroundColor: colors.background }]}>
-        <Text style={[styles.brand, { color: colors.primary }]}>GROOV</Text>
+        <Wordmark />
         <ActivityIndicator color={colors.primary} />
         <Text style={[styles.status, { color: colors.muted }]}>안전하게 로그인 확인 중</Text>
       </View>

@@ -1,3 +1,4 @@
+import { Wordmark } from "../components/ui";
 import {
   sportLabels,
   sportValues,
@@ -30,7 +31,7 @@ import { ApiError, api } from "../api/client";
 import { useAuth } from "../auth/auth-context";
 import { SportLogo } from "../components/sport-logo";
 import { CenterDialog } from "../components/ui";
-import { fonts, typography, type ThemeColors } from "../theme";
+import { fonts, typography, maxContentWidth, uiLayout, type ThemeColors } from "../theme";
 import { useAppTheme } from "../theme-context";
 import { sortWorkoutsForDisplay } from "../workout-display";
 import { workoutDurationMilliseconds } from "../workout-duration";
@@ -120,7 +121,7 @@ function RecordsContent({ sport }: { sport?: SportType }) {
           <Pressable onPress={() => router.back()}>
             <Text style={styles.back}>← BACK</Text>
           </Pressable>
-          <Text style={styles.brand}>GROOV</Text>
+          <Wordmark />
         </View>
         <View style={styles.sportRecordsSection}>
           <View>
@@ -506,9 +507,9 @@ function createStyles(colors: ThemeColors) {
     safeArea: { flex: 1, backgroundColor: colors.background },
     page: {
       width: "100%",
-      maxWidth: 448,
+      maxWidth: maxContentWidth,
       alignSelf: "center",
-      padding: 22,
+      padding: uiLayout.pageInset,
       paddingBottom: 100,
       gap: 18,
     },
@@ -522,7 +523,7 @@ function createStyles(colors: ThemeColors) {
     },
     brand: { ...typography.wordmark(18), color: colors.primary },
     eyebrow: { color: colors.primary, fontSize: 12, fontFamily: fonts.bold, letterSpacing: 1.2 },
-    title: { ...typography.title(24), color: colors.ink, marginTop: 5 },
+    title: { ...typography.title(uiLayout.titleSize), color: colors.ink, marginTop: 5 },
     // Nested ScrollViews default to flexShrink: 1 on web. Reserve the sport row
     // independently so a long activity list cannot squeeze it out of view.
     sportRecordsSection: { flexShrink: 0, gap: 14 },
@@ -575,7 +576,7 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 14,
+      borderRadius: uiLayout.panelRadius,
     },
     editorCopy: { color: colors.muted, fontSize: 13, lineHeight: 21 },
     metricOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
@@ -585,7 +586,7 @@ function createStyles(colors: ThemeColors) {
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
-      borderRadius: 20,
+      borderRadius: uiLayout.controlRadius,
       borderWidth: 1,
       borderColor: colors.border,
     },
@@ -600,7 +601,7 @@ function createStyles(colors: ThemeColors) {
       minWidth: 125,
       padding: 15,
       minHeight: 100,
-      borderRadius: 14,
+      borderRadius: uiLayout.panelRadius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
@@ -618,7 +619,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.surfaceMuted,
-      borderRadius: 10,
+      borderRadius: uiLayout.controlRadius,
     },
     metricOrder: { color: colors.muted, fontSize: 12, flex: 1 },
     disabled: { opacity: 0.25 },
@@ -649,7 +650,7 @@ function createStyles(colors: ThemeColors) {
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
-      borderRadius: 10,
+      borderRadius: uiLayout.panelRadius,
       padding: 12,
       alignItems: "center",
       gap: 5,
