@@ -44,6 +44,7 @@ import { uiLayout,
   type ThemeColors,
 } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
+import { useDesignArchiveAccess } from "../../src/rewards/use-design-archive-access";
 
 type ProfileTab = "posts" | "routines";
 type RoutineDraftItem = {
@@ -101,6 +102,7 @@ export default function ProfileScreen() {
   const { colors, mode, setMode } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, Math.min(viewportWidth, 430)), [colors, viewportWidth]);
   const { session, logout, updateUser } = useAuth();
+  const designArchiveAccess = useDesignArchiveAccess();
   const [tab, setTab] = useState<ProfileTab>(params.tab === "routines" ? "routines" : "posts");
   const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
   const [posts, setPosts] = useState<FeedPost[]>([]);
@@ -490,6 +492,25 @@ export default function ProfileScreen() {
               value={mode === "dark"}
               onValueChange={(value) => setMode(value ? "dark" : "light")}
             />
+            {designArchiveAccess.allowed ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="디자인 보관함 열기"
+                onPress={() => {
+                  setTemporarySettingsOpen(false);
+                  router.push("/reward-collection");
+                }}
+                style={styles.temporarySettingsItem}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.temporarySettingsTitle}>디자인 보관함</Text>
+                  <Text style={styles.temporarySettingsDescription}>
+                    {designArchiveAccess.preview ? "개발용 미리보기 · " : "관리자 · "}스탬프와 메달 106종
+                  </Text>
+                </View>
+                <ChevronRight color={colors.primary} size={18} />
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
