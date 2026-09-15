@@ -28,7 +28,8 @@ export function FeedLikeSurface({
   liked,
   onLike,
   centerPulse = 0,
-}: PropsWithChildren<{ label: string; liked: boolean; onLike: () => void; centerPulse?: number }>) {
+  gestureEnabled = true,
+}: PropsWithChildren<{ label: string; liked: boolean; onLike: () => void; centerPulse?: number; gestureEnabled?: boolean }>) {
   const { colors } = useAppTheme();
   const gesture = useRef(new FeedLikeGesture()).current;
   const layout = useRef({ width: 0, height: 0 });
@@ -155,6 +156,8 @@ export function FeedLikeSurface({
 
   return (
     <Pressable
+      disabled={!gestureEnabled}
+      accessible={gestureEnabled}
       accessibilityRole="button"
       accessibilityLabel={`${label}, ${liked ? "좋아요 표시됨" : "좋아요"}`}
       accessibilityHint="사진을 빠르게 두 번 누르면 좋아요. 이어서 누르면 효과가 누적됩니다. 키보드나 화면 읽기 도구는 한 번 활성화하세요."

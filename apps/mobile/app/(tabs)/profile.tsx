@@ -27,7 +27,6 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   useWindowDimensions,
@@ -483,15 +482,23 @@ export default function ProfileScreen() {
 
         {temporarySettingsOpen ? (
           <View style={styles.temporarySettingsMenu}>
-            <View style={styles.temporarySettingsHeading}>
-              <Text style={styles.temporarySettingsEyebrow}>설정</Text>
-              <Text style={styles.temporarySettingsCaption}>화면 테마</Text>
+            <View style={styles.settings}>
+              <View>
+                <Text style={styles.settingsTitle}>다크 모드</Text>
+                <Text style={styles.settingsCopy}>앱 전체 화면 모드</Text>
+              </View>
+              <Pressable
+                accessibilityLabel="다크 모드"
+                accessibilityRole="switch"
+                accessibilityState={{ checked: mode === "dark" }}
+                onPress={() => setMode(mode === "dark" ? "light" : "dark")}
+                style={styles.themeToggleTarget}
+              >
+                <View style={[styles.themeToggleTrack, mode === "dark" && styles.themeToggleTrackOn]}>
+                  <View style={[styles.themeToggleThumb, mode === "dark" && styles.themeToggleThumbOn]} />
+                </View>
+              </Pressable>
             </View>
-            <Switch
-              accessibilityLabel="다크 모드"
-              value={mode === "dark"}
-              onValueChange={(value) => setMode(value ? "dark" : "light")}
-            />
             {designArchiveAccess.allowed ? (
               <Pressable
                 accessibilityRole="button"
@@ -892,23 +899,6 @@ export default function ProfileScreen() {
           />
           <View style={styles.goalsShortcutArrow}><ArrowRight color="#FFFFFF" size={17} /></View>
         </Pressable>
-        <View style={styles.settings}>
-          <View>
-            <Text style={styles.settingsTitle}>다크 모드</Text>
-            <Text style={styles.settingsCopy}>앱 전체 화면 모드</Text>
-          </View>
-          <Pressable
-            accessibilityLabel="다크 모드"
-            accessibilityRole="switch"
-            accessibilityState={{ checked: mode === "dark" }}
-            onPress={() => setMode(mode === "dark" ? "light" : "dark")}
-            style={styles.themeToggleTarget}
-          >
-            <View style={[styles.themeToggleTrack, mode === "dark" && styles.themeToggleTrackOn]}>
-              <View style={[styles.themeToggleThumb, mode === "dark" && styles.themeToggleThumbOn]} />
-            </View>
-          </Pressable>
-        </View>
         <Pressable hitSlop={4} onPress={() => router.push("/profile/account")} style={styles.accountButton}>
           <Text style={styles.accountText}>계정 · 보안 · 개인정보</Text>
           <ChevronRight color={colors.ink} size={16} strokeWidth={1.4} style={styles.accountChevron} />
@@ -1075,23 +1065,6 @@ function createStyles(colors: ThemeColors, pageWidth = 430) {
       borderRadius: uiLayout.dialogRadius,
       backgroundColor: colors.surface,
       overflow: "hidden",
-    },
-    temporarySettingsHeading: {
-      paddingHorizontal: 16,
-      paddingTop: 14,
-      paddingBottom: 10,
-    },
-    temporarySettingsEyebrow: {
-      color: colors.primary,
-      fontFamily: fonts.displayExtra,
-      fontSize: 7,
-      letterSpacing: 1.2,
-    },
-    temporarySettingsCaption: {
-      marginTop: 3,
-      color: colors.muted,
-      fontFamily: fonts.medium,
-      fontSize: 8,
     },
     temporarySettingsItem: {
       minHeight: 62,

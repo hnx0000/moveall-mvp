@@ -6,11 +6,13 @@ import {
 } from "@moveall/contracts";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { Bookmark, Ellipsis, Heart, MessageCircle, Plus } from "lucide-react-native";
+import { Bookmark, ChevronLeft, ChevronRight, Ellipsis, Heart, MessageCircle, Plus, Send } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   ImageBackground,
+  KeyboardAvoidingView,
+  AppState,
   Modal,
   PanResponder,
   Platform,
@@ -65,6 +67,9 @@ import { useAsyncData } from "../../src/hooks/use-async-data";
 import { useStoryViews } from "../hooks/use-story-views";
 import { PostArtwork } from "../components/post-artwork";
 import { FeedLikeSurface } from "../components/feed-like-surface";
+import { StoryInteractionSurface } from "../components/story-interaction-surface";
+import { moveStory, storyReplyContent } from "../components/story-navigation";
+import { isNotificationIdentity } from "../features/notifications/push-lifecycle";
 import {
   feedPostHref,
   hasFeedVisual,
@@ -474,7 +479,7 @@ export default function FeedScreen() {
     post?: string;
     comments?: string;
   }>();
-  const { session } = useAuth();
+  const { session, loginLifetime } = useAuth();
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
   const sharedPostId = typeof params.post === "string" ? params.post : null;
@@ -548,7 +553,16 @@ export default function FeedScreen() {
   }, [params.workoutSessionId, params.photo, params.draft, router]);
   const [selectedStoryOwnerId, setSelectedStoryOwnerId] = useState<string | null>(null);
   const [storyIndex, setStoryIndex] = useState(0);
-  const [storyCanvasWidth, setStoryCanvasWidth] = useState(0);
+  const [storyDrafts, setStoryDrafts] = useState<Record<string, string>>({});
+  const [storyInputFocused, setStoryInputFocused] = useState(false);
+  const [storyGestureBusy, setStoryGestureBusy] = useState(false);
+  const [storySending, setStorySending] = useState(false);
+  const storySendingRef = useRef(false);
+  const [storyNotice, setStoryNotice] = useState<string | null>(null);
+  const [previewStoryLikes, setPreviewStoryLikes] = useState<string[]>([]);
+  const [storyPulse, setStoryPulse] = useState(0);
+  const [storyAvailableHeight, setStoryAvailableHeight] = useState(windowHeight);
+  const [storyAppActive, setStoryAppActive] = useState(AppState.currentState === "active");
   const storyScrollRef = useRef<ScrollView>(null);
   const storyScrollOffsetRef = useRef(0);
   const storyDragStartOffsetRef = useRef(0);
@@ -640,16 +654,36 @@ export default function FeedScreen() {
     [selectedStoryOwnerId, storyOwners],
   );
   const activeDemoStory = selectedStoryOwner?.stories[storyIndex] ?? null;
+  const activeStoryKey = selectedStoryOwner && activeDemoStory ? `${selectedStoryOwner.id}:${activeDemoStory.id}` : "";
+  const activeStoryKeyRef = useRef(activeStoryKey);
+  activeStoryKeyRef.current = activeStoryKey;
+  const storyDraft = storyDrafts[activeStoryKey] ?? "";
+  const storyLiked = activeDemoStory?.post ? Boolean(activeDemoStory.post.likedByMe) : previewStoryLikes.includes(activeStoryKey);
+  useEffect(() => {
+    setStoryNotice(null);
+    setStoryInputFocused(false);
+    setStoryGestureBusy(false);
+    setStoryPulse(0);
+  }, [activeStoryKey]);
+  useEffect(() => {
+    setStoryDrafts({});
+    setPreviewStoryLikes([]);
+    setSelectedStoryOwnerId(null);
+  }, [session?.user.id, loginLifetime]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => setStoryAppActive(state === "active"));
+    return () => subscription.remove();
+  }, []);
   const viewedStories = useStoryViews(
     `${usePreviewApi ? "demo" : "live"}:${session?.user.id ?? "guest"}`,
     selectedStoryOwner && activeDemoStory ? `${selectedStoryOwner.id}:${activeDemoStory.id}` : null,
   );
-  const storyViewerMaxWidth = Math.min(420, Math.max(240, windowWidth - 28));
+  const storyViewerMaxWidth = Math.min(420, Math.max(0, windowWidth - 28));
   const storyCanvasHeight = Math.max(
     0,
-    Math.min(storyViewerMaxWidth * (16 / 9), windowHeight - 132),
+    Math.min(storyViewerMaxWidth * (16 / 9), Math.min(windowHeight, storyAvailableHeight) - 225),
   );
-  const storyViewerWidth = storyCanvasHeight * (9 / 16);
+  const storyViewerWidth = storyViewerMaxWidth;
   const avatarByUserId = useMemo(() => {
     const avatars = new Map<string, string>();
     if (session?.user.id && currentAvatarUri) avatars.set(session.user.id, currentAvatarUri);
@@ -691,43 +725,72 @@ export default function FeedScreen() {
   }
 
   function showPreviousStory() {
-    if (!selectedStoryOwner) return;
-    if (storyIndex > 0) {
-      setStoryIndex((current) => current - 1);
-      return;
-    }
-    const ownerIndex = storyOwners.findIndex((owner) => owner.id === selectedStoryOwner.id);
-    const previousOwner = storyOwners[ownerIndex - 1];
-    if (!previousOwner) return;
-    setSelectedStoryOwnerId(previousOwner.id);
-    setStoryIndex(previousOwner.stories.length - 1);
+    navigateStory(-1, "slide");
   }
 
   function showNextStory() {
-    if (!selectedStoryOwner) return;
-    if (storyIndex < selectedStoryOwner.stories.length - 1) {
-      setStoryIndex((current) => current + 1);
+    navigateStory(1, "slide");
+  }
+
+  function navigateStory(direction: -1 | 1, unit: "slide" | "owner") {
+    if (!selectedStoryOwnerId) return;
+    const next = moveStory(storyOwners, { ownerId: selectedStoryOwnerId, index: storyIndex }, direction, unit);
+    if (!next) { closeStory(); return; }
+    setSelectedStoryOwnerId(next.ownerId);
+    setStoryIndex(next.index);
+  }
+
+  async function likeStory() {
+    if (!session || !activeDemoStory) { setStoryNotice("로그인 후 좋아요를 누를 수 있습니다."); return; }
+    if (!activeDemoStory.post) {
+      // These fixture-only slides are not real published posts. Never create a fake live like.
+      setPreviewStoryLikes((current) => current.includes(activeStoryKey) ? current : [...current, activeStoryKey]);
+      setStoryNotice("미리보기 스토리에 좋아요를 표시했어요.");
       return;
     }
-    const ownerIndex = storyOwners.findIndex((owner) => owner.id === selectedStoryOwner.id);
-    const nextOwner = storyOwners[ownerIndex + 1];
-    if (!nextOwner) {
-      closeStory();
-      return;
-    }
-    setSelectedStoryOwnerId(nextOwner.id);
-    setStoryIndex(0);
+    const post = activeDemoStory.post;
+    if (post.likedByMe || likeRequests.current.has(post.id)) return;
+    const key = activeStoryKey;
+    likeRequests.current.add(post.id);
+    try {
+      const result = await api.setPostLiked(session.accessToken, post.id, true);
+      if (!isNotificationIdentity(session.user.id, loginLifetime)) return;
+      setPosts((current) => current?.map((item) => item.id === post.id ? { ...item, likedByMe: result.liked, likeCount: result.likeCount } : item) ?? null);
+    } catch (caught) {
+      if (activeStoryKeyRef.current === key && isNotificationIdentity(session.user.id, loginLifetime))
+        setStoryNotice(caught instanceof Error ? caught.message : "좋아요를 저장하지 못했습니다.");
+    } finally { likeRequests.current.delete(post.id); }
+  }
+
+  async function sendStoryReply() {
+    const recipientId = selectedStoryOwner?.profileUserId;
+    if (!session || !recipientId || !activeDemoStory || !storyDraft.trim() || storySendingRef.current) return;
+    if (recipientId === session.user.id) return;
+    const key = activeStoryKey, draft = storyDraft;
+    const context = `${sportLabels[activeDemoStory.sport]} · ${activeDemoStory.post?.content || activeDemoStory.customText}`;
+    storySendingRef.current = true;
+    setStorySending(true);
+    setStoryNotice(null);
+    try {
+      await api.sendMessage(session.accessToken, recipientId, { content: storyReplyContent(context, draft) });
+      if (!isNotificationIdentity(session.user.id, loginLifetime)) return;
+      setStoryDrafts((current) => current[key] === draft ? { ...current, [key]: "" } : current);
+      if (activeStoryKeyRef.current === key) setStoryNotice("탭톡으로 댓글을 보냈어요.");
+    } catch (caught) {
+      if (activeStoryKeyRef.current === key && isNotificationIdentity(session.user.id, loginLifetime))
+        setStoryNotice(caught instanceof Error ? caught.message : "전송하지 못했어요. 댓글은 그대로 보관했어요.");
+    } finally { storySendingRef.current = false; setStorySending(false); }
   }
 
   useEffect(() => {
-    if (!selectedStoryOwnerId || !selectedStoryOwner) return;
+    if (!selectedStoryOwnerId || !selectedStoryOwner || storyInputFocused || storyGestureBusy || storySending || storyDraft.trim() || !storyAppActive) return;
     const timer = setTimeout(() => {
       if (storyIndex < selectedStoryOwner.stories.length - 1) {
         setStoryIndex((current) => current + 1);
         return;
       }
       const ownerIndex = storyOwners.findIndex((owner) => owner.id === selectedStoryOwner.id);
-      const nextOwner = storyOwners[ownerIndex + 1];
+      const nextOwner = storyOwners.slice(ownerIndex + 1).find((owner) => owner.stories.length > 0);
       if (nextOwner) {
         setSelectedStoryOwnerId(nextOwner.id);
         setStoryIndex(0);
@@ -737,7 +800,7 @@ export default function FeedScreen() {
       }
     }, 7000);
     return () => clearTimeout(timer);
-  }, [selectedStoryOwner, selectedStoryOwnerId, storyIndex]);
+  }, [selectedStoryOwner, selectedStoryOwnerId, storyIndex, storyInputFocused, storyGestureBusy, storySending, storyDraft, storyAppActive, storyOwners]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1089,7 +1152,8 @@ export default function FeedScreen() {
         visible={activeDemoStory !== null}
       >
         {activeDemoStory && selectedStoryOwner ? (
-          <View style={styles.storyModalBackdrop}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.storyModalBackdrop}>
+            <View style={styles.storyAvailableArea} onLayout={(event) => setStoryAvailableHeight(event.nativeEvent.layout.height)}>
             <View style={[styles.storyViewer, { width: storyViewerWidth }]}>
               <View style={styles.storyProgressRow}>
                 {selectedStoryOwner.stories.map((story, index) => (
@@ -1142,9 +1206,14 @@ export default function FeedScreen() {
                 </Pressable>
               </View>
 
-              <View
-                onLayout={(event) => setStoryCanvasWidth(event.nativeEvent.layout.width)}
-                style={styles.storyCanvasTouchArea}
+              <StoryInteractionSurface
+                key={activeStoryKey}
+                label={`${selectedStoryOwner.name} 스토리`}
+                liked={storyLiked}
+                pulse={storyPulse}
+                onLike={() => void likeStory()}
+                onNavigate={navigateStory}
+                onBusy={setStoryGestureBusy}
               >
                 {activeDemoStory.post ? (
                   <View
@@ -1207,31 +1276,37 @@ export default function FeedScreen() {
                     }}
                   />
                 )}
-                <View style={styles.storyTapZones}>
-                  <Pressable
-                    accessibilityLabel="스토리 화면, 왼쪽은 이전, 오른쪽은 다음"
-                    accessibilityRole="button"
-                    onPress={(event) => {
-                      const webOffsetX = (event.nativeEvent as unknown as { offsetX?: unknown })
-                        .offsetX;
-                      const tapX =
-                        typeof event.nativeEvent.locationX === "number"
-                          ? event.nativeEvent.locationX
-                          : typeof webOffsetX === "number"
-                            ? webOffsetX
-                            : storyCanvasWidth;
-                      if (tapX < storyCanvasWidth / 2) {
-                        showPreviousStory();
-                      } else {
-                        showNextStory();
-                      }
-                    }}
-                    style={styles.storyTapZone}
-                  />
-                </View>
+              </StoryInteractionSurface>
+              <View style={styles.storyActionRow}>
+                <Pressable accessibilityRole="button" accessibilityLabel="이전 스토리" onPress={showPreviousStory} style={styles.storyActionButton}>
+                  <ChevronLeft size={22} color="#FFFFFF" />
+                </Pressable>
+                <Text style={styles.storyGestureHint}>드래그로 다른 사용자 보기</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={storyLiked ? "스토리 좋아요 표시됨" : "스토리 좋아요"} accessibilityState={{ selected: storyLiked }}
+                  onPress={() => { setStoryPulse((current) => current + 1); void likeStory(); }} style={styles.storyActionButton}>
+                  <Heart size={23} color={storyLiked ? colors.primary : "#FFFFFF"} fill={storyLiked ? colors.primary : "none"} />
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="다음 스토리" onPress={showNextStory} style={styles.storyActionButton}>
+                  <ChevronRight size={22} color="#FFFFFF" />
+                </Pressable>
               </View>
+              {selectedStoryOwner.profileUserId && selectedStoryOwner.profileUserId !== session?.user.id ? (
+                <View style={styles.storyReplyRow}>
+                  <TextInput accessibilityLabel="스토리 댓글, 작성자에게 탭톡으로 전송" value={storyDraft} maxLength={800}
+                    placeholder="댓글 보내기 · 탭톡" placeholderTextColor="#9E9E9E" style={styles.storyReplyInput}
+                    onFocus={() => setStoryInputFocused(true)} onBlur={() => setStoryInputFocused(false)}
+                    onChangeText={(value) => setStoryDrafts((current) => ({ ...current, [activeStoryKey]: value }))}
+                    returnKeyType="send" onSubmitEditing={() => void sendStoryReply()} />
+                  <Pressable accessibilityRole="button" accessibilityLabel="댓글 탭톡으로 보내기" disabled={storySending || !storyDraft.trim() || !session}
+                    onPress={() => void sendStoryReply()} style={[styles.storyActionButton, { opacity: storySending || !storyDraft.trim() ? 0.35 : 1 }]}>
+                    <Send size={22} color={colors.primary} />
+                  </Pressable>
+                </View>
+              ) : null}
+              {storyNotice ? <Text accessibilityLiveRegion="polite" style={styles.storyReplyNotice}>{storyNotice}</Text> : null}
             </View>
-          </View>
+            </View>
+          </KeyboardAvoidingView>
         ) : null}
       </Modal>
 
@@ -2085,6 +2160,13 @@ function createStyles(colors: ThemeColors) {
       paddingVertical: 18,
     },
     storyViewer: { width: "100%", maxWidth: 420, gap: 10 },
+    storyAvailableArea: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center" },
+    storyActionRow: { flexDirection: "row", alignItems: "center", gap: 2 },
+    storyActionButton: { width: 40, minHeight: 40, alignItems: "center", justifyContent: "center" },
+    storyGestureHint: { flex: 1, color: "#9E9E9E", fontSize: 12 },
+    storyReplyRow: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#434343", backgroundColor: "#111513" },
+    storyReplyInput: { flex: 1, minWidth: 0, minHeight: 44, paddingHorizontal: 12, color: "#FFFFFF", fontSize: 14 },
+    storyReplyNotice: { color: "#FF6A3D", fontSize: 12, lineHeight: 17 },
     storyProgressRow: { flexDirection: "row", gap: 4 },
     storyProgressTrack: {
       flex: 1,

@@ -9,6 +9,7 @@ import { useAuth } from "../../src/auth/auth-context";
 import { Screen, StatePanel } from "../../src/components/ui";
 import { uiLayout, fonts, radius, type ThemeColors } from "../../src/theme";
 import { useAppTheme } from "../../src/theme-context";
+import { leagueRankProgress } from "../../src/components/league-rank-progress";
 
 const modes: { id: LeagueMode; label: string }[] = [
   { id: "activity", label: "전체" },
@@ -23,7 +24,7 @@ const modes: { id: LeagueMode; label: string }[] = [
 export default function LeagueScreen() {
   const router = useRouter();
   const { session } = useAuth();
-  const { colors } = useAppTheme();
+  const { colors, mode: colorMode } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [mode, setMode] = useState<LeagueMode>("activity");
   const [snapshot, setSnapshot] = useState<LeagueSnapshot | null>(null);
@@ -61,11 +62,9 @@ export default function LeagueScreen() {
 
   const neighborhood = snapshot?.viewer.regionName ?? "동네 미인증";
   const players = snapshot?.players ?? [];
-  const viewerIndex = players.findIndex((player) => player.mine);
-  const nearby =
-    viewerIndex >= 0
-      ? players.slice(Math.max(0, viewerIndex - 2), Math.min(players.length, viewerIndex + 3))
-      : players.slice(0, 5);
+  const topTen = players.slice(0, 10);
+  const viewerOutsideTopTen = players.find((player) => player.mine && !topTen.includes(player));
+  const progress = snapshot ? leagueRankProgress(players, snapshot.viewer) : null;
   const region = snapshot?.region;
   const verificationCopy =
     usePreviewApi ? "샘플 리그 · 가상 기록으로 계산한 순위" : snapshot?.viewer.verification === "verified"
@@ -99,16 +98,18 @@ export default function LeagueScreen() {
       {snapshot ? (
         <>
           <LinearGradient
-            colors={[colors.surfaceMuted, colors.surface, colors.background]}
+            colors={colorMode === "dark" ? ["#281C13", "#12140F", "#0D120E"] : ["#F8E5D9", colors.surface, colors.background]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.hero}
           >
-            <View style={styles.heroOrb} />
+            <View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.heroTrophy}>
+              <Trophy size={220} strokeWidth={0.9} color={colors.primary} />
+            </View>
             <Text style={styles.eyebrow}>{usePreviewApi ? "REGIONAL LEAGUE / DEMO" : "REGIONAL LEAGUE / LIVE"}</Text>
             <Text style={styles.heroTitle}>
-              {neighborhood}의 순위가{"\n"}
-              <Text style={styles.heroTitleStrong}>지금 움직인다.</Text>
+              함께 뛰는 동네,{"\n"}
+              <Text style={styles.heroTitleStrong}>뜨거워지는 순위.</Text>
             </Text>
             <View style={styles.heroStats}>
               <View style={styles.rankStat}>
@@ -138,11 +139,28 @@ export default function LeagueScreen() {
                 <Text style={styles.syncText}>{usePreviewApi ? "샘플 기록 집계 · 실제 순위 아님" : "서버 집계 · 3초 간격 갱신"}</Text>
               </View>
             </View>
-            <View style={styles.titleBand}>
+            <View style={styles.rankProgress}>
+              <View style={styles.progressHeading}>
+                <Text style={styles.progressLabel}>{progress?.kind === "chasing" ? `${progress.rank}위까지 남은 점수` : progress?.kind === "leader" ? "정상을 지키는 중" : "나의 다음 순위"}</Text>
+                <Text style={styles.progressPercent}>{progress?.kind === "chasing" ? `${progress.remainingPercent.toFixed(1)}% 남음` : progress?.kind === "leader" ? "1위 유지 중" : "—"}</Text>
+              </View>
+              {progress?.kind === "chasing" ? (
+                <View accessibilityRole="progressbar" accessibilityLabel="다음 순위 목표 점수 도달률" accessibilityValue={{ min: 0, max: 100, now: progress.reachedPercent, text: `${progress.remainingPercent.toFixed(1)}% 남음` }} style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${progress.reachedPercent}%` }]} />
+                  <View pointerEvents="none" style={styles.progressTicks}>{Array.from({ length: 19 }, (_, index) => <View key={index} style={styles.progressTick} />)}</View>
+                </View>
+              ) : progress?.kind === "leader" ? <View style={styles.leaderRule} /> : null}
+              <Text style={styles.progressFoot}>
+                {progress?.kind === "chasing" ? `${progress.remainingPoints.toLocaleString("ko-KR")}pt 더 쌓으면 추월 · 목표 ${progress.targetPoints.toLocaleString("ko-KR")}pt`
+                  : progress?.kind === "leader" ? progress.gap === null ? "이번 시즌 첫 주자예요. 나의 페이스를 이어가세요." : `2위와 ${progress.gap.toLocaleString("ko-KR")}pt 차이 · 나의 페이스를 이어가세요.`
+                    : progress?.kind === "unranked" ? "집계 가능한 운동을 기록하면 순위 도전이 시작돼요." : "다음 순위 정보를 불러오는 중이에요."}
+              </Text>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="내 집계 기록 보기" onPress={() => router.push("/profile/records")} style={styles.titleBand}>
               <Text style={styles.titleBandLabel}>집계 기록</Text>
               <Text style={styles.titleBandValue}>{snapshot.viewer.activityCount}회</Text>
               <ChevronRight color={colors.primary} size={16} />
-            </View>
+            </Pressable>
           </LinearGradient>
 
           <View style={styles.neighborhoodStats}>
@@ -164,7 +182,7 @@ export default function LeagueScreen() {
           <View style={styles.rankingCard}>
             <View style={styles.sectionHeader}>
               <View>
-                <Text style={styles.eyebrow}>NEAR MY RANK</Text>
+                <Text style={styles.eyebrow}>REGION TOP 10</Text>
                 <Text style={styles.sectionTitle}>지역 개인 랭킹</Text>
               </View>
               <Pressable onPress={() => setFullRanking(true)}>
@@ -172,13 +190,14 @@ export default function LeagueScreen() {
               </Pressable>
             </View>
             <ModeRow mode={mode} onChange={setMode} styles={styles} />
-            {nearby.length > 0 ? (
-              nearby.map((player) => (
-                <RankingRow key={player.userId} player={player} styles={styles} />
+            {topTen.length > 0 ? (
+              topTen.map((player) => (
+                <RankingRow key={player.userId} player={player} styles={styles} compact />
               ))
             ) : (
               <Text style={styles.emptyCopy}>아직 집계된 기록이 없습니다.</Text>
             )}
+            {viewerOutsideTopTen ? <View style={styles.myRankFooter}><RankingRow player={viewerOutsideTopTen} styles={styles} compact /></View> : null}
           </View>
 
           <Pressable
@@ -251,6 +270,9 @@ export default function LeagueScreen() {
             <Text style={styles.rule}>
               05 기록 수정·삭제도 점수 원장에 반영되며 순위는 3초마다 갱신됩니다.
             </Text>
+            <Text style={styles.rule}>
+              06 다음 순위의 목표는 바로 위 순위보다 1pt 높은 점수입니다. 남은 비율은 (목표 점수 − 내 점수) ÷ 목표 점수로 계산하며, 다른 사람의 기록에 따라 달라집니다.
+            </Text>
           </View>
         </View>
       </Modal>
@@ -292,14 +314,16 @@ function ModeRow({
 function RankingRow({
   player,
   styles,
+  compact = false,
 }: {
   player: LeaguePlayerStanding;
   styles: ReturnType<typeof createStyles>;
+  compact?: boolean;
 }) {
   return (
-    <View style={[styles.rankRow, player.mine && styles.rankRowMine]}>
+    <View accessibilityLabel={`${player.rank}위 ${player.displayName}${player.mine ? ", 나" : ""}, ${player.points}점, 집계 기록 ${player.activityCount}회`} style={[styles.rankRow, compact && styles.rankRowCompact, player.mine && styles.rankRowMine]}>
       <Text style={[styles.rankNumber, player.mine && styles.mineText]}>{player.rank}</Text>
-      <View style={[styles.avatar, player.mine && styles.avatarMine]}>
+      <View style={[styles.avatar, compact && styles.avatarCompact, player.mine && styles.avatarMine]}>
         <Text style={[styles.avatarText, player.mine && styles.avatarTextMine]}>
           {player.displayName.slice(0, 1)}
         </Text>
@@ -309,7 +333,7 @@ function RankingRow({
           {player.displayName}
           {player.mine ? " · 나" : ""}
         </Text>
-        <Text style={styles.rankerMeta}>집계 기록 {player.activityCount}회</Text>
+        {!compact ? <Text style={styles.rankerMeta}>집계 기록 {player.activityCount}회</Text> : null}
       </View>
       <Text
         adjustsFontSizeToFit
@@ -380,21 +404,17 @@ function createStyles(colors: ThemeColors) {
       borderWidth: 1,
       borderColor: colors.border,
     },
-    heroOrb: {
+    heroTrophy: {
       position: "absolute",
-      right: -45,
-      top: -42,
-      width: 170,
-      height: 170,
-      borderRadius: 85,
-      backgroundColor: "rgba(255,90,50,.12)",
-      borderWidth: 1,
-      borderColor: "rgba(255,120,75,.25)",
+      right: -32,
+      top: 15,
+      opacity: 0.085,
+      transform: [{ rotate: "-14deg" }],
     },
     eyebrow: {
       color: colors.primary,
       fontFamily: fonts.displayExtra,
-      fontSize: 9,
+      fontSize: 12,
       letterSpacing: 1.25,
     },
     heroTitle: {
@@ -405,7 +425,7 @@ function createStyles(colors: ThemeColors) {
       letterSpacing: -1,
       marginTop: 10,
     },
-    heroTitleStrong: { fontSize: 28 },
+    heroTitleStrong: { fontSize: 25 },
     heroStats: {
       flexDirection: "row",
       alignItems: "flex-end",
@@ -423,6 +443,9 @@ function createStyles(colors: ThemeColors) {
       fontSize: 76,
       lineHeight: 82,
       letterSpacing: -4,
+      textShadowColor: "#FF5A3677",
+      textShadowOffset: { width: 0, height: 0 },
+      textShadowRadius: 18,
     },
     rankTotal: {
       color: colors.muted,
@@ -432,7 +455,17 @@ function createStyles(colors: ThemeColors) {
       marginLeft: 4,
     },
     scoreValue: { color: colors.ink, fontFamily: fonts.displayExtra, fontSize: 23, marginTop: 6 },
-    syncText: { color: colors.muted, fontFamily: fonts.regular, fontSize: 8, marginTop: 3 },
+    syncText: { color: colors.muted, fontFamily: fonts.regular, fontSize: 12, lineHeight: 18, marginTop: 3 },
+    rankProgress: { gap: 9, paddingBottom: 18 },
+    progressHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 },
+    progressLabel: { fontSize: 12, color: colors.muted, fontFamily: fonts.medium },
+    progressPercent: { fontSize: 16, color: colors.primary, fontFamily: fonts.displayExtra },
+    progressTrack: { height: 10, backgroundColor: "#38362D", overflow: "hidden" },
+    progressFill: { height: "100%", backgroundColor: colors.primary },
+    progressTicks: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, flexDirection: "row", justifyContent: "space-evenly" },
+    progressTick: { width: 3, height: "100%", backgroundColor: colors.background },
+    progressFoot: { fontSize: 12, lineHeight: 19, color: colors.muted },
+    leaderRule: { height: 2, backgroundColor: colors.primary, opacity: 0.45 },
     titleBand: {
       flexDirection: "row",
       alignItems: "center",
@@ -448,11 +481,11 @@ function createStyles(colors: ThemeColors) {
     titleBandValue: { color: colors.ink, fontFamily: fonts.bold, fontSize: 11, flex: 1 },
     neighborhoodStats: { flexDirection: "row", alignItems: "center", paddingHorizontal: 2 },
     neighborhoodStat: { flex: 1, minWidth: 0, alignItems: "center", paddingHorizontal: 4 },
-    neighborhoodStatLabel: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9 },
+    neighborhoodStatLabel: { color: colors.muted, fontFamily: fonts.regular, fontSize: 12 },
     neighborhoodStatValue: {
       color: colors.ink,
       fontFamily: fonts.displayExtra,
-      fontSize: 14,
+      fontSize: 20,
       marginTop: 2,
     },
     statDivider: { width: 1, height: 24, backgroundColor: colors.border },
@@ -469,11 +502,11 @@ function createStyles(colors: ThemeColors) {
       alignItems: "flex-end",
     },
     sectionTitle: { color: colors.ink, fontFamily: fonts.bold, fontSize: 16, marginTop: 2 },
-    viewAll: { color: colors.muted, fontFamily: fonts.medium, fontSize: 10 },
+    viewAll: { color: colors.muted, fontFamily: fonts.medium, fontSize: 12 },
     modeRow: { gap: 17, borderBottomWidth: 1, borderBottomColor: colors.border, marginTop: 9 },
     modeButton: { paddingVertical: 10 },
     modeButtonActive: { borderBottomWidth: 2, borderBottomColor: colors.primary },
-    modeText: { color: colors.muted, fontFamily: fonts.medium, fontSize: 11 },
+    modeText: { color: colors.muted, fontFamily: fonts.medium, fontSize: 13 },
     modeTextActive: { color: colors.primary, fontFamily: fonts.bold },
     rankRow: {
       minHeight: 58,
@@ -490,6 +523,9 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: 8,
       marginHorizontal: -4,
     },
+    rankRowCompact: { minHeight: 42, paddingVertical: 6, gap: 6 },
+    avatarCompact: { width: 25, height: 25, borderRadius: 13 },
+    myRankFooter: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border },
     rankNumber: {
       width: 38,
       color: colors.muted,
@@ -510,7 +546,7 @@ function createStyles(colors: ThemeColors) {
     avatarText: { color: colors.ink, fontFamily: fonts.bold, fontSize: 10 },
     avatarTextMine: { color: "#FFFFFF" },
     ranker: { flex: 1, minWidth: 0 },
-    rankerName: { color: colors.ink, fontFamily: fonts.bold, fontSize: 12 },
+    rankerName: { color: colors.ink, fontFamily: fonts.bold, fontSize: 13 },
     rankerMeta: { color: colors.muted, fontFamily: fonts.regular, fontSize: 9, marginTop: 2 },
     rankerScore: {
       color: colors.ink,
