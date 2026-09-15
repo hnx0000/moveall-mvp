@@ -11,6 +11,8 @@ import {
 import { uiLayout, fonts } from "../src/theme";
 import { useAppTheme } from "../src/theme-context";
 import { MedalDesignGallery } from "../src/rewards/medal-sculpted-gallery";
+import { NeonMedalGallery } from "../src/rewards/neon-medal-gallery";
+import { neonMedalDesigns } from "../src/rewards/neon-medal-catalog";
 import { useDesignArchiveAccess } from "../src/rewards/use-design-archive-access";
 
 const ORANGE = "#FF5A36";
@@ -32,11 +34,27 @@ export default function RewardCollection() {
   const router = useRouter();
   if (!allowed) {
     return (
-      <View style={[s.page, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center", gap: 18 }]}>
-        {loading ? <ActivityIndicator color={colors.primary} /> : (
+      <View
+        style={[
+          s.page,
+          {
+            backgroundColor: colors.background,
+            justifyContent: "center",
+            alignItems: "center",
+            gap: 18,
+          },
+        ]}
+      >
+        {loading ? (
+          <ActivityIndicator color={colors.primary} />
+        ) : (
           <>
             <Text style={{ color: colors.ink }}>관리자 전용 디자인 보관함입니다.</Text>
-            <Pressable accessibilityRole="button" onPress={() => router.replace("/profile")} style={{ padding: 16 }}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.replace("/profile")}
+              style={{ padding: 16 }}
+            >
               <Text style={{ color: colors.primary }}>마이페이지로 돌아가기</Text>
             </Pressable>
           </>
@@ -51,7 +69,9 @@ function RewardCollectionContent() {
   const router = useRouter();
   const { colors } = useAppTheme();
   const params = useLocalSearchParams<{ tab?: string }>();
-  const [kind, setKind] = useState<RewardKind>(params.tab === "stamp" ? "stamp" : "medal");
+  const [kind, setKind] = useState<RewardKind | "neon">(
+    params.tab === "stamp" ? "stamp" : params.tab === "medal" ? "medal" : "neon",
+  );
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>("전체");
   const designs = useMemo(
     () =>
@@ -74,7 +94,7 @@ function RewardCollectionContent() {
         <View style={s.back} />
       </View>
       <ScrollView contentContainerStyle={s.content} stickyHeaderIndices={[1]}>
-        <View style={[s.intro, kind === "medal" && { display: "none" }]}>
+        <View style={[s.intro, kind !== "stamp" && { display: "none" }]}>
           <Text style={[s.introTitle, { color: colors.ink }]}>GROOV 디자인 보관함</Text>
           <Text style={[s.introBody, { color: colors.muted }]}>
             입체 조형과 각인으로 제작한 메달 디자인입니다. 실제 MY·지급 기능에는 적용하지 않습니다.
@@ -82,6 +102,12 @@ function RewardCollectionContent() {
         </View>
         <View style={[s.controls, { backgroundColor: colors.background }]}>
           <View style={[s.kindTabs, { borderColor: colors.border }]}>
+            <KindButton
+              active={kind === "neon"}
+              icon="concept"
+              label={`네온 메달 ${neonMedalDesigns.length}`}
+              onPress={() => setKind("neon")}
+            />
             <KindButton
               active={kind === "stamp"}
               icon="stamp"
@@ -113,7 +139,9 @@ function RewardCollectionContent() {
             </ScrollView>
           ) : null}
         </View>
-        {kind === "medal" ? (
+        {kind === "neon" ? (
+          <NeonMedalGallery />
+        ) : kind === "medal" ? (
           <MedalDesignGallery />
         ) : (
           <View style={s.grid}>

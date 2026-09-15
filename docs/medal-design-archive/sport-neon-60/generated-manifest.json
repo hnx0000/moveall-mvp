@@ -1,0 +1,488 @@
+{
+  "method": "Built-in image_gen; one separately generated original PNG per concept; reference-guided neon style.",
+  "purpose": "Administrator design archive only. Not connected to real awards. Record values are fictional layout examples.",
+  "count": 60,
+  "dimensions": "1254 x 1254",
+  "assets": [
+    {
+      "id": "R01",
+      "sport": "running",
+      "name": "LANE BIB",
+      "metric": "21.1 km",
+      "file": "running/r01-lane-bib.png",
+      "sourceImageFile": "exec-2a29f0ac-0bdd-4075-b8e1-55cef2c05e0a.png"
+    },
+    {
+      "id": "R02",
+      "sport": "running",
+      "name": "SPEED SOLE",
+      "metric": "10 km",
+      "file": "running/r02-speed-sole.png",
+      "sourceImageFile": "exec-1b343254-f611-4668-ad88-d6501077be00.png"
+    },
+    {
+      "id": "R03",
+      "sport": "running",
+      "name": "FINISH BREAK",
+      "metric": "5 km",
+      "file": "running/r03-finish-break.png",
+      "sourceImageFile": "exec-8cb2f689-a0f1-4be2-992d-e6ea9419619f.png"
+    },
+    {
+      "id": "R04",
+      "sport": "running",
+      "name": "STRIDE MARK",
+      "metric": "5K",
+      "file": "running/r04-stride-mark.png",
+      "sourceImageFile": "exec-0cb2462b-b539-47d4-8555-9dd2eba18429.png"
+    },
+    {
+      "id": "R05",
+      "sport": "running",
+      "name": "SPLIT TIMER",
+      "metric": "27:50",
+      "file": "running/r05-split-timer.png",
+      "sourceImageFile": "exec-efdb04fc-b292-492c-8ecf-cb0fef33613a.png"
+    },
+    {
+      "id": "R06",
+      "sport": "running",
+      "name": "START GATE",
+      "metric": "10 km",
+      "file": "running/r06-start-gate.png",
+      "sourceImageFile": "exec-bdd24c97-daed-4669-a6c7-95082b1fa7fa.png"
+    },
+    {
+      "id": "R07",
+      "sport": "running",
+      "name": "LACE LOCK",
+      "metric": "5.24 km",
+      "file": "running/r07-lace-lock.png",
+      "sourceImageFile": "exec-a2e089dc-d21d-4977-89e7-b3beeda07c2f.png"
+    },
+    {
+      "id": "R08",
+      "sport": "running",
+      "name": "DOUBLE STEP",
+      "metric": "42.2 km",
+      "file": "running/r08-double-step.png",
+      "sourceImageFile": "exec-b32572d0-8bc7-4b75-9b27-037833fba3f8.png"
+    },
+    {
+      "id": "R09",
+      "sport": "running",
+      "name": "TRACK BEND",
+      "metric": "400 m",
+      "file": "running/r09-track-bend.png",
+      "sourceImageFile": "exec-37f3f8ad-6dbd-491b-a2fe-f42d9c3f1464.png"
+    },
+    {
+      "id": "R10",
+      "sport": "running",
+      "name": "HEEL SPRING",
+      "metric": "20 km",
+      "file": "running/r10-heel-spring.png",
+      "sourceImageFile": "exec-ac81475e-383c-4667-999f-2b9ce0ae1d03.png"
+    },
+    {
+      "id": "H01",
+      "sport": "hiking",
+      "name": "PEAK CARABINER",
+      "metric": "500 m",
+      "file": "hiking/h01-peak-carabiner.png",
+      "sourceImageFile": "exec-94478f9b-861b-4683-a750-e119eb260c1c.png"
+    },
+    {
+      "id": "H02",
+      "sport": "hiking",
+      "name": "CONTOUR RISE",
+      "metric": "1000 m",
+      "file": "hiking/h02-contour-rise.png",
+      "sourceImageFile": "exec-f8e19d45-cee0-49bb-8b9a-d5eba72f7652.png"
+    },
+    {
+      "id": "H03",
+      "sport": "hiking",
+      "name": "RIDGE SPINE",
+      "metric": "884 m",
+      "file": "hiking/h03-ridge-spine.png",
+      "sourceImageFile": "exec-326e322a-9dfb-4772-899c-52766cd1c05e.png"
+    },
+    {
+      "id": "H04",
+      "sport": "hiking",
+      "name": "SUMMIT TREAD",
+      "metric": "10 km",
+      "file": "hiking/h04-summit-tread.png",
+      "sourceImageFile": "exec-7a2a5dd1-cd1f-431c-bd6b-fb7570794f43.png"
+    },
+    {
+      "id": "H05",
+      "sport": "hiking",
+      "name": "NORTH PEAK",
+      "metric": "1500 m",
+      "file": "hiking/h05-north-peak.png",
+      "sourceImageFile": "exec-b4ecbdce-759a-4e86-ba94-60f808c7ff22.png"
+    },
+    {
+      "id": "H06",
+      "sport": "hiking",
+      "name": "TRAIL POST",
+      "metric": "12 km",
+      "file": "hiking/h06-trail-post.png",
+      "sourceImageFile": "exec-417cbfad-2d09-4059-bd38-1bcf517ffcca.png"
+    },
+    {
+      "id": "H07",
+      "sport": "hiking",
+      "name": "POLE ASCENT",
+      "metric": "700 m",
+      "file": "hiking/h07-pole-ascent.png",
+      "sourceImageFile": "exec-93b8c718-7fbf-46b0-ac6e-0a7d732e5894.png"
+    },
+    {
+      "id": "H08",
+      "sport": "hiking",
+      "name": "SWITCHBACK",
+      "metric": "800 m",
+      "file": "hiking/h08-switchback.png",
+      "sourceImageFile": "exec-cf39014c-4987-4079-b1d1-aaa7f62cd701.png"
+    },
+    {
+      "id": "H09",
+      "sport": "hiking",
+      "name": "VALLEY WINDOW",
+      "metric": "1200 m",
+      "file": "hiking/h09-valley-window.png",
+      "sourceImageFile": "exec-bd12a622-8aa8-45bb-b700-20276a031ba9.png"
+    },
+    {
+      "id": "H10",
+      "sport": "hiking",
+      "name": "SUMMIT FLAG",
+      "metric": "2000 m",
+      "file": "hiking/h10-summit-flag.png",
+      "sourceImageFile": "exec-b09c27ab-ff92-43c2-8466-0a9c8f7e56c9.png"
+    },
+    {
+      "id": "C01",
+      "sport": "cycling",
+      "name": "CRANK EVOLVE",
+      "metric": "100 km",
+      "file": "cycling/c01-crank-evolve.png",
+      "sourceImageFile": "exec-cb4d44b9-2047-4040-b82c-f67b52aab353.png"
+    },
+    {
+      "id": "C02",
+      "sport": "cycling",
+      "name": "CHAIN LINK",
+      "metric": "50 km",
+      "file": "cycling/c02-chain-link.png",
+      "sourceImageFile": "exec-601d2621-243d-44c7-8f5b-db088bf5c9b8.png"
+    },
+    {
+      "id": "C03",
+      "sport": "cycling",
+      "name": "TWIN RIM",
+      "metric": "200 km",
+      "file": "cycling/c03-twin-rim.png",
+      "sourceImageFile": "exec-4409256a-345c-411d-a7f4-0faef5821025.png"
+    },
+    {
+      "id": "C04",
+      "sport": "cycling",
+      "name": "CRANK ARM",
+      "metric": "75 km",
+      "file": "cycling/c04-crank-arm.png",
+      "sourceImageFile": "exec-13e1946d-f451-483b-9c7e-611080a4f780.png"
+    },
+    {
+      "id": "C05",
+      "sport": "cycling",
+      "name": "DROP BAR",
+      "metric": "120 km",
+      "file": "cycling/c05-drop-bar.png",
+      "sourceImageFile": "exec-bcf37327-3c0e-41a0-9f99-49adf61ca975.png"
+    },
+    {
+      "id": "C06",
+      "sport": "cycling",
+      "name": "PEDAL CAGE",
+      "metric": "30 km",
+      "file": "cycling/c06-pedal-cage.png",
+      "sourceImageFile": "exec-9727b0ab-7867-4bdb-a903-eaf58a09bbf4.png"
+    },
+    {
+      "id": "C07",
+      "sport": "cycling",
+      "name": "VELO BANK",
+      "metric": "250 km",
+      "file": "cycling/c07-velo-bank.png",
+      "sourceImageFile": "exec-36e7f114-3e2b-4347-aeb0-1ebc6c468142.png"
+    },
+    {
+      "id": "C08",
+      "sport": "cycling",
+      "name": "AERO HELMET",
+      "metric": "60 km",
+      "file": "cycling/c08-aero-helmet.png",
+      "sourceImageFile": "exec-887c7e97-7e4b-42e6-a850-77cf6afdebe2.png"
+    },
+    {
+      "id": "C09",
+      "sport": "cycling",
+      "name": "SPOKE FAN",
+      "metric": "150 km",
+      "file": "cycling/c09-spoke-fan.png",
+      "sourceImageFile": "exec-14428ee5-1a96-4d66-bebc-b93ebc5a4568.png"
+    },
+    {
+      "id": "C10",
+      "sport": "cycling",
+      "name": "FRAME LOCK",
+      "metric": "300 km",
+      "file": "cycling/c10-frame-lock.png",
+      "sourceImageFile": "exec-948690f7-1a68-4714-9fd5-7563e5310cc1.png"
+    },
+    {
+      "id": "S01",
+      "sport": "strength",
+      "name": "PLATE CUT",
+      "metric": "20 kg",
+      "file": "strength/s01-plate-cut.png",
+      "sourceImageFile": "exec-31d9704f-b130-44f5-ae38-ff8b213dc3ab.png"
+    },
+    {
+      "id": "S02",
+      "sport": "strength",
+      "name": "BAR BRIDGE",
+      "metric": "50 SESSIONS",
+      "file": "strength/s02-bar-bridge.png",
+      "sourceImageFile": "exec-1acef67e-0909-408a-8ac7-3a41b7aed109.png"
+    },
+    {
+      "id": "S03",
+      "sport": "strength",
+      "name": "KETTLE CORE",
+      "metric": "16 kg",
+      "file": "strength/s03-kettle-core.png",
+      "sourceImageFile": "exec-0d171445-bd3f-46e9-9b9d-4736f01c8b8e.png"
+    },
+    {
+      "id": "S04",
+      "sport": "strength",
+      "name": "RACK PORTAL",
+      "metric": "100 SESSIONS",
+      "file": "strength/s04-rack-portal.png",
+      "sourceImageFile": "exec-ff5a2e9c-c82a-4938-8783-60e9bbef67fc.png"
+    },
+    {
+      "id": "S05",
+      "sport": "strength",
+      "name": "HEX PAIR",
+      "metric": "25 kg",
+      "file": "strength/s05-hex-pair.png",
+      "sourceImageFile": "exec-bbb293e0-5b10-4a64-b581-654734e5d8e6.png"
+    },
+    {
+      "id": "S06",
+      "sport": "strength",
+      "name": "COLLAR LOCK",
+      "metric": "10 SESSIONS",
+      "file": "strength/s06-collar-lock.png",
+      "sourceImageFile": "exec-547f2bc1-f971-4b5b-ada3-71c2d9ccda2b.png"
+    },
+    {
+      "id": "S07",
+      "sport": "strength",
+      "name": "GRIP FORCE",
+      "metric": "50 kg",
+      "file": "strength/s07-grip-force.png",
+      "sourceImageFile": "exec-3d6dc960-74b6-44f9-8930-c8573c73550f.png"
+    },
+    {
+      "id": "S08",
+      "sport": "strength",
+      "name": "CABLE PULL",
+      "metric": "75 SESSIONS",
+      "file": "strength/s08-cable-pull.png",
+      "sourceImageFile": "exec-07ac0bce-18a3-4299-8880-bf7ebbcec907.png"
+    },
+    {
+      "id": "S09",
+      "sport": "strength",
+      "name": "LOAD STACK",
+      "metric": "100 kg",
+      "file": "strength/s09-load-stack.png",
+      "sourceImageFile": "exec-b32048df-2ecb-483f-8b90-f5c338b1c2f0.png"
+    },
+    {
+      "id": "S10",
+      "sport": "strength",
+      "name": "POWER ARC",
+      "metric": "30 SESSIONS",
+      "file": "strength/s10-power-arc.png",
+      "sourceImageFile": "exec-2934a990-67fc-49ab-b8b8-154d206a4101.png"
+    },
+    {
+      "id": "W01",
+      "sport": "swimming",
+      "name": "POOL LANES",
+      "metric": "1500 m",
+      "file": "swimming/w01-pool-lanes.png",
+      "sourceImageFile": "exec-916ef408-4662-4069-a32e-f51de1169a12.png"
+    },
+    {
+      "id": "W02",
+      "sport": "swimming",
+      "name": "GOGGLE LINK",
+      "metric": "1000 m",
+      "file": "swimming/w02-goggle-link.png",
+      "sourceImageFile": "exec-e4d94162-5bcc-43f6-b277-4d1950a92ebb.png"
+    },
+    {
+      "id": "W03",
+      "sport": "swimming",
+      "name": "TURN WALL",
+      "metric": "50 m",
+      "file": "swimming/w03-turn-wall.png",
+      "sourceImageFile": "exec-2567b728-e9dc-46fe-8652-a986b2b0c714.png"
+    },
+    {
+      "id": "W04",
+      "sport": "swimming",
+      "name": "STROKE CREST",
+      "metric": "2000 m",
+      "file": "swimming/w04-stroke-crest.png",
+      "sourceImageFile": "exec-d752cb14-ee8a-4179-a6a4-23dc2feafce3.png"
+    },
+    {
+      "id": "W05",
+      "sport": "swimming",
+      "name": "LANE BUOY",
+      "metric": "800 m",
+      "file": "swimming/w05-lane-buoy.png",
+      "sourceImageFile": "exec-45ba000b-1e33-4e34-92b8-e81faf95616a.png"
+    },
+    {
+      "id": "W06",
+      "sport": "swimming",
+      "name": "START BLOCK",
+      "metric": "400 m",
+      "file": "swimming/w06-start-block.png",
+      "sourceImageFile": "exec-e95e2404-e97e-44ee-88f3-878705687fb2.png"
+    },
+    {
+      "id": "W07",
+      "sport": "swimming",
+      "name": "PADDLE FLOW",
+      "metric": "1200 m",
+      "file": "swimming/w07-paddle-flow.png",
+      "sourceImageFile": "exec-a0872601-f796-4499-ac2d-532042aa5fbd.png"
+    },
+    {
+      "id": "W08",
+      "sport": "swimming",
+      "name": "STREAMLINE",
+      "metric": "2500 m",
+      "file": "swimming/w08-streamline.png",
+      "sourceImageFile": "exec-c6272bdd-3cff-4cce-8e49-b3f93dba33f3.png"
+    },
+    {
+      "id": "W09",
+      "sport": "swimming",
+      "name": "WAVE TILE",
+      "metric": "500 m",
+      "file": "swimming/w09-wave-tile.png",
+      "sourceImageFile": "exec-41d13384-0e19-4482-91b4-0e41e5db7b5e.png"
+    },
+    {
+      "id": "W10",
+      "sport": "swimming",
+      "name": "KICK FLOW",
+      "metric": "1800 m",
+      "file": "swimming/w10-kick-flow.png",
+      "sourceImageFile": "exec-c6979043-7f8c-4a10-b647-a00b20c81867.png"
+    },
+    {
+      "id": "D01",
+      "sport": "diving",
+      "name": "MASK DEPTH",
+      "metric": "20 m",
+      "file": "diving/d01-mask-depth.png",
+      "sourceImageFile": "exec-7ce3c108-41cc-4dee-aca9-a121d7af24e0.png"
+    },
+    {
+      "id": "D02",
+      "sport": "diving",
+      "name": "LONGFIN",
+      "metric": "30 m",
+      "file": "diving/d02-longfin.png",
+      "sourceImageFile": "exec-eaaeaca9-0695-4c00-af6e-4fc06635538b.png"
+    },
+    {
+      "id": "D03",
+      "sport": "diving",
+      "name": "DESCENT LINE",
+      "metric": "15 m",
+      "file": "diving/d03-descent-line.png",
+      "sourceImageFile": "exec-c8c4628c-8916-4824-8803-9be19d7cd7f2.png"
+    },
+    {
+      "id": "D04",
+      "sport": "diving",
+      "name": "FREEFALL",
+      "metric": "25 m",
+      "file": "diving/d04-freefall.png",
+      "sourceImageFile": "exec-dc528909-9403-49b2-80f3-48db3067b1dc.png"
+    },
+    {
+      "id": "D05",
+      "sport": "diving",
+      "name": "SURFACE BUOY",
+      "metric": "10 m",
+      "file": "diving/d05-surface-buoy.png",
+      "sourceImageFile": "exec-2acc9278-f7d4-441a-aef0-ff0bb03310a9.png"
+    },
+    {
+      "id": "D06",
+      "sport": "diving",
+      "name": "DEPTH DISC",
+      "metric": "30 m",
+      "file": "diving/d06-depth-disc.png",
+      "sourceImageFile": "exec-7f289384-c2bd-418b-adb9-dc7c7b3561b3.png"
+    },
+    {
+      "id": "D07",
+      "sport": "diving",
+      "name": "CANYON DIVE",
+      "metric": "20 m",
+      "file": "diving/d07-canyon-dive.png",
+      "sourceImageFile": "exec-8663904d-a115-40ed-8f4a-7e453e662618.png"
+    },
+    {
+      "id": "D08",
+      "sport": "diving",
+      "name": "MONOFIN",
+      "metric": "15 m",
+      "file": "diving/d08-monofin.png",
+      "sourceImageFile": "exec-ef2b9118-3491-476a-9a47-b5d38014a8cd.png"
+    },
+    {
+      "id": "D09",
+      "sport": "diving",
+      "name": "BUBBLE PATH",
+      "metric": "10 m",
+      "file": "diving/d09-bubble-path.png",
+      "sourceImageFile": "exec-54087e10-408d-4c2f-ace5-7cdb78738552.png"
+    },
+    {
+      "id": "D10",
+      "sport": "diving",
+      "name": "ABYSS PORTAL",
+      "metric": "25 m",
+      "file": "diving/d10-abyss-portal.png",
+      "sourceImageFile": "exec-b33b5ed4-0030-421a-a930-a892841f6dec.png"
+    }
+  ]
+}
