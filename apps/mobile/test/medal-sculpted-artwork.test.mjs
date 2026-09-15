@@ -4,6 +4,23 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import { medalDefinitions as defs } from "../src/rewards/medal-design-catalog.ts";
 const root = new URL("../", import.meta.url);
+
+test("web archive uses 106 smaller WebP derivatives while retaining original PNGs", () => {
+  const sources = readFileSync(new URL("src/rewards/medal-artwork-sources.web.ts", root), "utf8");
+  let total = 0;
+  const hashes = new Set();
+  for (const d of defs) {
+    const path = "assets/images/medal-sculpted-web/" + d.id + ".webp";
+    assert.ok(sources.replace(/\s+/g, "").includes(d.id + ':require("../../' + path + '")'), d.id);
+    const image = readFileSync(new URL(path, root));
+    assert.equal(image.subarray(0, 4).toString(), "RIFF");
+    assert.equal(image.subarray(8, 12).toString(), "WEBP");
+    total += image.length;
+    hashes.add(createHash("sha256").update(image).digest("hex"));
+  }
+  assert.equal(hashes.size, 106);
+  assert.ok(total < 100 * 1024 * 1024, "medal web assets stay within hosting/mobile budget");
+});
 test("all 106 medals have their own complete, unique raster artwork", () => {
   const hashes = new Set();
   const sources = readFileSync(new URL("src/rewards/medal-artwork-sources.ts", root), "utf8");
